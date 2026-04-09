@@ -1,0 +1,30 @@
+[package]
+name = "torii"
+version = "0.1.0"
+edition = "2021"
+authors = ["Paski <paski@paski.dev>"]
+description = "A modern git client with simplified commands, multi-platform mirroring, and local snapshots"
+license = "MIT"
+repository = "https://gitlab.com/paskidev/torii"
+
+[dependencies]
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Git operations
+git2 = "0.19"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.12"

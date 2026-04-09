@@ -1,0 +1,302 @@
+Torii Source-Available License (Non-Commercial Fork-Friendly) v1.0
+
+Copyright (c) 2026 Torii Project. All Rights Reserved.
+
+==============================================================================
+NOTICE: Source-available for viewing, forking, and non-commercial use.
+Protected features cannot be extracted for use in competing git clients.
+==============================================================================
+
+PREAMBLE:
+This code is publicly available for viewing, learning, forking, and 
+non-commercial use. You can fork and modify Torii for personal/educational 
+purposes, but protected features cannot be extracted for use in other git 
+clients. Commercial use requires a separate license.
+
+1. DEFINITIONS:
+   "Software" = All source code, binaries, documentation, assets, algorithms,
+                architecture, design patterns, and any derivative works
+   "You/Your" = Any person, organization, or AI system accessing this Software
+   "Commercial Use" = ANY use that generates revenue, competitive advantage,
+                      or business value, directly or indirectly
+   "Derivative Work" = Any modification, adaptation, translation, or work
+                       based on the Software's concepts, features, or design
+
+2. VIEWING AND MODIFICATION LICENSE:
+   You MAY:
+   ✅ View the source code for learning purposes
+   ✅ Read documentation and comments
+   ✅ Study the architecture and design (as a human)
+   ✅ Fork the repository for personal/educational use
+   ✅ Modify the code for personal/educational use
+   ✅ Create pull requests to contribute improvements
+   ✅ Run and test the Software locally (non-commercial only)
+   ✅ Reference it in academic papers (with proper citation)
+   ✅ Include screenshots/snippets in portfolio/resume (with attribution)
+   ✅ Share your fork publicly (under same license terms)
+
+3. ABSOLUTE PROHIBITIONS - NO EXCEPTIONS:
+   You MAY NOT:
+   ❌ Use the Software commercially (requires paid license)
+   ❌ Sell the Software or derivatives
+   ❌ Offer as SaaS, PaaS, or hosted service
+   ❌ Use in any business or revenue-generating context
+   ❌ Remove or modify copyright notices or license
+   ❌ Use for AI training, ML models, or code generation
+   ❌ Relicense under different terms
+   ❌ Create a competing git client using this codebase
+   ❌ Extract protected features for use in other projects
+   ❌ Use protected features in other git clients (even if rewritten)
+   ❌ Claim the protected features as your own invention
+   ❌ Patent any concepts, features, or algorithms from this Software
+
+4. FEATURE PROTECTION - CANNOT BE EXTRACTED OR COPIED:
+   The following features and concepts are EXCLUSIVELY protected and
+   CANNOT be implemented in any other git client, tool, or project,
+   even if you rewrite them from scratch or claim independent development:
+   
+   a) SNAPSHOT SYSTEM:
+      - Automatic local snapshots on session close/PC shutdown
+      - Snapshot history without remote push
+      - Auto-cleanup of old snapshots
+      - Configurable snapshot frequency
+      - Intermediate change preservation
+      ANY similar implementation in other git clients is prohibited.
+   
+   b) MIRROR SYNC ARCHITECTURE:
+      - Automatic bidirectional sync between main repo and mirrors
+      - Centralized PR/issue management from mirrors
+      - Multi-platform mirror support (GitHub, GitLab, Bitbucket)
+      - Conflict resolution for mirror synchronization
+      ANY similar implementation in other git clients is prohibited.
+   
+   c) SHARED CORE ARCHITECTURE:
+      - Single core business logic shared between GUI (Tauri) and TUI (Ratatui)
+      - Perfect feature parity between interfaces
+      - Cross-platform synchronization design
+   
+   d) FUTURE PROTECTED FEATURES:
+      - Any novel features documented in DEFENSIVE_PUBLICATION.md
+      - Features will be added here as they are implemented
+   
+   CRITICAL: You can fork and modify Torii itself, but you CANNOT:
+   - Take these features and put them in GitKraken, Tower, Fork, etc.
+   - Create a new git client using these concepts
+   - Sell these features as standalone tools or libraries
+   - Implement "your own version" of these features in other software
+   - License these features to third parties
+   
+   If Torii implements feature X on [date], and you implement feature X
+   in another git client after [date], you will be presumed to have
+   derived it from Torii unless you can prove prior independent development
+   with timestamped evidence predating Torii's implementation.
+
+5. AI/ML ABSOLUTE BAN:
+   ❌ Training any AI, ML, or LLM models
+   ❌ Fine-tuning existing models
+   ❌ Code completion datasets
+   ❌ Synthetic data generation
+   ❌ Pattern recognition training
+   ❌ GitHub Copilot, Cursor, or similar tools training
+   ❌ AI code assistant training
+   ❌ Embedding generation
+   ❌ Any automated learning system
+   
+   If detected in ANY AI system:
+   - Immediate $500,000 statutory damages PER MODEL
+   - Full model retraining required at violator's expense
+   - Public disclosure of violation required
+   - Permanent injunction against future use
+
+6. COMMERCIAL USE PROHIBITION:
+   Commercial use includes but is NOT limited to:
+   ❌ Using in any business, startup, or company
+   ❌ Integration into paid products or services
+   ❌ SaaS, PaaS, or hosted services
+   ❌ Internal business tools (even if not customer-facing)
+   ❌ Consulting or professional services
+   ❌ Creating competing git clients
+   ❌ Revenue generation of any kind
+   ❌ Cost reduction or efficiency gains in business
+   ❌ Competitive advantage in any market
+   ❌ Use by venture-backed companies
+   ❌ Use by companies with >1 employee
+   ❌ Use in open source projects with commercial backing
+   ❌ Selling forks or modified versions
+
+7. FORKS AND CONTRIBUTIONS:
+   a) YOU MAY fork and modify Torii under these conditions:
+      ✅ Fork must remain under this exact license (no relicensing)
+      ✅ Fork must clearly credit original Torii project
+      ✅ Fork can only be used non-commercially
+      ✅ Fork must include this full LICENSE file unmodified
+      ✅ Fork must be named differently (not "Torii" or confusingly similar)
+      ✅ Fork must state "Based on Torii by [original author]"
+   
+   b) CONTRIBUTIONS (Pull Requests):
+      ✅ By submitting a PR, you grant copyright to Torii Project
+      ✅ You certify the contribution is your original work
+      ✅ You agree the contribution can be relicensed by Torii Project
+      ✅ You retain the right to use your contribution elsewhere
+      ✅ Contributors will be credited in CONTRIBUTORS.md
+   
+   c) FORK RESTRICTIONS:
+      ❌ Cannot be used commercially (same as original)
+      ❌ Cannot extract features for other projects
+      ❌ Cannot remove feature protections
+      ❌ Cannot be sold or monetized
+      ❌ Cannot compete with original Torii commercially
+
+8. ENFORCEMENT & PENALTIES:
+   Violation of ANY provision results in:
+   
+   a) IMMEDIATE DAMAGES:
+      - $150,000 per violation (statutory maximum)
+      - $500,000 per AI training violation
+      - Actual damages (whichever is higher)
+      - Disgorgement of all profits derived from violation
+      - 3x multiplier for willful infringement
+   
+   b) INJUNCTIVE RELIEF:
+      - Immediate cease and desist
+      - Destruction of all copies and derivatives
+      - Public retraction and apology
+      - Ban from using any future versions
+   
+   c) LEGAL COSTS:
+      - Full attorney fees and costs
+      - Expert witness fees
+      - Court costs and filing fees
+      - Investigation costs
+   
+   d) CRIMINAL REFERRAL:
+      - Referral to appropriate authorities for:
+        * Copyright infringement
+        * Trade secret misappropriation
+        * Computer fraud and abuse
+
+9. DETECTION & MONITORING:
+   The copyright holder actively monitors for:
+   - Code similarity in other git clients
+   - Feature replication patterns
+   - AI training dataset inclusion
+   - Commercial use via analytics and market research
+   - Patent and trademark filings for similar concepts
+   
+   We employ code fingerprinting, market surveillance, and legal
+   monitoring services to detect violations.
+
+10. GRANT OF LIMITED RIGHTS:
+    This license grants LIMITED rights as specified in Section 2.
+    Beyond those specific permissions, you receive NO:
+    - Patent rights
+    - Trademark rights  
+    - Trade secret rights for commercial use
+    - Rights to extract features for competing products
+    - Implied licenses beyond what's explicitly stated
+    - Rights through estoppel or acquiescence
+
+11. COMPETITIVE PROTECTION:
+    If you work for or contribute to ANY git client, version control
+    system, or developer tools company (including but not limited to:
+    GitHub, GitLab, Bitbucket, Sourcetree, Tower, GitKraken, Fork,
+    Sublime Merge, etc.), you are EXPRESSLY FORBIDDEN from viewing
+    this code.
+    
+    Your access constitutes:
+    - Misappropriation of trade secrets
+    - Unfair competition
+    - Tortious interference
+    - Corporate espionage
+    
+    Penalty: $1,000,000 + disgorgement of competitive advantage value
+
+12. SPECIAL PERMISSIONS:
+    Want to use this Software? Contact us for:
+    
+    📧 Personal Use License: contact@torii.dev
+       Subject: Personal Use Request
+       (May be granted for non-commercial personal projects)
+    
+    💼 Commercial License: contact@torii.dev
+       Subject: Commercial License Inquiry
+       (Negotiable terms, revenue sharing possible)
+    
+    🤖 AI Training License: NOT AVAILABLE AT ANY PRICE
+    
+    🏢 Enterprise License: contact@torii.dev
+       Subject: Enterprise License Request
+       (Custom terms for large organizations)
+
+13. SEVERABILITY:
+    If any provision is found unenforceable, the remaining provisions
+    remain in full force, and the invalid provision shall be interpreted
+    to maximum enforceability permitted by law.
+
+14. JURISDICTION & VENUE:
+    - Governed by Spanish law and EU Copyright Directive
+    - Exclusive venue: Courts of [Your City/Region], Spain
+    - You consent to personal jurisdiction
+    - Waive any objection to venue
+
+15. ENTIRE AGREEMENT:
+    This license constitutes the entire agreement. No verbal agreements,
+    prior communications, or outside understandings modify these terms.
+    Only written amendments signed by copyright holder are valid.
+
+16. WARRANTY DISCLAIMER:
+    THE SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTY.
+    COPYRIGHT HOLDER DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED,
+    INCLUDING MERCHANTABILITY, FITNESS FOR PURPOSE, AND NON-INFRINGEMENT.
+    
+    YOU ASSUME ALL RISK. IN NO EVENT SHALL COPYRIGHT HOLDER BE LIABLE
+    FOR ANY CLAIM, DAMAGES, OR LIABILITY ARISING FROM THE SOFTWARE.
+
+17. ACCEPTANCE:
+    By viewing, accessing, downloading, or interacting with this Software
+    in any way, you acknowledge that you have read, understood, and agree
+    to be bound by ALL terms of this license.
+    
+    If you do not agree, you must immediately:
+    - Stop viewing the code
+    - Delete all local copies
+    - Clear browser cache
+    - Forget any concepts or ideas learned
+
+==============================================================================
+
+SIMPLIFIED SUMMARY (NOT legally binding - full license above controls):
+
+✅ You CAN (Non-commercial only):
+- View and study the code for learning
+- Fork and modify for personal/educational use
+- Run Torii locally for personal projects
+- Contribute via Pull Requests
+- Share your fork (under same license)
+
+❌ You CANNOT:
+- Use it commercially (requires paid license)
+- Extract features for other git clients
+- Sell forks or modifications
+- Use for AI training (NEVER, at any price)
+- Relicense under different terms
+- Remove feature protections
+- Work for a competitor and view this code
+
+Special cases:
+- Forks must credit original and keep same license
+- Protected features (snapshots, mirror sync, AI analysis) cannot be copied to other git clients
+
+Penalties: Up to $500,000 per violation + legal fees + injunctions
+
+Want commercial use? Email: contact@torii.dev
+
+==============================================================================
+
+VERSION HISTORY:
+v1.0 - 2026-04-09 - Initial ultra-protective license
+
+CONTACT:
+Email: contact@torii.dev
+Website: https://torii.dev
+Legal: legal@torii.dev
