@@ -79,7 +79,7 @@ impl SnapshotManager {
     }
 
     /// Recursively copy directory
-    fn copy_dir_recursive(&self, src: &Path, dst: &Path, ignore: &ToriIgnore) -> Result<()> {
+    fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {
         fs::create_dir_all(dst)?;
         
         for entry in fs::read_dir(src)? {

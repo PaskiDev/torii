@@ -103,15 +103,20 @@ enum Commands {
     /// Manage branches
     Branch {
         /// Branch name to create
-        name: Option<String>,
+        #[arg(short, long)]
+        create: Option<String>,
 
-        /// Delete branch
-        #[arg(short = 'd', long)]
-        delete: bool,
+        /// Delete a branch
+        #[arg(short, long)]
+        delete: Option<String>,
 
         /// List all branches
-        #[arg(short = 'a', long)]
-        all: bool,
+        #[arg(short, long)]
+        list: bool,
+
+        /// Rename current branch
+        #[arg(short, long)]
+        rename: Option<String>,
     },
 
     /// Switch to a branch
@@ -430,21 +435,28 @@ impl Cli {
                 repo.diff(*staged, *last)?;
             }
 
-            Commands::Branch { name, delete, all } => {
+            Commands::Branch { create, delete, list, rename } => {
                 let repo = GitRepo::open(".")?;
                 
-                if *delete {
-                    if let Some(branch_name) = name {
-                        repo.delete_branch(branch_name)?;
-                        println!("✅ Deleted branch: {}", branch_name);
-                    } else {
-                        anyhow::bail!("Branch name required for deletion");
+                if *list {
+                    let branches = repo.list_branches()?;
+                    println!("📋 Branches:");
+                    for branch in branches {
+                        println!("  {}", branch);
                     }
-                } else if let Some(branch_name) = name {
-                    repo.create_branch(branch_name)?;
-                    println!("✅ Created branch: {}", branch_name);
+                } else if let Some(name) = create {
+                    repo.create_branch(name)?;
+                    println!("✅ Branch '{}' created", name);
+                } else if let Some(name) = delete {
+                    repo.delete_branch(name)?;
+                    println!("✅ Branch '{}' deleted", name);
+                } else if let Some(new_name) = rename {
+                    let old_name = repo.get_current_branch()?;
+                    repo.rename_branch(&old_name, new_name)?;
+                    println!("✅ Branch renamed: {} → {}", old_name, new_name);
                 } else {
-                    repo.list_branches(*all)?;
+                    let current = repo.get_current_branch()?;
+                    println!("📍 Current branch: {}", current);
                 }
             }
 
