@@ -3,13 +3,14 @@ mod core;
 mod core_extensions;
 mod core_integrate;
 mod core_tag;
-mod error;
-mod snapshot;
-mod mirror;
-mod ssh;
 mod duration;
+mod error;
 mod integrate;
+mod mirror;
+mod snapshot;
+mod ssh;
 mod tag;
+mod toriignore;
 
 use anyhow::Result;
 use cli::Cli;

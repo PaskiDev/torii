@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use crate::error::{Result, ToriiError};
 use crate::core::GitRepo;
+// TODO: Implement ToriIgnore for snapshots
+// use crate::toriignore::ToriIgnore;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnapshotMetadata {
@@ -61,7 +63,7 @@ impl SnapshotManager {
     }
 
     /// Create a git bundle for the snapshot
-    fn create_bundle(&self, snapshot_dir: &Path, repo: &GitRepo) -> Result<()> {
+    fn create_bundle(&self, snapshot_dir: &Path, repo: &GitRepo, ignore: &ToriIgnore) -> Result<()> {
         // Create bundle with all refs
         let mut revwalk = repo.repository().revwalk()?;
         revwalk.push_head()?;
@@ -71,13 +73,13 @@ impl SnapshotManager {
         let git_dir = self.repo_path.join(".git");
         let snapshot_git = snapshot_dir.join("git_backup");
         
-        self.copy_dir_recursive(&git_dir, &snapshot_git)?;
+        self.copy_dir_recursive(&git_dir, &snapshot_git, ignore)?;
 
         Ok(())
     }
 
     /// Recursively copy directory
-    fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {
+    fn copy_dir_recursive(&self, src: &Path, dst: &Path, ignore: &ToriIgnore) -> Result<()> {
         fs::create_dir_all(dst)?;
         
         for entry in fs::read_dir(src)? {

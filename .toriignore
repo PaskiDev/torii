@@ -1,0 +1,39 @@
+# Torii Ignore File
+# This file controls what gets ignored by Torii (commits and snapshots)
+# If .toriignore doesn't exist, Torii falls back to .gitignore for compatibility
+
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Torii specific
+.torii/snapshots/
+.torii/cache/
+
+# Build artifacts
+*.exe
+*.so
+*.dylib
+*.dll
+
+# Logs
+*.log
+
+# Tests (optional - uncomment if you don't want to commit tests)
+# /tests/
+
+# Documentation (optional - uncomment if you want to keep docs local)
+# /docs/

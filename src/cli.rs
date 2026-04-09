@@ -4,6 +4,7 @@ use crate::core::GitRepo;
 use crate::snapshot::SnapshotManager;
 use crate::mirror::{MirrorManager, AccountType, Protocol};
 use crate::ssh::SshHelper;
+use crate::duration::parse_duration;
 
 fn parse_account_type(s: &str) -> Result<AccountType> {
     match s.to_lowercase().as_str() {
@@ -646,29 +647,37 @@ impl Cli {
             }
 
             Commands::SshCheck => {
-                println!("🔍 Checking SSH configuration...\n");
+                println!("🔐 SSH Configuration Check\n");
                 
                 if SshHelper::has_ssh_keys() {
                     println!("✅ SSH keys found!\n");
                     
                     let keys = SshHelper::list_keys();
-                    println!("Available keys:");
-                    for key in &keys {
-                        println!("  • {}", key);
-                        if let Ok(pub_key) = SshHelper::get_public_key(key) {
-                            if !pub_key.is_empty() {
-                                let preview = pub_key.chars().take(60).collect::<String>();
-                                println!("    {}", preview);
-                                if pub_key.len() > 60 {
-                                    println!("    ...");
-                                }
-                            }
+                    if !keys.is_empty() {
+                        println!("Available keys:");
+                        for key in &keys {
+                            println!("  • {}", key);
                         }
                     }
                     
                     println!("\n💡 Recommendation: Use SSH protocol (default)");
+                } else {
+                    println!("❌ No SSH keys found");
+                    println!("\n💡 To set up SSH keys:");
+                    println!("   1. Generate a new key:");
+                    println!("      ssh-keygen -t ed25519 -C \"your_email@example.com\"");
+                    println!("   2. Start the SSH agent:");
+                    println!("      eval \"$(ssh-agent -s)\"");
+                    println!("   3. Add your key:");
+                    println!("      ssh-add ~/.ssh/id_ed25519");
+                    println!("   4. Copy your public key:");
+                    println!("      cat ~/.ssh/id_ed25519.pub");
+                    println!("   5. Add it to your Git hosting service");
+                }
             }
         }
-
+        
         Ok(())
     }
+}
+

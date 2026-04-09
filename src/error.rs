@@ -8,17 +8,23 @@ pub enum ToriiError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Repository not found at path: {0}")]
+    #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
+
+    #[error("Branch not found: {0}")]
+    BranchNotFound(String),
 
     #[error("Snapshot error: {0}")]
     Snapshot(String),
 
     #[error("Mirror error: {0}")]
     Mirror(String),
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Other error: {0}")]
+    Other(#[from] anyhow::Error),
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
