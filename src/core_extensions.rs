@@ -103,37 +103,18 @@ impl GitRepo {
     }
 
     /// List branches
-    pub fn list_branches(&self, all: bool) -> Result<()> {
-        let branch_type = if all {
-            None
-        } else {
-            Some(BranchType::Local)
-        };
-        
-        let branches = self.repository().branches(branch_type)?;
-        
-        println!("🌿 Branches:");
-        println!();
+    pub fn list_branches(&self) -> Result<Vec<String>> {
+        let branches = self.repository().branches(Some(BranchType::Local))?;
+        let mut branch_names = Vec::new();
         
         for branch in branches {
-            let (branch, branch_type) = branch?;
-            let name = branch.name()?.unwrap_or("<unknown>");
-            let is_head = branch.is_head();
-            
-            let marker = if is_head { "*" } else { " " };
-            let type_str = match branch_type {
-                BranchType::Local => "",
-                BranchType::Remote => " (remote)",
-            };
-            
-            if is_head {
-                println!("  \x1b[32m{} {}\x1b[0m{}", marker, name, type_str);
-            } else {
-                println!("  {} {}{}", marker, name, type_str);
+            let (branch, _) = branch?;
+            if let Some(name) = branch.name()? {
+                branch_names.push(name.to_string());
             }
         }
         
-        Ok(())
+        Ok(branch_names)
     }
 
     /// Create a new branch
