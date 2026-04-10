@@ -1,3 +1,4 @@
+mod alias;
 mod cli;
 mod core;
 mod core_extensions;

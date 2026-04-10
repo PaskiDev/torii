@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
+use crate::alias::AliasConfig;
 use crate::core::GitRepo;
 use crate::snapshot::SnapshotManager;
 use crate::mirror::{MirrorManager, AccountType, Protocol};
@@ -255,6 +256,12 @@ enum Commands {
     /// Undo last operation (quick access to snapshot undo)
     Undo,
 
+    /// Manage custom command workflows
+    Custom {
+        #[command(subcommand)]
+        action: CustomCommands,
+    },
+
     /// Manage repository history
     History {
         #[command(subcommand)]
@@ -263,23 +270,81 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
-enum HistoryCommands {
-    /// Rewrite commit dates to create realistic timeline
-    Rewrite {
-        /// Start date (format: YYYY-MM-DD HH:MM)
-        #[arg(long)]
-        start: String,
+enum AliasCommands {
+    /// Create a new alias
+    Add {
+        /// Alias name
+        name: String,
+        
+        /// Command to execute (can include git or torii commands)
+        command: Vec<String>,
+    },
+    
+    /// List all aliases
+    List,
+    
+    /// Remove an alias
+    Remove {
+        /// Alias name to remove
+        name: String,
+    },
+    
+    /// Run an alias
+    Run {
+        /// Alias name to run
+        name: String,
+        
+        /// Additional arguments to pass to the alias
+        args: Vec<String>,
+    },
+}
 
-        /// End date (format: YYYY-MM-DD HH:MM)
-        #[arg(long)]
+#[derive(Subcommand)]
+enum HistoryCommands {
+    /// Rewrite commit history dates
+    Rewrite {
+        /// Start date (YYYY-MM-DD HH:MM)
+        start: String,
+        
+        /// End date (YYYY-MM-DD HH:MM)
         end: String,
     },
-
-    /// Clean up repository (gc, reflog expire)
+    
+    /// Clean repository history
     Clean,
-
-    /// Verify remote status
+    
+    /// Verify remote repository
     VerifyRemote,
+}
+
+#[derive(Subcommand)]
+enum CustomCommands {
+    /// Create a new alias
+    Add {
+        /// Alias name
+        name: String,
+        
+        /// Command to execute (can include git or torii commands)
+        command: Vec<String>,
+    },
+    
+    /// List all aliases
+    List,
+    
+    /// Remove an alias
+    Remove {
+        /// Alias name to remove
+        name: String,
+    },
+    
+    /// Run an alias
+    Run {
+        /// Alias name to run
+        name: String,
+        
+        /// Additional arguments to pass to the alias
+        args: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -827,6 +892,27 @@ impl Cli {
                 let manager = SnapshotManager::new(".")?;
                 manager.undo()?;
                 println!("✅ Undone last operation");
+            }
+
+            Commands::Custom { action } => {
+                let mut config = AliasConfig::load()?;
+                match action {
+                    CustomCommands::Add { name, command } => {
+                        let cmd_str = command.join(" ");
+                        config.add_alias(name.clone(), cmd_str)?;
+                        println!("✅ Custom workflow '{}' added", name);
+                    }
+                    CustomCommands::List => {
+                        config.list_aliases();
+                    }
+                    CustomCommands::Remove { name } => {
+                        config.remove_alias(name)?;
+                        println!("✅ Custom workflow '{}' removed", name);
+                    }
+                    CustomCommands::Run { name, args } => {
+                        config.run_alias(name, args)?;
+                    }
+                }
             }
 
             Commands::History { action } => {
