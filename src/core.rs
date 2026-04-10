@@ -92,7 +92,22 @@ impl GitRepo {
     /// Pull from remote
     pub fn pull(&self) -> Result<()> {
         let mut remote = self.repo.find_remote("origin")?;
-        remote.fetch(&["main", "master"], None, None)?;
+        
+        // Configure SSH authentication
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, _allowed_types| {
+            git2::Cred::ssh_key(
+                username_from_url.unwrap(),
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
+                None,
+            )
+        });
+
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+
+        remote.fetch(&["main", "master"], Some(&mut fetch_options), None)?;
         
         // Simple fast-forward merge
         let fetch_head = self.repo.find_reference("FETCH_HEAD")?;
@@ -124,7 +139,21 @@ impl GitRepo {
             format!("refs/heads/{}:refs/heads/{}", branch, branch)
         };
 
-        remote.push(&[&refspec], None)?;
+        // Configure SSH authentication
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, _allowed_types| {
+            git2::Cred::ssh_key(
+                username_from_url.unwrap(),
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
+                None,
+            )
+        });
+
+        let mut push_options = git2::PushOptions::new();
+        push_options.remote_callbacks(callbacks);
+
+        remote.push(&[&refspec], Some(&mut push_options))?;
         Ok(())
     }
 
