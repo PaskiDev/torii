@@ -361,4 +361,69 @@ impl GitRepo {
 
         Ok(())
     }
+
+    /// Reset to a specific commit
+    pub fn reset_commit(&self, commit_hash: &str, mode: &str) -> Result<()> {
+        println!("🔄 Resetting to commit {} (mode: {})...", commit_hash, mode);
+        
+        let repo_path = self.repo.path().parent().unwrap();
+
+        let reset_flag = match mode {
+            "soft" => "--soft",
+            "hard" => "--hard",
+            _ => "--mixed", // default
+        };
+
+        let output = Command::new("git")
+            .args(&["reset", reset_flag, commit_hash])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to reset: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Merge a branch into current branch
+    pub fn merge_branch(&self, branch_name: &str) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap();
+
+        let output = Command::new("git")
+            .args(&["merge", branch_name])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to merge branch: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Rebase current branch onto another branch
+    pub fn rebase_branch(&self, branch_name: &str) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap();
+
+        let output = Command::new("git")
+            .args(&["rebase", branch_name])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to rebase: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
 }

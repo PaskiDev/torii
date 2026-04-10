@@ -66,10 +66,21 @@ enum Commands {
         /// Revert a specific commit
         #[arg(long)]
         revert: Option<String>,
+
+        /// Reset to a specific commit (soft, mixed, or hard)
+        #[arg(long)]
+        reset: Option<String>,
+
+        /// Reset mode: soft, mixed, or hard (default: mixed)
+        #[arg(long, default_value = "mixed")]
+        reset_mode: String,
     },
 
-    /// Sync with remote (simplified push/pull)
+    /// Sync with remote (simplified push/pull) or integrate a branch
     Sync {
+        /// Branch to integrate (smart merge/rebase). If not specified, syncs with remote
+        branch: Option<String>,
+
         /// Pull only
         #[arg(short, long)]
         pull: bool,
@@ -85,6 +96,18 @@ enum Commands {
         /// Fetch only (update remote refs without merging)
         #[arg(long)]
         fetch: bool,
+
+        /// Force merge (when integrating a branch)
+        #[arg(long)]
+        merge: bool,
+
+        /// Force rebase (when integrating a branch)
+        #[arg(long)]
+        rebase: bool,
+
+        /// Preview integration without executing
+        #[arg(long)]
+        preview: bool,
     },
 
     /// Show repository status
@@ -118,9 +141,12 @@ enum Commands {
 
     /// Manage branches
     Branch {
-        /// Branch name to create
+        /// Branch name to switch to (if exists) or create with -c
+        name: Option<String>,
+
+        /// Create new branch and switch to it
         #[arg(short, long)]
-        create: Option<String>,
+        create: bool,
 
         /// Delete a branch
         #[arg(short, long)]
@@ -133,6 +159,10 @@ enum Commands {
         /// Rename current branch
         #[arg(short, long)]
         rename: Option<String>,
+
+        /// Show all branches (local and remote)
+        #[arg(short, long)]
+        all: bool,
     },
 
     /// Switch to a branch
@@ -159,6 +189,7 @@ enum Commands {
     },
 
     /// Integrate changes from another branch (smart merge/rebase)
+    /// DEPRECATED: Use 'torii sync <branch>' instead
     Integrate {
         /// Branch to integrate
         branch: String,
@@ -442,10 +473,13 @@ impl Cli {
                 println!("✅ Initialized repository at {}", repo_path);
             }
 
-            Commands::Save { message, all, amend, revert } => {
+            Commands::Save { message, all, amend, revert, reset, reset_mode } => {
                 let repo = GitRepo::open(".")?;
                 
-                if let Some(commit_hash) = revert {
+                if let Some(commit_hash) = reset {
+                    repo.reset_commit(commit_hash, reset_mode)?;
+                    println!("✅ Reset to commit: {} (mode: {})", commit_hash, reset_mode);
+                } else if let Some(commit_hash) = revert {
                     repo.revert_commit(commit_hash)?;
                     println!("✅ Reverted commit: {}", commit_hash);
                 } else {
@@ -463,10 +497,29 @@ impl Cli {
                 }
             }
 
-            Commands::Sync { pull, push, force, fetch } => {
+            Commands::Sync { branch, pull, push, force, fetch, merge, rebase, preview } => {
                 let repo = GitRepo::open(".")?;
                 
-                if *fetch {
+                // If branch is specified, integrate it
+                if let Some(branch_name) = branch {
+                    if *preview {
+                        println!("🔍 Preview: Would integrate branch '{}'", branch_name);
+                        println!("💡 Recommendation: Use merge for feature branches, rebase for clean history");
+                    } else if *merge {
+                        println!("🔀 Merging branch '{}'...", branch_name);
+                        repo.merge_branch(branch_name)?;
+                        println!("✅ Merged branch: {}", branch_name);
+                    } else if *rebase {
+                        println!("🔄 Rebasing onto branch '{}'...", branch_name);
+                        repo.rebase_branch(branch_name)?;
+                        println!("✅ Rebased onto: {}", branch_name);
+                    } else {
+                        // Smart integration (default to merge for now)
+                        println!("🔀 Integrating branch '{}'...", branch_name);
+                        repo.merge_branch(branch_name)?;
+                        println!("✅ Integrated branch: {}", branch_name);
+                    }
+                } else if *fetch {
                     repo.fetch()?;
                     println!("✅ Fetched from remote");
                 } else if *force {
@@ -501,28 +554,44 @@ impl Cli {
                 repo.diff(*staged, *last)?;
             }
 
-            Commands::Branch { create, delete, list, rename } => {
+            Commands::Branch { name, create, delete, list, rename, all } => {
                 let repo = GitRepo::open(".")?;
                 
-                if *list {
+                if *list || *all {
                     let branches = repo.list_branches()?;
                     println!("📋 Branches:");
                     for branch in branches {
-                        println!("  {}", branch);
+                        println!("  • {}", branch);
                     }
-                } else if let Some(name) = create {
-                    repo.create_branch(name)?;
-                    println!("✅ Branch '{}' created", name);
-                } else if let Some(name) = delete {
-                    repo.delete_branch(name)?;
-                    println!("✅ Branch '{}' deleted", name);
+                    if *all {
+                        println!("\n📡 Remote branches:");
+                        println!("  (Remote branch listing not yet implemented)");
+                    }
+                } else if let Some(branch_name) = delete {
+                    repo.delete_branch(branch_name)?;
+                    println!("✅ Deleted branch: {}", branch_name);
                 } else if let Some(new_name) = rename {
-                    let old_name = repo.get_current_branch()?;
-                    repo.rename_branch(&old_name, new_name)?;
-                    println!("✅ Branch renamed: {} → {}", old_name, new_name);
-                } else {
                     let current = repo.get_current_branch()?;
-                    println!("📍 Current branch: {}", current);
+                    repo.rename_branch(&current, new_name)?;
+                    println!("✅ Renamed branch {} to {}", current, new_name);
+                } else if let Some(branch_name) = name {
+                    if *create {
+                        // Create and switch to new branch
+                        repo.create_branch(branch_name)?;
+                        repo.switch_branch(branch_name)?;
+                        println!("✅ Created and switched to branch: {}", branch_name);
+                    } else {
+                        // Just switch to existing branch
+                        repo.switch_branch(branch_name)?;
+                        println!("✅ Switched to branch: {}", branch_name);
+                    }
+                } else {
+                    // Default: list branches
+                    let branches = repo.list_branches()?;
+                    println!("📋 Branches:");
+                    for branch in branches {
+                        println!("  • {}", branch);
+                    }
                 }
             }
 

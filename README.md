@@ -66,6 +66,9 @@ torii save --amend -m "Updated commit"
 
 # Revert a specific commit
 torii save --revert abc123 -m "Revert changes"
+
+# Reset to a specific commit
+torii save --reset abc123 --reset-mode soft  # soft, mixed, or hard
 ```
 
 ### Sync with Remote
@@ -91,14 +94,17 @@ torii sync --fetch
 # List branches
 torii branch
 
-# Create and switch to new branch
-torii switch -c feature-x
-
 # Switch to existing branch
-torii switch main
+torii branch main
 
-# Delete branch
+# Create and switch to new branch
+torii branch feature-x -c
+
+# Delete a branch
 torii branch -d old-feature
+
+# Rename current branch
+torii branch --rename new-name
 ```
 
 ### Clone Repositories
@@ -116,20 +122,20 @@ torii clone https://github.com/user/repo.git
 
 ### Basic Commands
 - `torii init` - Initialize a new repository
-- `torii save` - Save changes (commit, amend, revert)
-- `torii sync` - Synchronize with remote (push, pull, fetch, force)
+- `torii save` - Save changes (commit, amend, revert, reset)
+- `torii sync` - Synchronize with remote OR integrate branches
 - `torii status` - Show repository status
 - `torii log` - View commit history
 - `torii diff` - Show changes
-- `torii branch` - Manage branches
-- `torii switch` - Switch branches
+- `torii branch` - Manage and switch branches
 - `torii clone` - Clone repository
 - `torii undo` - Undo last operation (quick access)
 
 ### Advanced Git Commands
-- `torii integrate` - Smart merge/rebase integration
 - `torii cherry-pick` - Apply a commit to current branch
 - `torii blame` - Show who changed each line of a file
+- `torii switch` - DEPRECATED: Use `torii branch <name>` instead
+- `torii integrate` - DEPRECATED: Use `torii sync <branch>` instead
 
 ### Tag Commands
 - `torii tag create` - Create a new tag
