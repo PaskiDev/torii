@@ -210,8 +210,34 @@ enum Commands {
         action: MirrorCommands,
     },
 
-    /// Check SSH configuration and get setup help
+    /// Check SSH configuration
     SshCheck,
+
+    /// Manage repository history
+    History {
+        #[command(subcommand)]
+        action: HistoryCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum HistoryCommands {
+    /// Rewrite commit dates to create realistic timeline
+    Rewrite {
+        /// Start date (format: YYYY-MM-DD HH:MM)
+        #[arg(long)]
+        start: String,
+
+        /// End date (format: YYYY-MM-DD HH:MM)
+        #[arg(long)]
+        end: String,
+    },
+
+    /// Clean up repository (gc, reflog expire)
+    Clean,
+
+    /// Verify remote status
+    VerifyRemote,
 }
 
 #[derive(Subcommand)]
@@ -710,6 +736,23 @@ impl Cli {
                     println!("   4. Copy your public key:");
                     println!("      cat ~/.ssh/id_ed25519.pub");
                     println!("   5. Add it to your Git hosting service");
+                }
+            }
+
+            Commands::History { action } => {
+                let repo = GitRepo::open(".")?;
+                match action {
+                    HistoryCommands::Rewrite { start, end } => {
+                        repo.rewrite_history(start, end)?;
+                        println!("✅ History rewritten successfully");
+                    }
+                    HistoryCommands::Clean => {
+                        repo.clean_history()?;
+                        println!("✅ Repository cleaned");
+                    }
+                    HistoryCommands::VerifyRemote => {
+                        repo.verify_remote()?;
+                    }
                 }
             }
         }
