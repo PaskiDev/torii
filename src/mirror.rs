@@ -66,6 +66,9 @@ impl Mirror {
                     "bitbucket" => format!("git@bitbucket.org:{}/{}.git", account_name, repo_name),
                     "codeberg" => format!("git@codeberg.org:{}/{}.git", account_name, repo_name),
                     "gitea" => format!("git@gitea.com:{}/{}.git", account_name, repo_name),
+                    "forgejo" => format!("git@codeberg.org:{}/{}.git", account_name, repo_name),
+                    "sourcehut" | "srht" => format!("git@git.sr.ht:~{}/{}", account_name, repo_name),
+                    "sourceforge" => format!("git@git.code.sf.net:p/{}/{}", account_name, repo_name),
                     _ => format!("git@{}:{}/{}.git", platform, account_name, repo_name),
                 }
             }
@@ -76,6 +79,9 @@ impl Mirror {
                     "bitbucket" => format!("https://bitbucket.org/{}/{}.git", account_name, repo_name),
                     "codeberg" => format!("https://codeberg.org/{}/{}.git", account_name, repo_name),
                     "gitea" => format!("https://gitea.com/{}/{}.git", account_name, repo_name),
+                    "forgejo" => format!("https://codeberg.org/{}/{}.git", account_name, repo_name),
+                    "sourcehut" | "srht" => format!("https://git.sr.ht/~{}/{}", account_name, repo_name),
+                    "sourceforge" => format!("https://git.code.sf.net/p/{}/{}", account_name, repo_name),
                     _ => format!("https://{}/{}/{}.git", platform, account_name, repo_name),
                 }
             }
