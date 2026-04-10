@@ -63,7 +63,7 @@ impl SnapshotManager {
     }
 
     /// Create a git bundle for the snapshot
-    fn create_bundle(&self, snapshot_dir: &Path, repo: &GitRepo, ignore: &ToriIgnore) -> Result<()> {
+    fn create_bundle(&self, snapshot_dir: &Path, repo: &GitRepo) -> Result<()> {
         // Create bundle with all refs
         let mut revwalk = repo.repository().revwalk()?;
         revwalk.push_head()?;
@@ -73,7 +73,7 @@ impl SnapshotManager {
         let git_dir = self.repo_path.join(".git");
         let snapshot_git = snapshot_dir.join("git_backup");
         
-        self.copy_dir_recursive(&git_dir, &snapshot_git, ignore)?;
+        self.copy_dir_recursive(&git_dir, &snapshot_git)?;
 
         Ok(())
     }

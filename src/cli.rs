@@ -66,7 +66,15 @@ enum Commands {
 
     /// Sync with remote (simplified push/pull)
     Sync {
-        /// Force push
+        /// Pull only
+        #[arg(short, long)]
+        pull: bool,
+
+        /// Push only
+        #[arg(short = 'P', long)]
+        push: bool,
+
+        /// Force push (rewrite remote history)
         #[arg(short, long)]
         force: bool,
     },
@@ -413,11 +421,28 @@ impl Cli {
                 }
             }
 
-            Commands::Sync { force } => {
+            Commands::Sync { pull, push, force } => {
                 let repo = GitRepo::open(".")?;
-                repo.pull()?;
-                repo.push(*force)?;
-                println!("✅ Synced with remote");
+                
+                if *pull {
+                    repo.pull()?;
+                    println!("✅ Pulled from remote");
+                } else if *push {
+                    repo.push(*force)?;
+                    if *force {
+                        println!("✅ Force pushed to remote");
+                    } else {
+                        println!("✅ Pushed to remote");
+                    }
+                } else {
+                    repo.pull()?;
+                    repo.push(*force)?;
+                    if *force {
+                        println!("✅ Force synced with remote");
+                    } else {
+                        println!("✅ Synced with remote");
+                    }
+                }
             }
 
             Commands::Status => {
