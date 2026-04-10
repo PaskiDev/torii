@@ -63,6 +63,9 @@ torii save -am "Initial commit"
 
 # Amend previous commit
 torii save --amend -m "Updated commit"
+
+# Revert a specific commit
+torii save --revert abc123 -m "Revert changes"
 ```
 
 ### Sync with Remote
@@ -78,6 +81,9 @@ torii sync --push
 
 # Force push
 torii sync --force
+
+# Fetch only (update refs without merging)
+torii sync --fetch
 ```
 
 ### Branch Management
@@ -110,14 +116,15 @@ torii clone https://github.com/user/repo.git
 
 ### Basic Commands
 - `torii init` - Initialize a new repository
-- `torii save` - Save changes (commit)
-- `torii sync` - Synchronize with remote
+- `torii save` - Save changes (commit, amend, revert)
+- `torii sync` - Synchronize with remote (push, pull, fetch, force)
 - `torii status` - Show repository status
 - `torii log` - View commit history
 - `torii diff` - Show changes
 - `torii branch` - Manage branches
 - `torii switch` - Switch branches
 - `torii clone` - Clone repository
+- `torii undo` - Undo last operation (quick access)
 
 ### Advanced Git Commands
 - `torii integrate` - Smart merge/rebase integration

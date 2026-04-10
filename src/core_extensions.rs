@@ -319,4 +319,46 @@ impl GitRepo {
 
         Ok(())
     }
+
+    /// Fetch from remote without merging
+    pub fn fetch(&self) -> Result<()> {
+        println!("🔄 Fetching from remote...");
+        
+        let repo_path = self.repo.path().parent().unwrap();
+
+        let output = Command::new("git")
+            .args(&["fetch", "origin"])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to fetch: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Revert a specific commit
+    pub fn revert_commit(&self, commit_hash: &str) -> Result<()> {
+        println!("🔄 Reverting commit {}...", commit_hash);
+        
+        let repo_path = self.repo.path().parent().unwrap();
+
+        let output = Command::new("git")
+            .args(&["revert", "--no-edit", commit_hash])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to revert commit: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
 }

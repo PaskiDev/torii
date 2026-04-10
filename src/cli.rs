@@ -62,6 +62,10 @@ enum Commands {
         /// Amend the previous commit
         #[arg(long)]
         amend: bool,
+
+        /// Revert a specific commit
+        #[arg(long)]
+        revert: Option<String>,
     },
 
     /// Sync with remote (simplified push/pull)
@@ -77,6 +81,10 @@ enum Commands {
         /// Force push (rewrite remote history)
         #[arg(short, long)]
         force: bool,
+
+        /// Fetch only (update remote refs without merging)
+        #[arg(long)]
+        fetch: bool,
     },
 
     /// Show repository status
@@ -212,6 +220,9 @@ enum Commands {
 
     /// Check SSH configuration
     SshCheck,
+
+    /// Undo last operation (quick access to snapshot undo)
+    Undo,
 
     /// Manage repository history
     History {
@@ -431,43 +442,47 @@ impl Cli {
                 println!("✅ Initialized repository at {}", repo_path);
             }
 
-            Commands::Save { message, all, amend } => {
+            Commands::Save { message, all, amend, revert } => {
                 let repo = GitRepo::open(".")?;
                 
-                if *all {
-                    repo.add_all()?;
-                }
-                
-                if *amend {
-                    repo.commit_amend(message)?;
-                    println!("✅ Commit amended: {}", message);
+                if let Some(commit_hash) = revert {
+                    repo.revert_commit(commit_hash)?;
+                    println!("✅ Reverted commit: {}", commit_hash);
                 } else {
-                    repo.commit(message)?;
-                    println!("✅ Changes saved: {}", message);
+                    if *all {
+                        repo.add_all()?;
+                    }
+                    
+                    if *amend {
+                        repo.commit_amend(message)?;
+                        println!("✅ Commit amended: {}", message);
+                    } else {
+                        repo.commit(message)?;
+                        println!("✅ Changes saved: {}", message);
+                    }
                 }
             }
 
-            Commands::Sync { pull, push, force } => {
+            Commands::Sync { pull, push, force, fetch } => {
                 let repo = GitRepo::open(".")?;
                 
-                if *pull {
+                if *fetch {
+                    repo.fetch()?;
+                    println!("✅ Fetched from remote");
+                } else if *force {
+                    repo.push(true)?;
+                    println!("✅ Force synced with remote");
+                } else if *pull {
                     repo.pull()?;
                     println!("✅ Pulled from remote");
                 } else if *push {
-                    repo.push(*force)?;
-                    if *force {
-                        println!("✅ Force pushed to remote");
-                    } else {
-                        println!("✅ Pushed to remote");
-                    }
+                    repo.push(false)?;
+                    println!("✅ Pushed to remote");
                 } else {
+                    // Default: pull then push
                     repo.pull()?;
-                    repo.push(*force)?;
-                    if *force {
-                        println!("✅ Force synced with remote");
-                    } else {
-                        println!("✅ Synced with remote");
-                    }
+                    repo.push(false)?;
+                    println!("✅ Synced with remote");
                 }
             }
 
@@ -737,6 +752,12 @@ impl Cli {
                     println!("      cat ~/.ssh/id_ed25519.pub");
                     println!("   5. Add it to your Git hosting service");
                 }
+            }
+
+            Commands::Undo => {
+                let manager = SnapshotManager::new(".")?;
+                manager.undo()?;
+                println!("✅ Undone last operation");
             }
 
             Commands::History { action } => {
