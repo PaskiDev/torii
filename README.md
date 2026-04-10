@@ -281,7 +281,13 @@ Git commands can be complex and verbose. Torii simplifies common operations:
 |-----|-------|
 | `git add . && git commit -m "msg"` | `torii save -am "msg"` |
 | `git pull && git push` | `torii sync` |
-| `git switch -c branch` | `torii switch -c branch` |
+| `git switch -c branch` | `torii branch branch -c` |
+| `git switch branch` | `torii branch branch` |
+| `git fetch` | `torii sync --fetch` |
+| `git reset --soft HEAD~1` | `torii save --reset HEAD~1 --reset-mode soft` |
+| `git revert abc123` | `torii save --revert abc123 -m "msg"` |
+| `git merge feature` | `torii sync feature --merge` |
+| `git rebase main` | `torii sync main --rebase` |
 | `git clone https://...` | `torii clone github user/repo` |
 
 ### Advanced Features
