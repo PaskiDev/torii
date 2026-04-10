@@ -174,4 +174,22 @@ impl GitRepo {
         Repository::clone(url, &target)?;
         Ok(())
     }
+
+    /// Rename a branch
+    pub fn rename_branch(&self, old_name: &str, new_name: &str) -> Result<()> {
+        // Use git command for renaming as git2 doesn't have a direct rename
+        let output = Command::new("git")
+            .args(&["branch", "-m", old_name, new_name])
+            .current_dir(self.repo.path().parent().unwrap())
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to rename branch: {}", error)
+            ));
+        }
+
+        Ok(())
+    }
 }
