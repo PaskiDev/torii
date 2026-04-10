@@ -1,4 +1,4 @@
-# Torii 🎌
+# Torii ⛩️
 
 A modern Git client with simplified commands and advanced features for developers who want power without complexity.
 
@@ -219,6 +219,28 @@ torii mirror add-master github user myproject myrepo
 torii mirror add-slave gitlab user myproject myrepo
 
 # Sync all mirrors
+torii mirror sync
+```
+
+### Mirror Management
+
+Sync your repository across multiple platforms:
+
+**Supported platforms:** GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo, SourceHut, SourceForge, or any custom Git server.
+
+```bash
+# Add mirrors with platform shortcuts
+torii mirror add-master github user myrepo user
+torii mirror add-slave gitlab user myrepo user
+torii mirror add-slave codeberg user myrepo user
+torii mirror add-slave forgejo user myrepo user
+torii mirror add-slave srht user myrepo user
+
+# Add custom Git servers (self-hosted, corporate, etc.)
+torii mirror add-slave https://git.company.com/team/project.git org team project
+torii mirror add-slave git@gitlab.selfhosted.io:dev/app.git user dev app
+
+# Sync to all mirrors
 torii mirror sync
 ```
 
