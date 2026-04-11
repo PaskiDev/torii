@@ -84,6 +84,22 @@
 - [x] `torii history clean` - Limpiar repositorio (gc, reflog)
 - [x] `torii history verify-remote` - Verificar estado remoto
 
+### Configuration System
+- [x] `torii config set` - Establecer valores de configuración
+- [x] `torii config get` - Obtener valores de configuración
+- [x] `torii config list` - Listar toda la configuración
+- [x] `torii config edit` - Editar archivo de configuración
+- [x] `torii config reset` - Resetear a valores por defecto
+- [x] Configuración global (`~/.config/torii/config.toml`)
+- [x] Configuración local por repositorio (`.torii/config.toml`)
+- [x] Merge automático de configs (local > global)
+- [x] Configuraciones disponibles:
+  - [x] `user.name`, `user.email`, `user.editor`
+  - [x] `snapshot.auto_enabled`, `snapshot.auto_interval_minutes`, `snapshot.retention_days`, `snapshot.max_snapshots`
+  - [x] `mirror.autofetch_enabled`, `mirror.autofetch_interval_minutes`, `mirror.default_protocol`
+  - [x] `git.default_branch`, `git.sign_commits`, `git.gpg_key`, `git.pull_rebase`
+  - [x] `ui.colors`, `ui.emoji`, `ui.verbose`, `ui.date_format`
+
 ### Utilities
 - [x] `torii ssh-check` - Verificar configuración SSH
 - [x] Sistema de errores mejorado

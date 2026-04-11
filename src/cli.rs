@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 use crate::alias::AliasConfig;
+use crate::config::ToriiConfig;
 use crate::core::GitRepo;
 use crate::snapshot::SnapshotManager;
 use crate::mirror::{MirrorManager, AccountType, Protocol};
@@ -267,35 +268,58 @@ enum Commands {
         #[command(subcommand)]
         action: HistoryCommands,
     },
+
+    /// Manage Torii configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigCommands,
+    },
 }
 
 #[derive(Subcommand)]
-enum AliasCommands {
-    /// Create a new alias
-    Add {
-        /// Alias name
-        name: String,
+enum ConfigCommands {
+    /// Set a configuration value
+    Set {
+        /// Configuration key (e.g., user.name, snapshot.auto_enabled)
+        key: String,
         
-        /// Command to execute (can include git or torii commands)
-        command: Vec<String>,
+        /// Configuration value
+        value: String,
+        
+        /// Set in local repository config instead of global
+        #[arg(long)]
+        local: bool,
     },
     
-    /// List all aliases
-    List,
-    
-    /// Remove an alias
-    Remove {
-        /// Alias name to remove
-        name: String,
+    /// Get a configuration value
+    Get {
+        /// Configuration key (e.g., user.name, snapshot.auto_enabled)
+        key: String,
+        
+        /// Get from local repository config
+        #[arg(long)]
+        local: bool,
     },
     
-    /// Run an alias
-    Run {
-        /// Alias name to run
-        name: String,
-        
-        /// Additional arguments to pass to the alias
-        args: Vec<String>,
+    /// List all configuration values
+    List {
+        /// Show local repository config
+        #[arg(long)]
+        local: bool,
+    },
+    
+    /// Edit configuration file in editor
+    Edit {
+        /// Edit local repository config instead of global
+        #[arg(long)]
+        local: bool,
+    },
+    
+    /// Reset configuration to defaults
+    Reset {
+        /// Reset local repository config instead of global
+        #[arg(long)]
+        local: bool,
     },
 }
 
@@ -915,6 +939,93 @@ impl Cli {
                 }
             }
 
+            Commands::Config { action } => {
+                match action {
+                    ConfigCommands::Set { key, value, local } => {
+                        if *local {
+                            let mut config = ToriiConfig::load_local(".")?;
+                            config.set(key, value)?;
+                            config.save_local(".")?;
+                            println!("✅ Local config updated: {} = {}", key, value);
+                        } else {
+                            let mut config = ToriiConfig::load_global()?;
+                            config.set(key, value)?;
+                            config.save_global()?;
+                            println!("✅ Global config updated: {} = {}", key, value);
+                        }
+                    }
+                    ConfigCommands::Get { key, local } => {
+                        let config = if *local {
+                            ToriiConfig::load_local(".")?
+                        } else {
+                            ToriiConfig::load_global()?
+                        };
+                        
+                        if let Some(value) = config.get(key) {
+                            println!("{}", value);
+                        } else {
+                            println!("❌ Config key not found: {}", key);
+                        }
+                    }
+                    ConfigCommands::List { local } => {
+                        let config = if *local {
+                            ToriiConfig::load_local(".")?
+                        } else {
+                            ToriiConfig::load_global()?
+                        };
+                        
+                        let scope = if *local { "Local" } else { "Global" };
+                        println!("⚙️  {} Configuration:\n", scope);
+                        
+                        for (key, value) in config.list() {
+                            println!("  {} = {}", key, value);
+                        }
+                    }
+                    ConfigCommands::Edit { local } => {
+                        let config_path = if *local {
+                            std::path::PathBuf::from(".").join(".torii").join("config.toml")
+                        } else {
+                            let home = std::env::var("HOME")?;
+                            std::path::PathBuf::from(home).join(".config").join("torii").join("config.toml")
+                        };
+                        
+                        // Ensure config exists
+                        if *local {
+                            let config = ToriiConfig::load_local(".")?;
+                            config.save_local(".")?;
+                        } else {
+                            let config = ToriiConfig::load_global()?;
+                            config.save_global()?;
+                        }
+                        
+                        // Get editor
+                        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vim".to_string());
+                        
+                        // Open editor
+                        let status = std::process::Command::new(&editor)
+                            .arg(&config_path)
+                            .status()?;
+                        
+                        if status.success() {
+                            println!("✅ Configuration edited");
+                        } else {
+                            println!("❌ Editor exited with error");
+                        }
+                    }
+                    ConfigCommands::Reset { local } => {
+                        let config = ToriiConfig::default();
+                        
+                        if *local {
+                            config.save_local(".")?;
+                            println!("✅ Local configuration reset to defaults");
+                        } else {
+                            config.save_global()?;
+                            println!("✅ Global configuration reset to defaults");
+                        }
+                    }
+                }
+            }
+
             Commands::History { action } => {
                 let repo = GitRepo::open(".")?;
                 match action {
@@ -936,4 +1047,5 @@ impl Cli {
         Ok(())
     }
 }
+
 

@@ -1,5 +1,6 @@
 mod alias;
 mod cli;
+mod config;
 mod core;
 mod core_extensions;
 mod core_integrate;
