@@ -98,8 +98,10 @@ const PATTERNS: &[Pattern] = &[
                 .nth(1)
                 .map(|v| {
                     let v = v.trim().trim_matches(|c: char| c == '"' || c == '\'' || c == '`');
-                    // Value must look like a real secret (not a placeholder)
-                    v.len() >= 16
+                    // Real secrets: no spaces, no sentence punctuation, min length
+                    let looks_like_secret = v.len() >= 16
+                        && !v.contains(' ')
+                        && !v.contains('.')  // sentences have dots
                         && !v.starts_with("${")
                         && !v.starts_with("$(")
                         && !v.starts_with("process.env")
@@ -109,7 +111,8 @@ const PATTERNS: &[Pattern] = &[
                         && !v.eq_ignore_ascii_case("changeme")
                         && !v.eq_ignore_ascii_case("placeholder")
                         && !v.eq_ignore_ascii_case("todo")
-                        && !v.starts_with("<")
+                        && !v.starts_with("<");
+                    looks_like_secret
                 })
                 .unwrap_or(false);
             has_key_word && has_assignment && has_value
