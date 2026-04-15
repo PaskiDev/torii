@@ -18,8 +18,5 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
-# Torii specific
-.torii/snapshots/
-.torii/cache/
-.torii/mirrors.json
-.torii/config.json
+# Torii local config
+.torii/
