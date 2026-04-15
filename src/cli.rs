@@ -305,6 +305,10 @@ enum Commands {
         #[arg(short, long)]
         interactive: bool,
 
+        /// Path to a pre-written rebase todo file (skips editor)
+        #[arg(long, value_name = "FILE")]
+        todo_file: Option<PathBuf>,
+
         /// Continue an in-progress rebase
         #[arg(long)]
         continue_rebase: bool,
@@ -1556,7 +1560,7 @@ impl Cli {
                 }
             }
 
-            Commands::Rebase { target, interactive, continue_rebase, abort, skip } => {
+            Commands::Rebase { target, interactive, todo_file, continue_rebase, abort, skip } => {
                 let repo = GitRepo::open(".")?;
                 if *continue_rebase {
                     repo.rebase_continue()?;
@@ -1564,6 +1568,9 @@ impl Cli {
                     repo.rebase_abort()?;
                 } else if *skip {
                     repo.rebase_skip()?;
+                } else if let Some(todo) = todo_file {
+                    let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required when using --todo-file (e.g. torii rebase <base> --todo-file plan.txt)"))?;
+                    repo.rebase_with_todo(base, todo)?;
                 } else if *interactive {
                     let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required for interactive rebase (e.g. HEAD~3 or <branch>)"))?;
                     repo.rebase_interactive(base)?;
@@ -1571,7 +1578,7 @@ impl Cli {
                     repo.rebase_branch(base)?;
                     println!("✅ Rebased onto: {}", base);
                 } else {
-                    anyhow::bail!("Specify a target branch/commit or use --interactive / --continue / --abort / --skip");
+                    anyhow::bail!("Specify a target branch/commit or use --interactive / --todo-file / --continue / --abort / --skip");
                 }
             }
         }

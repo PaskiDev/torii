@@ -151,6 +151,36 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Rebase with a pre-written todo file (no editor required)
+    pub fn rebase_with_todo(&self, base: &str, todo_file: &std::path::Path) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+
+        let todo_abs = todo_file.canonicalize().map_err(|_| {
+            crate::error::ToriiError::InvalidConfig(
+                format!("Todo file not found: {}", todo_file.display())
+            )
+        })?;
+
+        println!("🔄 Rebasing from {} using todo file: {}", base, todo_abs.display());
+
+        let editor = format!("cp {}", todo_abs.display());
+        let status = std::process::Command::new("git")
+            .args(["rebase", "-i", base])
+            .env("GIT_SEQUENCE_EDITOR", &editor)
+            .current_dir(&repo_path)
+            .status()?;
+
+        if !status.success() {
+            eprintln!("⚠️  Rebase ended with conflicts or was aborted.");
+            eprintln!("   Resolve conflicts then: torii rebase --continue");
+            eprintln!("   Or abort with:          torii rebase --abort");
+        } else {
+            println!("✅ Rebase complete");
+        }
+
+        Ok(())
+    }
+
     /// Interactive rebase
     pub fn rebase_interactive(&self, base: &str) -> Result<()> {
         let repo_path = self.repo.path().parent().unwrap().to_path_buf();
