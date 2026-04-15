@@ -439,6 +439,35 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Remove a file from the entire git history
+    pub fn remove_file_from_history(&self, file_path: &str) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap();
+
+        println!("🗑️  Removing '{}' from entire history...", file_path);
+
+        let cmd = format!(
+            "FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --index-filter \
+            'git rm --cached --ignore-unmatch {}' --tag-name-filter cat -- --all",
+            file_path
+        );
+
+        let output = Command::new("bash")
+            .args(["-c", &cmd])
+            .current_dir(repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to remove file from history: {}", error)
+            ));
+        }
+
+        println!("✅ '{}' removed from all commits", file_path);
+        println!("💡 Run 'torii history clean' then 'torii sync --force' to update remote");
+        Ok(())
+    }
+
     /// Clean up repository (gc, reflog expire)
     pub fn clean_history(&self) -> Result<()> {
         println!("🧹 Cleaning repository...");

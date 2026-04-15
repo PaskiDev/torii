@@ -512,6 +512,12 @@ enum HistoryCommands {
         #[arg(short = 'n', long, default_value = "20")]
         count: usize,
     },
+
+    /// Remove a file from the entire git history
+    RemoveFile {
+        /// File path to remove from all commits
+        file: String,
+    },
 }
 
 
@@ -1562,6 +1568,9 @@ impl Cli {
                     }
                     HistoryCommands::Reflog { count } => {
                         repo.show_reflog(*count)?;
+                    }
+                    HistoryCommands::RemoveFile { file } => {
+                        repo.remove_file_from_history(file)?;
                     }
                 }
             }
