@@ -156,25 +156,24 @@ impl GitRepo {
         // Push branch
         remote.push(&[&refspec], Some(&mut push_options))?;
 
-        // Push tags — reconnect callbacks (consumed above)
-        let mut callbacks2 = git2::RemoteCallbacks::new();
-        callbacks2.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key(
-                username_from_url.unwrap(),
-                None,
-                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
-                None,
-            )
-        });
-        let mut push_options2 = git2::PushOptions::new();
-        push_options2.remote_callbacks(callbacks2);
-        let tag_refspec = if force {
-            "+refs/tags/*:refs/tags/*".to_string()
-        } else {
-            "refs/tags/*:refs/tags/*".to_string()
-        };
-        // Best-effort: don't fail the whole push if tag push fails
-        let _ = remote.push(&[&tag_refspec], Some(&mut push_options2));
+        // Push tags via git subprocess — git2 doesn't support glob refspecs
+        // and remote object can't be reused after push without reconnecting
+        let repo_path = self.repo.path().parent().unwrap();
+        let mut tag_args = vec!["push", "origin", "--tags"];
+        if force {
+            tag_args.push("--force");
+        }
+        let tag_result = std::process::Command::new("git")
+            .args(&tag_args)
+            .current_dir(repo_path)
+            .output();
+
+        if let Ok(out) = tag_result {
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                eprintln!("⚠️  Tag push failed: {}", err.trim());
+            }
+        }
 
         Ok(())
     }
