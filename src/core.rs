@@ -47,16 +47,22 @@ impl GitRepo {
         let mut index = self.repo.index()?;
         let tree_id = index.write_tree()?;
         let tree = self.repo.find_tree(tree_id)?;
-        
-        let parent_commit = self.repo.head()?.peel_to_commit()?;
-        
+
+        // Root commit (empty repo) has no parent
+        let parent_commit = match self.repo.head() {
+            Ok(head) => Some(head.peel_to_commit()?),
+            Err(_) => None,
+        };
+
+        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
+
         self.repo.commit(
             Some("HEAD"),
             &sig,
             &sig,
             message,
             &tree,
-            &[&parent_commit],
+            &parents,
         )?;
 
         Ok(())
