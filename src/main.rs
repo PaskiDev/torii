@@ -10,6 +10,7 @@ mod error;
 mod integrate;
 mod mirror;
 mod remote;
+mod scanner;
 mod snapshot;
 mod ssh;
 mod tag;

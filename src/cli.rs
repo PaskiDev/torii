@@ -10,6 +10,7 @@ use crate::mirror::{MirrorManager, AccountType, Protocol};
 use crate::ssh::SshHelper;
 use crate::duration::parse_duration;
 use crate::versioning::AutoTagger;
+use crate::scanner;
 
 fn parse_account_type(s: &str) -> Result<AccountType> {
     match s.to_lowercase().as_str() {
@@ -294,6 +295,13 @@ enum Commands {
     History {
         #[command(subcommand)]
         action: HistoryCommands,
+    },
+
+    /// Scan staged files or full history for sensitive data (API keys, tokens, passwords)
+    Scan {
+        /// Scan the entire git history instead of only staged files
+        #[arg(long)]
+        history: bool,
     },
 
     /// Rebase current branch (interactive or onto a target)
@@ -753,6 +761,27 @@ impl Cli {
                         repo.add(files)?;
                     }
                     
+                    // Scan staged files for sensitive data before committing
+                    let repo_path = std::path::Path::new(".");
+                    let findings = scanner::scan_staged(repo_path)?;
+                    if !findings.is_empty() {
+                        println!("⚠️  Sensitive data detected in staged files:\n");
+                        for f in &findings {
+                            println!("   {}:{} — {} ", f.file, f.line, f.pattern_name);
+                            println!("   {}\n", f.preview);
+                        }
+                        println!("💡 Tip: use .env.example for placeholder values — those files are always safe to commit.");
+                        print!("   Continue anyway? [y/N] ");
+                        use std::io::Write;
+                        std::io::stdout().flush()?;
+                        let mut input = String::new();
+                        std::io::stdin().read_line(&mut input)?;
+                        if !input.trim().eq_ignore_ascii_case("y") {
+                            println!("❌ Commit cancelled.");
+                            return Ok(());
+                        }
+                    }
+
                     if *amend {
                         repo.commit_amend(message)?;
                         println!("✅ Commit amended: {}", message);
@@ -1556,6 +1585,42 @@ impl Cli {
                     }
                     HistoryCommands::Reflog { count } => {
                         repo.show_reflog(*count)?;
+                    }
+                }
+            }
+
+            Commands::Scan { history } => {
+                let repo_path = std::path::Path::new(".");
+                if *history {
+                    println!("🔍 Scanning full git history for sensitive data...\n");
+                    let results = scanner::scan_history(repo_path)?;
+                    if results.is_empty() {
+                        println!("✅ No sensitive data found in history.");
+                    } else {
+                        println!("⚠️  Found sensitive data in {} commit(s):\n", results.len());
+                        for (commit, findings) in &results {
+                            println!("  📌 {}", commit);
+                            for f in findings {
+                                println!("     {}:{} — {}", f.file, f.line, f.pattern_name);
+                                println!("     {}", f.preview);
+                            }
+                            println!();
+                        }
+                        println!("💡 To clean history: torii rebase <base> --todo-file <plan>");
+                        println!("   Or use 'git filter-repo' to remove specific files.");
+                    }
+                } else {
+                    println!("🔍 Scanning staged files for sensitive data...\n");
+                    let findings = scanner::scan_staged(repo_path)?;
+                    if findings.is_empty() {
+                        println!("✅ No sensitive data detected in staged files.");
+                    } else {
+                        println!("⚠️  Found {} issue(s):\n", findings.len());
+                        for f in &findings {
+                            println!("  {}:{} — {}", f.file, f.line, f.pattern_name);
+                            println!("  {}\n", f.preview);
+                        }
+                        println!("💡 Tip: use .env.example for placeholder values.");
                     }
                 }
             }
