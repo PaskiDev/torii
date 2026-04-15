@@ -153,7 +153,29 @@ impl GitRepo {
         let mut push_options = git2::PushOptions::new();
         push_options.remote_callbacks(callbacks);
 
+        // Push branch
         remote.push(&[&refspec], Some(&mut push_options))?;
+
+        // Push tags — reconnect callbacks (consumed above)
+        let mut callbacks2 = git2::RemoteCallbacks::new();
+        callbacks2.credentials(|_url, username_from_url, _allowed_types| {
+            git2::Cred::ssh_key(
+                username_from_url.unwrap(),
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
+                None,
+            )
+        });
+        let mut push_options2 = git2::PushOptions::new();
+        push_options2.remote_callbacks(callbacks2);
+        let tag_refspec = if force {
+            "+refs/tags/*:refs/tags/*".to_string()
+        } else {
+            "refs/tags/*:refs/tags/*".to_string()
+        };
+        // Best-effort: don't fail the whole push if tag push fails
+        let _ = remote.push(&[&tag_refspec], Some(&mut push_options2));
+
         Ok(())
     }
 

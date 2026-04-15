@@ -643,6 +643,17 @@ enum TagCommands {
         /// Tag name
         name: String,
     },
+
+    /// Create the next release tag based on conventional commits since last tag
+    Release {
+        /// Force a specific bump: major, minor, patch
+        #[arg(long)]
+        bump: Option<String>,
+
+        /// Preview the next version without creating the tag
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -788,14 +799,6 @@ impl Cli {
                     } else {
                         repo.commit(message)?;
                         println!("✅ Changes saved: {}", message);
-                        
-                        // Auto-tagging based on conventional commits
-                        let tagger = AutoTagger::new(repo);
-                        if let Err(e) = tagger.auto_tag(message) {
-                            // Don't fail the commit if auto-tagging fails
-                            eprintln!("⚠️  Auto-tagging failed: {}", e);
-                            eprintln!("   (Commit was successful, only tagging failed)");
-                        }
                     }
                 }
             }
@@ -1000,6 +1003,36 @@ impl Cli {
                     }
                     TagCommands::Show { name } => {
                         repo.show_tag(name)?;
+                    }
+                    TagCommands::Release { bump, dry_run } => {
+                        let tagger = AutoTagger::new(repo);
+                        let current = tagger.get_latest_version()?;
+
+                        let next = if let Some(bump_str) = bump {
+                            use crate::versioning::semver::VersionBump;
+                            let b = match bump_str.as_str() {
+                                "major" => VersionBump::Major,
+                                "minor" => VersionBump::Minor,
+                                "patch" => VersionBump::Patch,
+                                _ => anyhow::bail!("Invalid bump: use major, minor or patch"),
+                            };
+                            let base = current.unwrap_or_else(crate::versioning::semver::Version::initial);
+                            base.bump(b)
+                        } else {
+                            // Infer bump from commits since last tag
+                            tagger.calculate_next_version_from_log()?
+                                .ok_or_else(|| anyhow::anyhow!("No releasable commits found since last tag (need feat: or fix:)"))?
+                        };
+
+                        println!("📦 Current version: {}", current.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()));
+                        println!("🚀 Next version:    v{}", next);
+
+                        if *dry_run {
+                            println!("   (dry run — no tag created)");
+                        } else {
+                            tagger.create_tag(&next, &format!("Release v{}", next))?;
+                            println!("💡 Push with: torii sync --push");
+                        }
                     }
                 }
             }

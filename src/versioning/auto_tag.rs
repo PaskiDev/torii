@@ -74,14 +74,43 @@ impl AutoTagger {
         Ok(())
     }
     
-    /// Auto-tag based on commit message
-    pub fn auto_tag(&self, commit_msg: &str) -> Result<()> {
-        if let Some(version) = self.calculate_next_version(commit_msg)? {
-            self.create_tag(&version, commit_msg)?;
-        } else {
-            println!("ℹ️  No version tag created (commit type doesn't trigger versioning)");
+    /// Calculate next version by scanning commits since the last tag
+    pub fn calculate_next_version_from_log(&self) -> Result<Option<Version>> {
+        use std::process::Command;
+
+        let repo_path = self.repo.repo.path().parent().unwrap().to_path_buf();
+
+        // Get commits since last tag (or all commits if no tag)
+        let range = match self.get_latest_version()? {
+            Some(v) => format!("v{}..HEAD", v),
+            None => "HEAD".to_string(),
+        };
+
+        let output = Command::new("git")
+            .args(["log", &range, "--format=%s"])
+            .current_dir(&repo_path)
+            .output()?;
+
+        let messages = String::from_utf8_lossy(&output.stdout);
+
+        let mut highest = VersionBump::None;
+
+        for msg in messages.lines() {
+            let bump = self.determine_bump(msg).unwrap_or(VersionBump::None);
+            match bump {
+                VersionBump::Major => { highest = VersionBump::Major; break; }
+                VersionBump::Minor if highest != VersionBump::Major => { highest = VersionBump::Minor; }
+                VersionBump::Patch if highest == VersionBump::None => { highest = VersionBump::Patch; }
+                _ => {}
+            }
         }
-        Ok(())
+
+        if highest == VersionBump::None {
+            return Ok(None);
+        }
+
+        let base = self.get_latest_version()?.unwrap_or_else(Version::initial);
+        Ok(Some(base.bump(highest)))
     }
 }
 
