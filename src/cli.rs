@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 use std::path::PathBuf;
-use crate::alias::AliasConfig;
 use crate::config::ToriiConfig;
 use crate::core::GitRepo;
 use crate::remote::{get_platform_client, Visibility, RepoSettings, RepoFeatures};
@@ -285,12 +284,6 @@ enum Commands {
     /// Undo last operation (quick access to snapshot undo)
     Undo,
 
-    /// Manage custom command workflows
-    Custom {
-        #[command(subcommand)]
-        action: CustomCommands,
-    },
-
     /// Manage repository history
     History {
         #[command(subcommand)]
@@ -521,35 +514,6 @@ enum HistoryCommands {
     },
 }
 
-#[derive(Subcommand)]
-enum CustomCommands {
-    /// Create a new alias
-    Add {
-        /// Alias name
-        name: String,
-        
-        /// Command to execute (can include git or torii commands)
-        command: Vec<String>,
-    },
-    
-    /// List all aliases
-    List,
-    
-    /// Remove an alias
-    Remove {
-        /// Alias name to remove
-        name: String,
-    },
-    
-    /// Run an alias
-    Run {
-        /// Alias name to run
-        name: String,
-        
-        /// Additional arguments to pass to the alias
-        args: Vec<String>,
-    },
-}
 
 #[derive(Subcommand)]
 enum SnapshotCommands {
@@ -1172,26 +1136,6 @@ impl Cli {
                 println!("✅ Undone last operation");
             }
 
-            Commands::Custom { action } => {
-                let mut config = AliasConfig::load()?;
-                match action {
-                    CustomCommands::Add { name, command } => {
-                        let cmd_str = command.join(" ");
-                        config.add_alias(name.clone(), cmd_str)?;
-                        println!("✅ Custom workflow '{}' added", name);
-                    }
-                    CustomCommands::List => {
-                        config.list_aliases();
-                    }
-                    CustomCommands::Remove { name } => {
-                        config.remove_alias(name)?;
-                        println!("✅ Custom workflow '{}' removed", name);
-                    }
-                    CustomCommands::Run { name, args } => {
-                        config.run_alias(name, args)?;
-                    }
-                }
-            }
 
             Commands::Config { action } => {
                 match action {
