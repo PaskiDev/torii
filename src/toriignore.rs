@@ -4,31 +4,53 @@ use std::io::{self, BufRead};
 use anyhow::Result;
 
 /// Manages .toriignore patterns
+#[derive(Default)]
 pub struct ToriIgnore {
     patterns: Vec<String>,
 }
 
 impl ToriIgnore {
-    /// Load .toriignore from repository root, fallback to .gitignore if not found
+    /// Load .toriignore from repository root
     pub fn load<P: AsRef<Path>>(repo_path: P) -> Result<Self> {
-        let repo_path = repo_path.as_ref();
-        
-        // Try .toriignore first
-        let toriignore_path = repo_path.join(".toriignore");
+        let toriignore_path = repo_path.as_ref().join(".toriignore");
+
         if toriignore_path.exists() {
             return Self::from_file(&toriignore_path);
         }
-        
-        // Fallback to .gitignore for compatibility
-        let gitignore_path = repo_path.join(".gitignore");
-        if gitignore_path.exists() {
-            return Self::from_file(&gitignore_path);
-        }
-        
-        // No ignore file found, return empty
-        Ok(Self {
-            patterns: Vec::new(),
-        })
+
+        Ok(Self::default())
+    }
+
+    /// Default patterns for a new project
+    pub fn default_content() -> &'static str {
+        "# Torii ignore file — controls what torii tracks and snapshots\n\
+         # Syntax is identical to .gitignore\n\
+         \n\
+         # Build output\n\
+         /target\n\
+         /build\n\
+         /dist\n\
+         \n\
+         # Dependencies\n\
+         node_modules/\n\
+         .bun/\n\
+         \n\
+         # Environment & secrets\n\
+         .env\n\
+         .env.*\n\
+         !.env.example\n\
+         \n\
+         # Torii local config\n\
+         .torii/\n\
+         \n\
+         # OS & editor\n\
+         .DS_Store\n\
+         Thumbs.db\n\
+         *.swp\n\
+         *.swo\n\
+         *~\n\
+         .idea/\n\
+         .vscode/\n"
     }
     
     /// Load patterns from a file
@@ -56,13 +78,16 @@ impl ToriIgnore {
     /// Check if a path should be ignored
     pub fn is_ignored<P: AsRef<Path>>(&self, path: P) -> bool {
         let path_str = path.as_ref().to_string_lossy();
-        
+        let path_str = path_str.trim_start_matches('/');
+
         for pattern in &self.patterns {
-            if self.matches_pattern(&path_str, pattern) {
+            // Strip leading slash from pattern (means repo root in gitignore)
+            let pattern = pattern.trim_start_matches('/');
+            if self.matches_pattern(path_str, pattern) {
                 return true;
             }
         }
-        
+
         false
     }
     

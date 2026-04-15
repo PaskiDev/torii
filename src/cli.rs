@@ -720,7 +720,16 @@ impl Cli {
             Commands::Init { path } => {
                 let repo_path = path.as_deref().unwrap_or(".");
                 GitRepo::init(repo_path)?;
+
+                // Create .toriignore with sensible defaults
+                let toriignore_path = std::path::Path::new(repo_path).join(".toriignore");
+                if !toriignore_path.exists() {
+                    std::fs::write(&toriignore_path, crate::toriignore::ToriIgnore::default_content())
+                        .ok();
+                }
+
                 println!("✅ Initialized repository at {}", repo_path);
+                println!("   Created .toriignore with default patterns");
             }
 
             Commands::Save { message, all, files, amend, revert, reset, reset_mode } => {

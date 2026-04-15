@@ -23,8 +23,20 @@ impl GitRepo {
         Ok(Self { repo })
     }
 
-    /// Add all changes to staging
+    /// Add all changes to staging, respecting .toriignore
     pub fn add_all(&self) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+
+        // Sync .toriignore → .git/info/exclude so git itself respects the patterns
+        let toriignore_path = repo_path.join(".toriignore");
+        let exclude_path = self.repo.path().join("info").join("exclude");
+        if toriignore_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&toriignore_path) {
+                let header = "# Synced from .toriignore by torii\n";
+                let _ = std::fs::write(&exclude_path, format!("{}{}", header, content));
+            }
+        }
+
         let mut index = self.repo.index()?;
         index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
         index.write()?;

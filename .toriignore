@@ -1,87 +1,22 @@
-# Torii Ignore File
-# This file controls what gets ignored by Torii (commits and snapshots)
-# If .toriignore doesn't exist, Torii falls back to .gitignore for compatibility
-
-# ============================================
-# SECRETS & CREDENTIALS (CRITICAL)
-# ============================================
-.env
-.env.*
-!.env.example
-*.key
-*.pem
-*.p12
-*.pfx
-*.keystore
-secrets.yml
-secrets.yaml
-credentials.json
-config/secrets.*
-
-# API Keys and Tokens
-*token*
-*secret*
-*apikey*
-*api_key*
-*.credentials
-
-# ============================================
-# RUST
-# ============================================
-/target/
+# Rust
+/target
+/tests
 Cargo.lock
+/target
 **/*.rs.bk
 *.pdb
 
-# ============================================
-# IDE & EDITOR
-# ============================================
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.project
-.classpath
-.settings/
+.env
 
-# ============================================
-# OS FILES
-# ============================================
+# OS
 .DS_Store
-.DS_Store?
-._*
 Thumbs.db
-desktop.ini
 
-# ============================================
-# TORII SPECIFIC
-# ============================================
-.torii/snapshots/
-.torii/cache/
-.torii/tmp/
-
-# ============================================
-# BUILD ARTIFACTS
-# ============================================
-*.exe
-*.so
-*.dylib
-*.dll
-*.wasm
-*.min.js
-
-# ============================================
-# LOGS
-# ============================================
-*.log
-logs/
-
-# ============================================
-# PROJECT SPECIFIC
-# ============================================
-# Tests (optional - uncomment if you don't want to commit tests)
-# /tests/
-
-# Documentation (optional - uncomment if you want to keep docs local)
-# /docs/
+# Torii local config
+.torii/
