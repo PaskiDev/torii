@@ -98,6 +98,7 @@ const PATTERNS: &[Pattern] = &[
                 .nth(1)
                 .map(|v| {
                     let v = v.trim().trim_matches(|c: char| c == '"' || c == '\'' || c == '`');
+                    let vl = v.to_lowercase();
                     // Real secrets: no spaces, no sentence punctuation, min length
                     let looks_like_secret = v.len() >= 16
                         && !v.contains(' ')
@@ -107,11 +108,28 @@ const PATTERNS: &[Pattern] = &[
                         && !v.starts_with("process.env")
                         && !v.starts_with("env.")
                         && !v.starts_with("os.environ")
-                        && !v.eq_ignore_ascii_case("your_secret_here")
-                        && !v.eq_ignore_ascii_case("changeme")
-                        && !v.eq_ignore_ascii_case("placeholder")
-                        && !v.eq_ignore_ascii_case("todo")
-                        && !v.starts_with("<");
+                        && !v.starts_with("<")
+                        // English placeholders
+                        && !vl.eq("your_secret_here")
+                        && !vl.eq("changeme")
+                        && !vl.eq("placeholder")
+                        && !vl.eq("todo")
+                        && !vl.starts_with("your_")
+                        && !vl.starts_with("my_")
+                        && !vl.contains("example")
+                        && !vl.contains("sample")
+                        && !vl.contains("replace")
+                        && !vl.contains("change_me")
+                        && !vl.contains("insert")
+                        // Spanish placeholders
+                        && !vl.starts_with("tu_")
+                        && !vl.starts_with("mi_")
+                        && !vl.contains("cambiar")
+                        && !vl.contains("reemplazar")
+                        && !vl.contains("ejemplo")
+                        && !vl.contains("aqui")
+                        && !vl.contains("pon_")
+                        && !vl.contains("escribe");
                     looks_like_secret
                 })
                 .unwrap_or(false);
