@@ -446,7 +446,7 @@ impl GitRepo {
 
         let cmd = format!(
             "FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --index-filter \
-            'git rm --cached --ignore-unmatch {}' --tag-name-filter cat -- --all",
+            'git rm -r --cached --ignore-unmatch {}' --tag-name-filter cat -- --all",
             file_path
         );
 
