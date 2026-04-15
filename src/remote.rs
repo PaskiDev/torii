@@ -115,45 +115,47 @@ impl GitHubClient {
 
 impl PlatformClient for GitHubClient {
     fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility) -> Result<RemoteRepo> {
-        // TODO: Implement with reqwest when added as dependency
-        // For now, use GitHub CLI if available
-        let mut args = vec!["repo", "create", name];
-        
-        match visibility {
-            Visibility::Public => args.push("--public"),
-            Visibility::Private => args.push("--private"),
-            Visibility::Internal => args.push("--private"), // GitHub doesn't have Internal, default to private
-        }
-        
+        let private = matches!(visibility, Visibility::Private | Visibility::Internal);
+
+        let mut body = serde_json::json!({
+            "name": name,
+            "private": private,
+            "auto_init": false,
+        });
         if let Some(desc) = description {
-            args.push("--description");
-            args.push(desc);
+            body["description"] = serde_json::Value::String(desc.to_string());
         }
-        
-        let output = std::process::Command::new("gh")
-            .args(&args)
-            .output();
-        
-        match output {
-            Ok(out) if out.status.success() => {
-                println!("✅ Repository created on GitHub");
-                // Return placeholder repo info
-                Ok(RemoteRepo {
-                    name: name.to_string(),
-                    description: description.map(|s| s.to_string()),
-                    visibility,
-                    default_branch: "main".to_string(),
-                    url: format!("https://github.com/USER/{}", name),
-                    ssh_url: format!("git@github.com:USER/{}.git", name),
-                    clone_url: format!("https://github.com/USER/{}.git", name),
-                })
-            }
-            _ => {
-                Err(ToriiError::InvalidConfig(
-                    "Failed to create repository. Install GitHub CLI (gh) or set up API token".to_string()
-                ))
-            }
+
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .post("https://api.github.com/user/repos")
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/vnd.github.v3+json")
+            .header("User-Agent", "torii-cli")
+            .json(&body)
+            .send()
+            .map_err(|e| ToriiError::InvalidConfig(format!("GitHub API error: {}", e)))?;
+
+        if !resp.status().is_success() {
+            let msg = resp.text().unwrap_or_default();
+            return Err(ToriiError::InvalidConfig(format!("GitHub API error: {}", msg)));
         }
+
+        let json: serde_json::Value = resp.json()
+            .map_err(|e| ToriiError::InvalidConfig(format!("Failed to parse GitHub response: {}", e)))?;
+
+        let repo_name = json["name"].as_str().unwrap_or(name).to_string();
+        let owner = json["owner"]["login"].as_str().unwrap_or("unknown").to_string();
+
+        Ok(RemoteRepo {
+            name: repo_name.clone(),
+            description: description.map(|s| s.to_string()),
+            visibility,
+            default_branch: "main".to_string(),
+            url: format!("https://github.com/{}/{}", owner, repo_name),
+            ssh_url: format!("git@github.com:{}/{}.git", owner, repo_name),
+            clone_url: format!("https://github.com/{}/{}.git", owner, repo_name),
+        })
     }
     
     fn delete_repo(&self, owner: &str, repo: &str) -> Result<()> {
