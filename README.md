@@ -1,343 +1,206 @@
 # Torii ⛩️
 
-A modern Git client with simplified commands and advanced features for developers who want power without complexity.
+A human-first Git client. Simpler commands, built-in safety nets, and multi-platform support — designed for developers who want to focus on code, not version control syntax.
 
-## ✨ Features
+> Git was designed for Linus, by Linus. Torii is designed for everyone.
 
-### 🎯 Simplified Commands
-- **`torii save`** - Simplified commit (replaces `git add` + `git commit`)
-- **`torii sync`** - Smart push/pull in one command
-- **`torii switch`** - Easy branch switching and creation
-- **`torii clone`** - Clone with platform shortcuts (e.g., `torii clone github user/repo`)
+## Install
 
-### 📸 Snapshot Management
-- Create snapshots of your work at any time
-- Restore to previous states easily
-- Auto-snapshot configuration
-- Stash/unstash functionality
-
-### 🔄 Multi-Platform Mirrors
-- Sync your repository across GitHub, GitLab, Bitbucket, and Codeberg
-- Configure master/slave mirror relationships
-- Automatic synchronization
-- Protocol auto-detection (SSH/HTTPS)
-
-### 🚀 Portable CI/CD
-- Generate CI/CD configurations for multiple platforms
-- Import existing configurations
-- Validate and sync across platforms
-- Support for GitHub Actions, GitLab CI, and more
-
-### 🔧 Advanced Git Operations
-- **Smart merge/rebase** - `torii integrate` analyzes your branch and recommends merge or rebase
-- **Tag management** - Create, list, delete, push, and show tags
-- **Cherry-pick** - Apply specific commits to current branch with conflict resolution
-- **Blame** - See who changed each line of a file with line range support
-- **History rewriting** - Rewrite commit dates and clean repository history
-
-## 📦 Installation
-
-### From Source
-```bash
-git clone https://github.com/yourusername/torii.git
-cd torii
-cargo build --release
-```
-
-### Using Cargo
 ```bash
 cargo install torii
 ```
 
-## 🚀 Quick Start
+Or build from source:
 
-### Initialize a Repository
 ```bash
-torii init
+git clone https://gitlab.com/paskidev/torii.git
+cd torii
+cargo install --path .
 ```
 
-### Save Your Work
+## Quick start
+
 ```bash
-# Add all changes and commit
-torii save -am "Initial commit"
+# Save your work (replaces git add + git commit)
+torii save -am "feat: add user auth"
 
-# Amend previous commit
-torii save --amend -m "Updated commit"
+# Stage specific files only
+torii save src/auth.rs tests/auth.rs -m "feat: add user auth"
 
-# Revert a specific commit
-torii save --revert abc123 -m "Revert changes"
-
-# Reset to a specific commit
-torii save --reset abc123 --reset-mode soft  # soft, mixed, or hard
-```
-
-### Sync with Remote
-```bash
-# Pull and push in one command
+# Sync with remote (pull + push)
 torii sync
-
-# Pull only
-torii sync --pull
 
 # Push only
 torii sync --push
-
-# Force push
-torii sync --force
-
-# Fetch only (update refs without merging)
-torii sync --fetch
 ```
 
-### Branch Management
+## Command reference
+
+### Core
+
+| Command | Description |
+|---------|-------------|
+| `torii init` | Initialize a repository |
+| `torii save -m "msg"` | Commit staged changes |
+| `torii save -am "msg"` | Stage all and commit |
+| `torii save <files> -m "msg"` | Stage specific files and commit |
+| `torii save --amend -m "msg"` | Amend last commit |
+| `torii save --revert <hash> -m "msg"` | Revert a commit |
+| `torii save --reset <hash> --reset-mode soft` | Reset to commit |
+| `torii sync` | Pull and push |
+| `torii sync --push` | Push only |
+| `torii sync --pull` | Pull only |
+| `torii sync --force` | Force push |
+| `torii sync --fetch` | Fetch without merging |
+| `torii sync <branch>` | Integrate branch |
+| `torii status` | Repository status |
+| `torii diff` | Show unstaged changes |
+| `torii diff --staged` | Show staged changes |
+| `torii diff --last` | Show last commit diff |
+
+### Branches
+
 ```bash
-# List branches
-torii branch
-
-# Switch to existing branch
-torii branch main
-
-# Create and switch to new branch
-torii branch feature-x -c
-
-# Delete a branch
-torii branch -d old-feature
-
-# Rename current branch
+torii branch                  # list local branches
+torii branch --all            # list local and remote branches
+torii branch feature -c       # create and switch
+torii branch main             # switch to branch
+torii branch -d old-branch    # delete branch
 torii branch --rename new-name
 ```
 
-### Clone Repositories
-```bash
-# Clone with platform shorthand
-torii clone github facebook/react
-torii clone gitlab user/project
-torii clone codeberg user/repo
+### History
 
-# Clone with full URL
-torii clone https://github.com/user/repo.git
+```bash
+torii log                          # last 10 commits
+torii log -n 50                    # last 50 commits
+torii log --oneline                # compact view
+torii log --author "Pasqual"       # filter by author
+torii log --since 2026-01-01       # filter by date
+torii log --grep "feat"            # filter by message
+torii log --stat                   # show file change stats
+torii history reflog               # HEAD movement history
+torii history rewrite "start" "end"  # rewrite commit dates
+torii history clean                # gc + reflog expire
 ```
 
-## 📚 Command Reference
-
-### Basic Commands
-- `torii init` - Initialize a new repository
-- `torii save` - Save changes (commit, amend, revert, reset)
-- `torii sync` - Synchronize with remote OR integrate branches
-- `torii status` - Show repository status
-- `torii log` - View commit history
-- `torii diff` - Show changes
-- `torii branch` - Manage and switch branches
-- `torii clone` - Clone repository
-- `torii undo` - Undo last operation (quick access)
-
-### Advanced Git Commands
-- `torii cherry-pick` - Apply a commit to current branch
-- `torii blame` - Show who changed each line of a file
-- `torii switch` - DEPRECATED: Use `torii branch <name>` instead
-- `torii integrate` - DEPRECATED: Use `torii sync <branch>` instead
-
-### Tag Commands
-- `torii tag create` - Create a new tag
-- `torii tag list` - List all tags
-- `torii tag delete` - Delete a tag
-- `torii tag push` - Push tags to remote
-- `torii tag show` - Show tag details
-
-### Snapshot Commands
-- `torii snapshot create` - Create a snapshot
-- `torii snapshot list` - List all snapshots
-- `torii snapshot restore` - Restore from snapshot
-- `torii snapshot delete` - Delete a snapshot
-- `torii snapshot stash` - Stash current work
-- `torii snapshot unstash` - Restore stashed work
-- `torii snapshot undo` - Undo last operation
-
-### Mirror Commands
-- `torii mirror add-master` - Add master mirror
-- `torii mirror add-slave` - Add slave mirror
-- `torii mirror list` - List all mirrors
-- `torii mirror sync` - Synchronize mirrors
-- `torii mirror set-master` - Change master mirror
-- `torii mirror remove` - Remove a mirror
-
-### History Commands
-- `torii history rewrite` - Rewrite commit dates
-- `torii history clean` - Clean repository (gc, reflog)
-- `torii history verify-remote` - Verify remote status
-
-### CI/CD Commands
-- `torii ci validate` - Validate CI/CD configuration
-- `torii ci generate` - Generate CI/CD configs
-- `torii ci import` - Import existing configs
-- `torii ci sync` - Sync configs across platforms
-- `torii ci diff` - Show config differences
-
-### Utility Commands
-- `torii ssh-check` - Check SSH configuration
-- `torii help` - Show help information
-
-## 🔐 SSH Configuration
-
-Torii automatically detects SSH keys and uses the appropriate protocol:
+### Rebase
 
 ```bash
-# Check your SSH setup
-torii ssh-check
+torii rebase main                  # rebase onto branch
+torii rebase -i HEAD~5             # interactive rebase
+torii rebase HEAD~5 --todo-file plan.txt  # rebase with pre-written todo
+torii rebase --continue
+torii rebase --abort
+torii rebase --skip
 ```
 
-If you don't have SSH keys, Torii will guide you through the setup process.
+### Snapshots
 
-## 🌟 Examples
+Snapshots are local saves — not commits. Use them before risky operations.
 
-### Complete Workflow
 ```bash
-# Clone a project
-torii clone github facebook/react
-
-# Create a feature branch
-cd react
-torii switch -c fix-bug-123
-
-# Make changes and save
-echo "fix" > bugfix.js
-torii save -am "Fix bug #123"
-
-# View your changes
-torii diff --last
-
-# Sync with remote
-torii sync
+torii snapshot create -n "before-refactor"
+torii snapshot list
+torii snapshot restore <id>
+torii snapshot delete <id>
+torii snapshot stash              # stash current work
+torii snapshot stash -u           # include untracked files
+torii snapshot unstash
+torii snapshot undo               # undo last operation
+torii undo                        # shortcut
 ```
 
-### Multi-Platform Mirroring
+### Tags
+
 ```bash
-# Set up GitHub as master
-torii mirror add-master github user myproject myrepo
-
-# Add GitLab as slave
-torii mirror add-slave gitlab user myproject myrepo
-
-# Sync all mirrors
-torii mirror sync
+torii tag create v1.0.0 -m "Release"
+torii tag list
+torii tag delete v1.0.0
+torii tag push v1.0.0
+torii tag show v1.0.0
+torii tag release                 # auto-bump from commits since last tag
+torii tag release --bump minor    # force bump type
+torii tag release --dry-run       # preview without creating
 ```
 
-### Mirror Management
+`torii tag release` reads your commits since the last tag and bumps the version following [Conventional Commits](https://www.conventionalcommits.org/):
+- `feat:` → minor bump
+- `fix:` / `perf:` → patch bump
+- `feat!:` / breaking → major bump
 
-Sync your repository across multiple platforms:
-
-**Supported platforms:** GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo, SourceHut, SourceForge, or any custom Git server.
+### Security scanner
 
 ```bash
-# Add mirrors with platform shortcuts
+torii scan                  # scan staged files before committing
+torii scan --history        # scan entire git history
+```
+
+Runs automatically before every `torii save`. Detects JWT tokens, AWS keys, GitHub/GitLab tokens, Stripe keys, PEM private keys, database connection strings with credentials, and generic API keys. Files named `*.example`, `*.sample`, or `*.template` are always allowed.
+
+### Mirrors
+
+Mirror your repository across multiple platforms simultaneously.
+
+```bash
 torii mirror add-master github user myrepo user
 torii mirror add-slave gitlab user myrepo user
 torii mirror add-slave codeberg user myrepo user
-torii mirror add-slave forgejo user myrepo user
-torii mirror add-slave srht user myrepo user
-
-# Add custom Git servers (self-hosted, corporate, etc.)
-torii mirror add-slave https://git.company.com/team/project.git org team project
-torii mirror add-slave git@gitlab.selfhosted.io:dev/app.git user dev app
-
-# Sync to all mirrors
 torii mirror sync
+torii mirror list
+torii mirror remove <name>
+torii mirror autofetch --enable --interval 30m
 ```
 
-### Snapshot Management
+Supported platforms: GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo, SourceHut, SourceForge, and any custom Git server.
+
+### Remote repository management
+
+Create and manage repositories directly from the CLI:
+
 ```bash
-# Create a snapshot before risky changes
-torii snapshot create -n "before-refactor"
+torii remote create github myrepo --public
+torii remote delete github owner myrepo --yes
+torii remote visibility github owner myrepo --public
+torii remote info github owner myrepo
+torii remote list github
 
-# Make changes...
-
-# If something goes wrong, restore
-torii snapshot restore <snapshot-id>
+# Batch operations across platforms
+torii repo myrepo --platforms github,gitlab --create --public
+torii repo myrepo --platforms github,gitlab --delete --yes
 ```
 
-### Smart Integration
+### Other commands
+
 ```bash
-# Preview merge/rebase recommendation
-torii integrate feature-branch --preview
-
-# Integrate with recommended strategy
-torii integrate feature-branch
-
-# Force merge even if rebase is recommended
-torii integrate feature-branch --merge
+torii clone github user/repo      # clone with platform shorthand
+torii clone https://...           # clone with full URL
+torii cherry-pick <hash>          # apply commit to current branch
+torii blame src/main.rs           # line-by-line change history
+torii blame src/main.rs -L 10,20  # specific line range
+torii tag release                 # cut a release
+torii ssh-check                   # verify SSH setup
+torii custom add <name> <cmd>     # save custom workflow
+torii custom run <name>           # run custom workflow
+torii config set user.name "..."  # global or local config
 ```
 
-### Tag Management
-```bash
-# Create an annotated tag
-torii tag create v1.0.0 -m "Release version 1.0.0"
-
-# List all tags
-torii tag list
-
-# Push tags to remote
-torii tag push v1.0.0
-
-# Show tag details
-torii tag show v1.0.0
-```
-
-### Cherry-Pick and Blame
-```bash
-# Apply a specific commit to current branch
-torii cherry-pick abc123
-
-# Show who changed each line
-torii blame src/main.rs
-
-# Show blame for specific line range
-torii blame src/main.rs -L 10,20
-```
-
-## 🎯 Why Torii?
-
-### Simplified Workflow
-Git commands can be complex and verbose. Torii simplifies common operations:
+## Why Torii?
 
 | Git | Torii |
 |-----|-------|
 | `git add . && git commit -m "msg"` | `torii save -am "msg"` |
 | `git pull && git push` | `torii sync` |
 | `git switch -c branch` | `torii branch branch -c` |
-| `git switch branch` | `torii branch branch` |
 | `git fetch` | `torii sync --fetch` |
-| `git reset --soft HEAD~1` | `torii save --reset HEAD~1 --reset-mode soft` |
-| `git revert abc123` | `torii save --revert abc123 -m "msg"` |
-| `git merge feature` | `torii sync feature --merge` |
-| `git rebase main` | `torii sync main --rebase` |
-| `git clone https://...` | `torii clone github user/repo` |
+| `git reset --soft HEAD~1 -m "msg"` | `torii save --reset HEAD~1 --reset-mode soft -m "msg"` |
+| `git rebase -i HEAD~3` | `torii rebase -i HEAD~3` |
+| `git stash push -u` | `torii snapshot stash -u` |
+| Push to 3 platforms | `torii mirror sync` |
+| Hunt for exposed secrets | `torii scan --history` |
 
-### Advanced Features
-- **Snapshots**: Time-travel through your work
-- **Multi-Mirror**: Keep your code synced across platforms
-- **Portable CI/CD**: One configuration, multiple platforms
-- **Smart Operations**: Auto-detect best practices
+## Links
 
-### Developer-Friendly
-- Clear, concise commands
-- Helpful error messages
-- Auto-detection of SSH/HTTPS
-- Built-in best practices
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-MIT License - see LICENSE file for details
-
-## 🔗 Links
-
-- [Documentation](docs/)
-- [Issue Tracker](https://github.com/yourusername/torii/issues)
-- [Changelog](CHANGELOG.md)
-
----
-
-**Torii** - Simplifying Git, one command at a time 🎌
+- [Website](https://torii.sh)
+- [Issues](https://gitlab.com/paskidev/torii/-/issues)
+- [License](LICENSE)

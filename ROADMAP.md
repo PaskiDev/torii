@@ -1,285 +1,105 @@
-# Torii ⛩️ - Roadmap & Checklist
+# Torii ⛩️ — Roadmap
 
-## ✅ Implementado (v0.1.0 - v0.3.0)
+## Released — v0.1.0
 
-### Core Git Operations
-- [x] `torii init` - Inicializar repositorio
-- [x] `torii save` - Commit simplificado
-  - [x] `--amend` - Modificar último commit
-  - [x] `--revert` - Revertir commit específico
-  - [x] `--reset` - Reset a commit específico (soft/mixed/hard)
-- [x] `torii sync` - Push/pull inteligente
-  - [x] `--pull` - Solo pull
-  - [x] `--push` - Solo push
-  - [x] `--force` - Force push
-  - [x] `--fetch` - Solo fetch sin merge
-  - [x] Integración de ramas (`sync <branch>`)
-- [x] `torii status` - Estado del repositorio
-- [x] `torii log` - Historial de commits
-- [x] `torii diff` - Mostrar cambios
-- [x] `torii branch` - Gestión de ramas
-  - [x] Listar ramas
-  - [x] Cambiar a rama existente
-  - [x] Crear nueva rama (`-c`)
-  - [x] Eliminar rama (`-d`)
-  - [x] Renombrar rama (`--rename`)
-- [x] `torii clone` - Clonar repositorios
-  - [x] Shortcuts de plataforma (github, gitlab, etc.)
-  - [x] URLs completas
+### Core git operations
+- [x] `torii save` — commit with amend, revert, reset, selective file staging
+- [x] `torii sync` — push/pull/fetch, force push, branch integration, auto tag push
+- [x] `torii status` — repository status with suggestions
+- [x] `torii log` — history with --author, --since, --until, --grep, --stat filters
+- [x] `torii diff` — unstaged, staged, last commit
+- [x] `torii branch` — list (local + remote), create, switch, delete, rename
+- [x] `torii clone` — with platform shortcuts (github, gitlab, codeberg…)
+- [x] `torii cherry-pick` — apply commits with --continue / --abort
+- [x] `torii blame` — line-by-line with range support
 
-### Advanced Git Features
-- [x] `torii cherry-pick` - Aplicar commits específicos
-- [x] `torii blame` - Ver quién cambió cada línea
-- [x] `torii tag` - Gestión de tags
-  - [x] `create` - Crear tags
-  - [x] `list` - Listar tags
-  - [x] `delete` - Eliminar tags
-  - [x] `push` - Push tags
-  - [x] `show` - Mostrar detalles
-- [x] `torii integrate` - Merge/rebase inteligente (DEPRECADO → usar `sync <branch>`)
-- [x] `torii switch` - Cambio de ramas (DEPRECADO → usar `branch <name>`)
+### Rebase
+- [x] `torii rebase <target>` — rebase onto branch or commit
+- [x] `torii rebase -i <target>` — interactive rebase (opens editor)
+- [x] `torii rebase --todo-file <file>` — non-interactive with pre-written todo
+- [x] `torii rebase --continue / --abort / --skip`
 
-### Snapshot System
-- [x] `torii snapshot create` - Crear snapshots
-- [x] `torii snapshot list` - Listar snapshots
-- [x] `torii snapshot restore` - Restaurar snapshot
-- [x] `torii snapshot delete` - Eliminar snapshot
-- [x] `torii snapshot stash` - Stash temporal
-- [x] `torii snapshot unstash` - Restaurar stash
-- [x] `torii snapshot undo` - Deshacer última operación
-- [x] `torii undo` - Acceso rápido a snapshot undo
-- [x] Auto-snapshot en operaciones críticas
-- [x] Sistema de retención configurable
+### Snapshots
+- [x] `torii snapshot create / list / restore / delete`
+- [x] `torii snapshot stash / unstash` — including untracked files (`-u`)
+- [x] `torii snapshot undo` / `torii undo`
+- [x] Auto-snapshot configuration
 
-### Mirror Management
-- [x] `torii mirror add-master` - Añadir mirror principal
-- [x] `torii mirror add-slave` - Añadir mirror esclavo
-- [x] `torii mirror list` - Listar mirrors
-- [x] `torii mirror sync` - Sincronizar mirrors
-- [x] `torii mirror set-master` - Cambiar mirror principal
-- [x] `torii mirror remove` - Eliminar mirror
-- [x] `torii mirror autofetch` - Configurar autofetch
-- [x] Soporte para 8 plataformas:
-  - [x] GitHub
-  - [x] GitLab
-  - [x] Codeberg
-  - [x] Bitbucket
-  - [x] Gitea
-  - [x] Forgejo
-  - [x] SourceHut (srht)
-  - [x] SourceForge
-- [x] Soporte para servidores Git custom (URLs completas)
-- [x] Auto-detección SSH/HTTPS
+### History
+- [x] `torii history rewrite` — rewrite commit dates across full history
+- [x] `torii history clean` — gc + reflog expire
+- [x] `torii history verify-remote`
+- [x] `torii history reflog` — explore HEAD movement history
 
-### Custom Workflows
-- [x] `torii custom add` - Crear workflow personalizado
-- [x] `torii custom list` - Listar workflows
-- [x] `torii custom run` - Ejecutar workflow
-- [x] `torii custom remove` - Eliminar workflow
-- [x] Persistencia en `~/.config/torii/aliases.toml`
-- [x] Soporte para argumentos dinámicos
+### Tags & releases
+- [x] `torii tag create / list / delete / push / show`
+- [x] `torii tag release` — auto-bump from conventional commits since last tag
+- [x] `torii tag release --bump major|minor|patch` — manual override
+- [x] `torii tag release --dry-run`
 
-### History Management
-- [x] `torii history rewrite` - Reescribir fechas de commits
-- [x] `torii history clean` - Limpiar repositorio (gc, reflog)
-- [x] `torii history verify-remote` - Verificar estado remoto
+### Security scanner
+- [x] `torii scan` — scan staged files for secrets before committing
+- [x] `torii scan --history` — scan entire git history
+- [x] Pre-save hook — warns and asks confirmation on detection
+- [x] Detects: JWT, AWS keys, GitHub/GitLab tokens, Stripe, Twilio, PEM keys, DB connection strings, generic API keys
+- [x] Whitelists `.example`, `.sample`, `.template` files automatically
 
-### Configuration System
-- [x] `torii config set` - Establecer valores de configuración
-- [x] `torii config get` - Obtener valores de configuración
-- [x] `torii config list` - Listar toda la configuración
-- [x] `torii config edit` - Editar archivo de configuración
-- [x] `torii config reset` - Resetear a valores por defecto
-- [x] Configuración global (`~/.config/torii/config.toml`)
-- [x] Configuración local por repositorio (`.torii/config.toml`)
-- [x] Merge automático de configs (local > global)
-- [x] Configuraciones disponibles:
-  - [x] `user.name`, `user.email`, `user.editor`
-  - [x] `snapshot.auto_enabled`, `snapshot.auto_interval_minutes`, `snapshot.retention_days`, `snapshot.max_snapshots`
-  - [x] `mirror.autofetch_enabled`, `mirror.autofetch_interval_minutes`, `mirror.default_protocol`
-  - [x] `git.default_branch`, `git.sign_commits`, `git.gpg_key`, `git.pull_rebase`
-  - [x] `ui.colors`, `ui.emoji`, `ui.verbose`, `ui.date_format`
+### Mirrors
+- [x] `torii mirror add-master / add-slave / list / sync / remove / set-master`
+- [x] `torii mirror autofetch` — automatic background sync
+- [x] Platforms: GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo, SourceHut, SourceForge, custom servers
+- [x] SSH / HTTPS auto-detection
 
-### Remote Repository Management
-- [x] `torii remote create` - Crear repositorio remoto
-- [x] `torii remote delete` - Eliminar repositorio remoto
-- [x] `torii remote visibility` - Cambiar visibilidad (público/privado)
-- [x] `torii remote configure` - Configurar settings del repositorio
-- [x] `torii remote info` - Obtener información del repositorio
-- [x] `torii remote list` - Listar repositorios del usuario
-- [x] Soporte para GitHub (vía GitHub CLI)
-- [ ] Soporte para GitLab (API REST - pendiente)
-- [ ] Soporte para Codeberg (API REST - pendiente)
-- [x] Gestión de visibilidad (público/privado)
-- [x] Configuración de features (issues, wiki, projects)
-- [x] Push automático tras creación
+### Remote repository management
+- [x] `torii remote create / delete / visibility / configure / info / list`
+- [x] `torii repo` — batch operations across multiple platforms simultaneously
 
-### Utilities
-- [x] `torii ssh-check` - Verificar configuración SSH
-- [x] Sistema de errores mejorado
-- [x] Detección automática de protocolo
-- [x] ToriIgnore (exclusión de archivos en snapshots)
-
-### Documentation
-- [x] README principal actualizado
-- [x] 10 traducciones i18n completas
-- [x] Documentación de contribución
-- [x] Documentación de seguridad
-- [x] Publicación defensiva de patentes
-- [x] Guías de desarrollo y testing
+### Config & utilities
+- [x] `torii config set / get / list / edit / reset` — global + local
+- [x] `torii custom add / list / run / remove` — custom workflow aliases
+- [x] `torii ssh-check`
+- [x] `.toriignore` support
 
 ---
 
-## 🚧 En Progreso / Próximas Features
+## In progress / Next
 
-### CI/CD Portable (Mencionado en README pero NO implementado)
-- [ ] `torii ci validate` - Validar configuración CI/CD
-- [ ] `torii ci generate` - Generar configs para múltiples plataformas
-- [ ] `torii ci import` - Importar configs existentes
-- [ ] `torii ci sync` - Sincronizar configs entre plataformas
-- [ ] `torii ci diff` - Mostrar diferencias de configs
-- [ ] Soporte para:
-  - [ ] GitHub Actions
-  - [ ] GitLab CI
-  - [ ] Bitbucket Pipelines
-  - [ ] Drone CI
-  - [ ] Jenkins
+### Platform API completion
+- [ ] Gitea — remote management API (stubbed, returns not implemented)
+- [ ] Forgejo — remote management API
+- [ ] Codeberg — remote management API
+
+### Scanner improvements
+- [ ] `torii scan --fix` — auto-remove detected secrets from staged files
+- [ ] Custom pattern rules via `.toriignore` or config
+- [ ] Pre-push scan (not just pre-save)
+
+### Snapshot improvements
+- [ ] Snapshot compression for old entries
+- [ ] Remote snapshot backup
+- [ ] Diff between two snapshots
+
+### Interactive staging
+- [ ] `torii save --patch` — stage hunks interactively (like `git add -p`)
+
+### Log improvements
+- [ ] `torii log --graph` — visual branch graph
+- [ ] `torii log -S <string>` — pickaxe search
+
+---
+
+## Future
 
 ### GUI (Tauri)
-- [ ] Interfaz gráfica de escritorio
-- [ ] Visualización de historial
-- [ ] Gestión visual de ramas
-- [ ] Diff visual
-- [ ] Gestión de mirrors visual
-- [ ] Configuración visual
-- [ ] Soporte multiplataforma:
-  - [ ] Windows
-  - [ ] macOS
-  - [ ] Linux
+Natural language interface with embedded console for advanced users. No commands required for common operations — the focus is on intent, not syntax.
 
-### TUI (Ratatui)
-- [ ] Interfaz de terminal interactiva
-- [ ] Navegación con teclado
-- [ ] Visualización de estado en tiempo real
-- [ ] Gestión interactiva de snapshots
-- [ ] Vista de árbol de commits
+### New VCS
+Torii is currently a Git wrapper. The long-term goal is a new version control system built from scratch around human workflows rather than technical implementation details. Torii will provide a migration path from Git to the new VCS.
 
-### Mobile (Futuro)
-- [ ] App iOS (Tauri)
-- [ ] App Android (Tauri)
-- [ ] Monitoreo de repositorios
-- [ ] Operaciones básicas
-- [ ] Notificaciones
-
-### Mejoras de Mirror
-- [ ] Sincronización bidireccional inteligente
-- [ ] Gestión de PRs multi-plataforma desde Torii
-- [ ] Detección y resolución de conflictos entre mirrors
-- [ ] Dashboard de estado de mirrors
-- [ ] Webhooks para sincronización automática
-- [ ] Reconciliación de estado tras fallos parciales
-
-### Análisis de Código (Premium - Planeado)
-- [ ] Análisis estático de código
-- [ ] Detección de code smells
-- [ ] Sugerencias de refactoring
-- [ ] Métricas de calidad
-- [ ] Integración con herramientas de análisis
-
-### Mejoras de Snapshots
-- [ ] Implementar ToriIgnore completo para snapshots
-- [ ] Compresión de snapshots antiguos
-- [ ] Exportar/importar snapshots
-- [ ] Snapshots remotos (backup en la nube)
-- [ ] Diff visual entre snapshots
-
-### Performance & Optimización
-- [ ] Caché de operaciones Git frecuentes
-- [ ] Paralelización de operaciones de mirror
-- [ ] Optimización de snapshots grandes
-- [ ] Índice de búsqueda rápida en historial
-- [ ] Lazy loading de datos pesados
-
-### Seguridad
-- [ ] Firma GPG de commits desde Torii
-- [ ] Verificación de firmas
-- [ ] Gestión de credenciales segura
-- [ ] Auditoría de operaciones
-- [ ] 2FA para operaciones críticas
-
-### Integrations
-- [ ] Plugin system
-- [ ] API REST para integraciones
-- [ ] Webhooks personalizados
-- [ ] Integración con IDEs (VS Code, IntelliJ, etc.)
-- [ ] Integración con gestores de proyectos (Jira, Trello, etc.)
-
-### Testing & Quality
-- [ ] Aumentar cobertura de tests (actualmente básica)
-- [ ] Tests de integración completos
-- [ ] Tests end-to-end
-- [ ] Benchmarks de performance
-- [ ] Fuzzing para robustez
-
-### Documentation
-- [ ] Video tutoriales
-- [ ] Documentación interactiva
-- [ ] Ejemplos de casos de uso complejos
-- [ ] Guía de migración desde Git puro
-- [ ] Best practices guide
+### CI/CD portable configuration
+- Generate CI/CD configs for multiple platforms from a single source
+- Validate and sync across GitHub Actions, GitLab CI, and others
 
 ---
 
-## 🎯 Roadmap por Versiones
-
-### v0.4.0 (Próxima - Q2 2026)
-- [ ] Implementar sistema CI/CD portable completo
-- [ ] Mejorar sistema de mirrors (bidireccional)
-- [ ] ToriIgnore completo en snapshots
-- [ ] Tests de integración completos
-
-### v0.5.0 (Q3 2026)
-- [ ] TUI básico con Ratatui
-- [ ] Plugin system básico
-- [ ] API REST para integraciones
-- [ ] Mejoras de performance
-
-### v0.6.0 (Q4 2026)
-- [ ] GUI básico con Tauri (Desktop)
-- [ ] Gestión de PRs multi-plataforma
-- [ ] Firma GPG de commits
-- [ ] Dashboard de mirrors
-
-### v1.0.0 (Q1 2027)
-- [ ] GUI completo y pulido
-- [ ] Mobile apps (iOS/Android)
-- [ ] Sistema de plugins maduro
-- [ ] Análisis de código (Premium)
-- [ ] Documentación completa
-
----
-
-## 📊 Estado Actual
-
-**Versión Actual**: v0.3.0
-**Comandos Implementados**: 45+
-**Plataformas Soportadas**: 8 + custom
-**Idiomas Documentados**: 11 (EN + 10 traducciones)
-**Cobertura de Tests**: Básica (necesita mejora)
-
-**Progreso General**: ~40% del roadmap completo
-
----
-
-## 🤝 Contribuciones
-
-Si quieres contribuir a alguna de estas features, revisa:
-- `CONTRIBUTING.md` - Guía de contribución
-- `DEVELOPMENT.md` - Guía de desarrollo
-- `TESTING.md` - Guía de testing
-
-Abre un issue para discutir features grandes antes de implementarlas.
-
----
-
-**Última actualización**: Abril 2026
+*Last updated: April 2026*
