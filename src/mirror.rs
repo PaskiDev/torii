@@ -372,6 +372,16 @@ impl MirrorManager {
         push_options.remote_callbacks(callbacks);
 
         remote.push(&[&refspec], Some(&mut push_options))?;
+
+        // Push tags via subprocess (git2 doesn't support glob refspecs)
+        let repo_path = repo.repository().path().parent().unwrap().to_path_buf();
+        let mut tag_args = vec!["push", &mirror.name, "--tags"];
+        if force { tag_args.push("--force"); }
+        let _ = std::process::Command::new("git")
+            .args(&tag_args)
+            .current_dir(&repo_path)
+            .output();
+
         Ok(())
     }
 
