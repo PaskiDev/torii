@@ -748,7 +748,11 @@ impl Cli {
                     if !findings.is_empty() {
                         println!("⚠️  Sensitive data detected in staged files:\n");
                         for f in &findings {
-                            println!("   {}:{} — {} ", f.file, f.line, f.pattern_name);
+                            if f.line == 0 {
+                                println!("   {} — {}", f.file, f.pattern_name);
+                            } else {
+                                println!("   {}:{} — {}", f.file, f.line, f.pattern_name);
+                            }
                             println!("   {}\n", f.preview);
                         }
                         println!("💡 Tip: use .env.example for placeholder values — those files are always safe to commit.");

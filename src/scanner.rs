@@ -187,6 +187,34 @@ fn is_example_file(path: &str) -> bool {
         || lower.contains(".sample.")
 }
 
+/// Files that are inherently sensitive and should never be committed
+fn is_sensitive_file(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = lower.split('/').last().unwrap_or(&lower);
+
+    // Exact filenames
+    matches!(filename,
+        ".env" | ".envrc" | "secrets.json" | "secrets.yaml" | "secrets.yml" |
+        "credentials.json" | "credentials.yml" | "credentials.yaml" |
+        ".netrc" | ".npmrc" | ".pypirc"
+    )
+    // .env variants: .env.local, .env.production, etc.
+    || (filename.starts_with(".env.") && !is_example_file(path))
+    // Private key files
+    || lower.ends_with("_rsa")
+    || lower.ends_with("_ed25519")
+    || lower.ends_with("_ecdsa")
+    || lower.ends_with(".pem")
+    || lower.ends_with(".p12")
+    || lower.ends_with(".pfx")
+    || lower.ends_with(".key")
+    || lower.ends_with(".keystore")
+    // Auth files
+    || filename == "id_rsa"
+    || filename == "id_ed25519"
+    || filename == "id_ecdsa"
+}
+
 /// Binary-like or generated files to skip
 fn should_skip_file(path: &str) -> bool {
     let lower = path.to_lowercase();
@@ -223,6 +251,17 @@ pub fn scan_staged(repo_path: &Path) -> Result<Vec<Finding>> {
     for file_path in staged_files.lines() {
         if is_example_file(file_path) || should_skip_file(file_path) {
             continue;
+        }
+
+        // Check if the file itself is sensitive (e.g. .env, *.pem, id_rsa)
+        if is_sensitive_file(file_path) {
+            findings.push(Finding {
+                file: file_path.to_string(),
+                line: 0,
+                pattern_name: "Sensitive file — should not be committed".to_string(),
+                preview: format!("⚠  {} should not be tracked by version control", file_path),
+            });
+            continue; // no need to scan content
         }
 
         // Get staged content of the file
