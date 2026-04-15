@@ -1,9 +1,5 @@
 [package]
 name = "gitorii"
-
-[[bin]]
-name = "torii"
-path = "src/main.rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Paski <paski@paski.dev>"]
@@ -14,6 +10,11 @@ homepage = "https://gitorii.com"
 documentation = "https://gitlab.com/paskidev/torii/-/blob/main/README.md"
 keywords = ["git", "vcs", "cli", "mirror", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
+publish = true
+
+[[bin]]
+name = "torii"
+path = "src/main.rs"
 
 [dependencies]
 # CLI argument parsing
