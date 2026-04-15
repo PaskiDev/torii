@@ -8,35 +8,83 @@ use chrono::{DateTime, NaiveDateTime};
 
 impl GitRepo {
     /// Show commit history
-    pub fn log(&self, count: Option<usize>, oneline: bool, _graph: bool) -> Result<()> {
+    pub fn log(
+        &self,
+        count: Option<usize>,
+        oneline: bool,
+        _graph: bool,
+        author: Option<&str>,
+        since: Option<&str>,
+        until: Option<&str>,
+        grep: Option<&str>,
+        stat: bool,
+    ) -> Result<()> {
         let mut revwalk = self.repository().revwalk()?;
         revwalk.push_head()?;
-        
+
         let max_count = count.unwrap_or(10);
         let mut shown = 0;
-        
+
+        // Parse date filters
+        let since_ts: Option<i64> = since.and_then(|s| {
+            NaiveDateTime::parse_from_str(&format!("{} 00:00:00", s), "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .map(|dt| dt.and_utc().timestamp())
+        });
+        let until_ts: Option<i64> = until.and_then(|s| {
+            NaiveDateTime::parse_from_str(&format!("{} 23:59:59", s), "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .map(|dt| dt.and_utc().timestamp())
+        });
+
         println!("📜 Commit History:");
         println!();
-        
+
         for oid in revwalk {
             if shown >= max_count {
                 break;
             }
-            
+
             let oid = oid?;
             let commit = self.repository().find_commit(oid)?;
-            
+            let ts = commit.time().seconds();
+
+            // Author filter
+            if let Some(filter) = author {
+                let name = commit.author().name().unwrap_or("").to_lowercase();
+                let email = commit.author().email().unwrap_or("").to_lowercase();
+                let f = filter.to_lowercase();
+                if !name.contains(&f) && !email.contains(&f) {
+                    continue;
+                }
+            }
+
+            // Date filters
+            if let Some(s) = since_ts {
+                if ts < s { continue; }
+            }
+            if let Some(u) = until_ts {
+                if ts > u { continue; }
+            }
+
+            // Grep filter
+            if let Some(pattern) = grep {
+                let msg = commit.message().unwrap_or("");
+                if !msg.to_lowercase().contains(&pattern.to_lowercase()) {
+                    continue;
+                }
+            }
+
             if oneline {
                 let short_id = &oid.to_string()[..7];
                 let message = commit.message().unwrap_or("<no message>").lines().next().unwrap_or("");
                 println!("  {} {}", short_id, message);
             } else {
                 println!("  commit {}", oid);
-                if let Some(author) = commit.author().name() {
-                    println!("  Author: {}", author);
+                if let Some(author_name) = commit.author().name() {
+                    println!("  Author: {}", author_name);
                 }
-                let time = commit.time();
-                println!("  Date:   {}", chrono::DateTime::from_timestamp(time.seconds(), 0)
+                println!("  Date:   {}", chrono::DateTime::from_timestamp(ts, 0)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| "<unknown>".to_string()));
                 println!();
@@ -46,11 +94,116 @@ impl GitRepo {
                     }
                 }
                 println!();
+
+                // Stat: show changed files count
+                if stat {
+                    if let Ok(parent) = commit.parent(0) {
+                        let old_tree = parent.tree().ok();
+                        let new_tree = commit.tree().ok();
+                        if let (Some(old), Some(new)) = (old_tree, new_tree) {
+                            let diff = self.repository().diff_tree_to_tree(Some(&old), Some(&new), None);
+                            if let Ok(diff) = diff {
+                                let stats = diff.stats()?;
+                                println!("  {} files changed, {} insertions(+), {} deletions(-)",
+                                    stats.files_changed(),
+                                    stats.insertions(),
+                                    stats.deletions()
+                                );
+                                println!();
+                            }
+                        }
+                    }
+                }
             }
-            
+
             shown += 1;
         }
-        
+
+        Ok(())
+    }
+
+    /// Show reflog (HEAD movement history)
+    pub fn show_reflog(&self, count: usize) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        let output = Command::new("git")
+            .args(["reflog", "--format=%gd %gs %H %ci", &format!("-{}", count)])
+            .current_dir(&repo_path)
+            .output()?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Failed to read reflog: {}", err)
+            ));
+        }
+
+        println!("📋 Reflog (HEAD movements):");
+        println!();
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            println!("  {}", line);
+        }
+
+        println!();
+        println!("💡 Restore a state: torii save --reset <commit-hash> --reset-mode soft");
+
+        Ok(())
+    }
+
+    /// Interactive rebase
+    pub fn rebase_interactive(&self, base: &str) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        println!("🔄 Starting interactive rebase onto {}...", base);
+
+        let status = std::process::Command::new("git")
+            .args(["rebase", "-i", base])
+            .current_dir(&repo_path)
+            .status()?;
+
+        if !status.success() {
+            eprintln!("⚠️  Interactive rebase ended with conflicts or was aborted.");
+            eprintln!("   Resolve conflicts then: torii rebase --continue");
+            eprintln!("   Or abort with:          torii rebase --abort");
+        } else {
+            println!("✅ Interactive rebase complete");
+        }
+
+        Ok(())
+    }
+
+    /// Continue an in-progress rebase
+    pub fn rebase_continue(&self) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        let output = Command::new("git")
+            .args(["rebase", "--continue"])
+            .current_dir(&repo_path)
+            .status()?;
+        if output.success() {
+            println!("✅ Rebase continued");
+        }
+        Ok(())
+    }
+
+    /// Abort the current rebase
+    pub fn rebase_abort(&self) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        Command::new("git")
+            .args(["rebase", "--abort"])
+            .current_dir(&repo_path)
+            .status()?;
+        println!("✅ Rebase aborted");
+        Ok(())
+    }
+
+    /// Skip current patch in rebase
+    pub fn rebase_skip(&self) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        Command::new("git")
+            .args(["rebase", "--skip"])
+            .current_dir(&repo_path)
+            .status()?;
+        println!("✅ Patch skipped");
         Ok(())
     }
 
@@ -104,18 +257,36 @@ impl GitRepo {
         Ok(())
     }
 
-    /// List branches
+    /// List local branches
     pub fn list_branches(&self) -> Result<Vec<String>> {
         let branches = self.repository().branches(Some(BranchType::Local))?;
         let mut branch_names = Vec::new();
-        
+
         for branch in branches {
             let (branch, _) = branch?;
             if let Some(name) = branch.name()? {
                 branch_names.push(name.to_string());
             }
         }
-        
+
+        Ok(branch_names)
+    }
+
+    /// List remote branches
+    pub fn list_remote_branches(&self) -> Result<Vec<String>> {
+        let branches = self.repository().branches(Some(BranchType::Remote))?;
+        let mut branch_names = Vec::new();
+
+        for branch in branches {
+            let (branch, _) = branch?;
+            if let Some(name) = branch.name()? {
+                // Skip HEAD symrefs (e.g. origin/HEAD)
+                if !name.ends_with("/HEAD") {
+                    branch_names.push(name.to_string());
+                }
+            }
+        }
+
         Ok(branch_names)
     }
 

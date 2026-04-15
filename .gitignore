@@ -12,6 +12,7 @@ Cargo.lock
 *.swp
 *.swo
 *~
+.env
 
 # OS
 .DS_Store

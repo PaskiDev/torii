@@ -9,10 +9,12 @@ mod duration;
 mod error;
 mod integrate;
 mod mirror;
+mod remote;
 mod snapshot;
 mod ssh;
 mod tag;
 mod toriignore;
+mod versioning;
 
 use anyhow::Result;
 use cli::Cli;

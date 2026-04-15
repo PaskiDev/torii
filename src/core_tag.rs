@@ -28,6 +28,12 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Get tags as a vector (for internal use)
+    pub fn get_tags_list(&self) -> Result<Vec<String>> {
+        let tag_mgr = TagManager::new(&self.repo);
+        Ok(tag_mgr.list_tags()?)
+    }
+
     /// Delete a tag
     pub fn delete_tag(&self, name: &str) -> Result<()> {
         let tag_mgr = TagManager::new(&self.repo);

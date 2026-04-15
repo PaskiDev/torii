@@ -100,6 +100,20 @@
   - [x] `git.default_branch`, `git.sign_commits`, `git.gpg_key`, `git.pull_rebase`
   - [x] `ui.colors`, `ui.emoji`, `ui.verbose`, `ui.date_format`
 
+### Remote Repository Management
+- [x] `torii remote create` - Crear repositorio remoto
+- [x] `torii remote delete` - Eliminar repositorio remoto
+- [x] `torii remote visibility` - Cambiar visibilidad (público/privado)
+- [x] `torii remote configure` - Configurar settings del repositorio
+- [x] `torii remote info` - Obtener información del repositorio
+- [x] `torii remote list` - Listar repositorios del usuario
+- [x] Soporte para GitHub (vía GitHub CLI)
+- [ ] Soporte para GitLab (API REST - pendiente)
+- [ ] Soporte para Codeberg (API REST - pendiente)
+- [x] Gestión de visibilidad (público/privado)
+- [x] Configuración de features (issues, wiki, projects)
+- [x] Push automático tras creación
+
 ### Utilities
 - [x] `torii ssh-check` - Verificar configuración SSH
 - [x] Sistema de errores mejorado

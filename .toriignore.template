@@ -1,6 +1,6 @@
-# Torii Ignore File
+# Torii Ignore File Template
 # This file controls what gets ignored by Torii (commits and snapshots)
-# If .toriignore doesn't exist, Torii falls back to .gitignore for compatibility
+# Copy this to .toriignore and customize for your project
 
 # ============================================
 # SECRETS & CREDENTIALS (CRITICAL)
@@ -26,14 +26,6 @@ config/secrets.*
 *.credentials
 
 # ============================================
-# RUST
-# ============================================
-/target/
-Cargo.lock
-**/*.rs.bk
-*.pdb
-
-# ============================================
 # IDE & EDITOR
 # ============================================
 .vscode/
@@ -44,6 +36,8 @@ Cargo.lock
 .project
 .classpath
 .settings/
+*.sublime-project
+*.sublime-workspace
 
 # ============================================
 # OS FILES
@@ -51,8 +45,58 @@ Cargo.lock
 .DS_Store
 .DS_Store?
 ._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# ============================================
+# BUILD ARTIFACTS
+# ============================================
+/target/
+/dist/
+/build/
+/out/
+*.exe
+*.so
+*.dylib
+*.dll
+*.wasm
+*.min.js
+*.min.css
+*.map
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+venv/
+env/
+ENV/
+
+# Rust
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# ============================================
+# LOGS & TEMPORARY FILES
+# ============================================
+*.log
+logs/
+*.tmp
+*.temp
+*.cache
 
 # ============================================
 # TORII SPECIFIC
@@ -62,26 +106,13 @@ desktop.ini
 .torii/tmp/
 
 # ============================================
-# BUILD ARTIFACTS
+# PROJECT SPECIFIC (CUSTOMIZE BELOW)
 # ============================================
-*.exe
-*.so
-*.dylib
-*.dll
-*.wasm
-*.min.js
 
-# ============================================
-# LOGS
-# ============================================
-*.log
-logs/
-
-# ============================================
-# PROJECT SPECIFIC
-# ============================================
-# Tests (optional - uncomment if you don't want to commit tests)
+# Uncomment if you don't want to commit tests
 # /tests/
 
-# Documentation (optional - uncomment if you want to keep docs local)
+# Uncomment if you want to keep docs local
 # /docs/
+
+# Add your project-specific ignores here

@@ -188,16 +188,47 @@ impl SnapshotManager {
     }
 
     /// Save work temporarily (like git stash)
-    pub fn stash(&self, name: Option<&str>, _include_untracked: bool) -> Result<()> {
+    pub fn stash(&self, name: Option<&str>, include_untracked: bool) -> Result<()> {
         let stash_name = name.unwrap_or("WIP");
+
+        // Stage untracked files temporarily so the snapshot captures them
+        if include_untracked {
+            let repo_path = std::path::Path::new(".");
+            let output = std::process::Command::new("git")
+                .args(["add", "--intent-to-add", "."])
+                .current_dir(repo_path)
+                .output()?;
+            if !output.status.success() {
+                let err = String::from_utf8_lossy(&output.stderr);
+                eprintln!("⚠️  Could not stage untracked files: {}", err);
+            }
+        }
+
         let snapshot_id = self.create_snapshot(Some(&format!("stash-{}", stash_name)))?;
-        
+
+        // Reset to HEAD, discarding staged + unstaged changes (including untracked if staged above)
+        std::process::Command::new("git")
+            .args(["reset", "--hard", "HEAD"])
+            .current_dir(".")
+            .output()?;
+
+        // Remove untracked files if requested
+        if include_untracked {
+            std::process::Command::new("git")
+                .args(["clean", "-fd"])
+                .current_dir(".")
+                .output()?;
+        }
+
         println!("📦 Stashed changes");
         println!("   ID: {}", snapshot_id);
         println!("   Name: {}", stash_name);
+        if include_untracked {
+            println!("   Untracked files included");
+        }
         println!();
         println!("💡 To restore: torii snapshot unstash");
-        
+
         Ok(())
     }
 

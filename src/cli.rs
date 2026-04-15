@@ -1,12 +1,15 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
+use std::path::PathBuf;
 use crate::alias::AliasConfig;
 use crate::config::ToriiConfig;
 use crate::core::GitRepo;
+use crate::remote::{get_platform_client, Visibility, RepoSettings, RepoFeatures};
 use crate::snapshot::SnapshotManager;
 use crate::mirror::{MirrorManager, AccountType, Protocol};
 use crate::ssh::SshHelper;
 use crate::duration::parse_duration;
+use crate::versioning::AutoTagger;
 
 fn parse_account_type(s: &str) -> Result<AccountType> {
     match s.to_lowercase().as_str() {
@@ -60,6 +63,10 @@ enum Commands {
         /// Add all changes before committing
         #[arg(short, long)]
         all: bool,
+
+        /// Specific files to stage before committing
+        #[arg(value_name = "FILES")]
+        files: Vec<PathBuf>,
 
         /// Amend the previous commit
         #[arg(long)]
@@ -128,6 +135,26 @@ enum Commands {
         /// Show graph
         #[arg(long)]
         graph: bool,
+
+        /// Filter by author name or email
+        #[arg(long)]
+        author: Option<String>,
+
+        /// Show commits after this date (YYYY-MM-DD)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Show commits before this date (YYYY-MM-DD)
+        #[arg(long)]
+        until: Option<String>,
+
+        /// Filter commits whose message matches the pattern
+        #[arg(long)]
+        grep: Option<String>,
+
+        /// Show file change statistics per commit
+        #[arg(long)]
+        stat: bool,
     },
 
     /// Show changes
@@ -269,10 +296,80 @@ enum Commands {
         action: HistoryCommands,
     },
 
+    /// Rebase current branch (interactive or onto a target)
+    Rebase {
+        /// Target branch or commit to rebase onto
+        target: Option<String>,
+
+        /// Interactive rebase (opens editor to squash, reorder, drop commits)
+        #[arg(short, long)]
+        interactive: bool,
+
+        /// Continue an in-progress rebase
+        #[arg(long)]
+        continue_rebase: bool,
+
+        /// Abort the current rebase
+        #[arg(long)]
+        abort: bool,
+
+        /// Skip the current patch
+        #[arg(long)]
+        skip: bool,
+    },
+
     /// Manage Torii configuration
     Config {
         #[command(subcommand)]
         action: ConfigCommands,
+    },
+
+    /// Manage remote repositories (create, delete, configure)
+    Remote {
+        #[command(subcommand)]
+        action: RemoteCommands,
+    },
+
+    /// Batch operations on multiple platforms
+    Repo {
+        /// Repository name
+        name: String,
+        
+        /// Platforms (comma-separated: github,gitlab,codeberg)
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        platforms: Vec<String>,
+        
+        /// Create repository
+        #[arg(long)]
+        create: bool,
+        
+        /// Delete repository
+        #[arg(long)]
+        delete: bool,
+        
+        /// Make public
+        #[arg(long)]
+        public: bool,
+        
+        /// Make private
+        #[arg(long)]
+        private: bool,
+        
+        /// Description
+        #[arg(long)]
+        description: Option<String>,
+        
+        /// Push after creation
+        #[arg(long)]
+        push: bool,
+        
+        /// Skip confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+        
+        /// Owner/username
+        #[arg(long)]
+        owner: Option<String>,
     },
 }
 
@@ -324,6 +421,70 @@ enum ConfigCommands {
 }
 
 #[derive(Subcommand)]
+enum RemoteCommands {
+    /// Create a new remote repository
+    Create {
+        platform: String,
+        name: String,
+        #[arg(short, long)]
+        description: Option<String>,
+        #[arg(long)]
+        public: bool,
+        #[arg(long)]
+        private: bool,
+        #[arg(long)]
+        push: bool,
+    },
+    Delete {
+        platform: String,
+        owner: String,
+        repo: String,
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+    Visibility {
+        platform: String,
+        owner: String,
+        repo: String,
+        #[arg(long, conflicts_with = "private")]
+        public: bool,
+        #[arg(long, conflicts_with = "public")]
+        private: bool,
+    },
+    Configure {
+        platform: String,
+        owner: String,
+        repo: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        homepage: Option<String>,
+        #[arg(long)]
+        default_branch: Option<String>,
+        #[arg(long)]
+        enable_issues: bool,
+        #[arg(long, conflicts_with = "enable_issues")]
+        disable_issues: bool,
+        #[arg(long)]
+        enable_wiki: bool,
+        #[arg(long, conflicts_with = "enable_wiki")]
+        disable_wiki: bool,
+        #[arg(long)]
+        enable_projects: bool,
+        #[arg(long, conflicts_with = "enable_projects")]
+        disable_projects: bool,
+    },
+    Info {
+        platform: String,
+        owner: String,
+        repo: String,
+    },
+    List {
+        platform: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum HistoryCommands {
     /// Rewrite commit history dates
     Rewrite {
@@ -336,9 +497,16 @@ enum HistoryCommands {
     
     /// Clean repository history
     Clean,
-    
+
     /// Verify remote repository
     VerifyRemote,
+
+    /// Show reflog (reference log of HEAD movements)
+    Reflog {
+        /// Number of entries to show
+        #[arg(short = 'n', long, default_value = "20")]
+        count: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -562,9 +730,9 @@ impl Cli {
                 println!("✅ Initialized repository at {}", repo_path);
             }
 
-            Commands::Save { message, all, amend, revert, reset, reset_mode } => {
+            Commands::Save { message, all, files, amend, revert, reset, reset_mode } => {
                 let repo = GitRepo::open(".")?;
-                
+
                 if let Some(commit_hash) = reset {
                     repo.reset_commit(commit_hash, reset_mode)?;
                     println!("✅ Reset to commit: {} (mode: {})", commit_hash, reset_mode);
@@ -572,8 +740,13 @@ impl Cli {
                     repo.revert_commit(commit_hash)?;
                     println!("✅ Reverted commit: {}", commit_hash);
                 } else {
+                    if *all && !files.is_empty() {
+                        anyhow::bail!("Cannot use --all and specific files at the same time");
+                    }
                     if *all {
                         repo.add_all()?;
+                    } else if !files.is_empty() {
+                        repo.add(files)?;
                     }
                     
                     if *amend {
@@ -582,6 +755,14 @@ impl Cli {
                     } else {
                         repo.commit(message)?;
                         println!("✅ Changes saved: {}", message);
+                        
+                        // Auto-tagging based on conventional commits
+                        let tagger = AutoTagger::new(repo);
+                        if let Err(e) = tagger.auto_tag(message) {
+                            // Don't fail the commit if auto-tagging fails
+                            eprintln!("⚠️  Auto-tagging failed: {}", e);
+                            eprintln!("   (Commit was successful, only tagging failed)");
+                        }
                     }
                 }
             }
@@ -633,9 +814,9 @@ impl Cli {
                 repo.status()?;
             }
 
-            Commands::Log { count, oneline, graph } => {
+            Commands::Log { count, oneline, graph, author, since, until, grep, stat } => {
                 let repo = GitRepo::open(".")?;
-                repo.log(*count, *oneline, *graph)?;
+                repo.log(*count, *oneline, *graph, author.as_deref(), since.as_deref(), until.as_deref(), grep.as_deref(), *stat)?;
             }
 
             Commands::Diff { staged, last } => {
@@ -653,8 +834,15 @@ impl Cli {
                         println!("  • {}", branch);
                     }
                     if *all {
+                        let remote_branches = repo.list_remote_branches()?;
                         println!("\n📡 Remote branches:");
-                        println!("  (Remote branch listing not yet implemented)");
+                        if remote_branches.is_empty() {
+                            println!("  (none — run 'torii sync --fetch' to update remote refs)");
+                        } else {
+                            for branch in remote_branches {
+                                println!("  • {}", branch);
+                            }
+                        }
                     }
                 } else if let Some(branch_name) = delete {
                     repo.delete_branch(branch_name)?;
@@ -1026,6 +1214,328 @@ impl Cli {
                 }
             }
 
+            Commands::Remote { action } => {
+                match action {
+                    RemoteCommands::Create { platform, name, description, public, private, push } => {
+                        let client = get_platform_client(platform)?;
+                        
+                        let visibility = if *public {
+                            Visibility::Public
+                        } else {
+                            Visibility::Private
+                        };
+                        
+                        println!("🚀 Creating repository '{}' on {}...", name, platform);
+                        let repo = client.create_repo(name, description.as_deref(), visibility)?;
+                        
+                        println!("✅ Repository created successfully!");
+                        println!("   URL: {}", repo.url);
+                        println!("   SSH: {}", repo.ssh_url);
+                        
+                        if *push {
+                            println!("\n📤 Pushing to remote...");
+                            let git_repo = GitRepo::open(".")?;
+                            
+                            // Add remote
+                            std::process::Command::new("git")
+                                .args(&["remote", "add", "origin", &repo.ssh_url])
+                                .output()?;
+                            
+                            git_repo.push(false)?;
+                            println!("✅ Pushed to remote");
+                        }
+                    }
+                    RemoteCommands::Delete { platform, owner, repo, yes } => {
+                        if !yes {
+                            println!("⚠️  Are you sure you want to delete {}/{}? This cannot be undone!", owner, repo);
+                            println!("   Run with --yes to confirm");
+                            return Ok(());
+                        }
+                        
+                        let client = get_platform_client(platform)?;
+                        println!("🗑️  Deleting repository {}/{}...", owner, repo);
+                        client.delete_repo(owner, repo)?;
+                    }
+                    RemoteCommands::Visibility { platform, owner, repo, public, private } => {
+                        let client = get_platform_client(platform)?;
+                        
+                        let visibility = if *public {
+                            Visibility::Public
+                        } else if *private {
+                            Visibility::Private
+                        } else {
+                            println!("❌ Specify --public or --private");
+                            return Ok(());
+                        };
+                        
+                        println!("🔒 Changing visibility of {}/{} to {:?}...", owner, repo, visibility);
+                        client.set_visibility(owner, repo, visibility)?;
+                        println!("✅ Visibility updated");
+                    }
+                    RemoteCommands::Configure { 
+                        platform, owner, repo, description, homepage, default_branch,
+                        enable_issues, disable_issues, enable_wiki, disable_wiki,
+                        enable_projects, disable_projects 
+                    } => {
+                        let client = get_platform_client(platform)?;
+                        
+                        // Build settings
+                        let mut settings = RepoSettings::default();
+                        settings.description = description.clone();
+                        settings.homepage = homepage.clone();
+                        settings.default_branch = default_branch.clone();
+                        
+                        // Build features
+                        let mut features = RepoFeatures::default();
+                        if *enable_issues { features.issues = Some(true); }
+                        if *disable_issues { features.issues = Some(false); }
+                        if *enable_wiki { features.wiki = Some(true); }
+                        if *disable_wiki { features.wiki = Some(false); }
+                        if *enable_projects { features.projects = Some(true); }
+                        if *disable_projects { features.projects = Some(false); }
+                        
+                        println!("⚙️  Configuring repository {}/{}...", owner, repo);
+                        
+                        // Update settings if any
+                        if settings.description.is_some() || settings.homepage.is_some() || settings.default_branch.is_some() {
+                            client.update_repo(owner, repo, settings)?;
+                        }
+                        
+                        // Update features if any
+                        if features.issues.is_some() || features.wiki.is_some() || features.projects.is_some() {
+                            client.configure_features(owner, repo, features)?;
+                        }
+                        
+                        println!("✅ Repository configured");
+                    }
+                    RemoteCommands::Info { platform, owner, repo } => {
+                        let client = get_platform_client(platform)?;
+                        println!("📊 Fetching repository information...");
+                        let repo_info = client.get_repo(owner, repo)?;
+                        
+                        println!("\n📦 Repository: {}", repo_info.name);
+                        if let Some(desc) = &repo_info.description {
+                            println!("   Description: {}", desc);
+                        }
+                        println!("   Visibility: {:?}", repo_info.visibility);
+                        println!("   Default Branch: {}", repo_info.default_branch);
+                        println!("   URL: {}", repo_info.url);
+                        println!("   SSH: {}", repo_info.ssh_url);
+                    }
+                    RemoteCommands::List { platform } => {
+                        let client = get_platform_client(platform)?;
+                        println!("📋 Fetching repositories from {}...", platform);
+                        let repos = client.list_repos()?;
+                        
+                        if repos.is_empty() {
+                            println!("No repositories found");
+                        } else {
+                            println!("\n📦 Repositories ({}):\n", repos.len());
+                            for repo in repos {
+                                println!("  • {} - {:?}", repo.name, repo.visibility);
+                                if let Some(desc) = &repo.description {
+                                    println!("    {}", desc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Commands::Repo { 
+                name, platforms, create, delete, public, private, 
+                description, push, yes, owner 
+            } => {
+                use crate::remote::{get_platform_client, Visibility};
+                
+                if platforms.is_empty() {
+                    println!("❌ No platforms specified. Use --platforms github,gitlab,codeberg");
+                    return Ok(());
+                }
+                
+                // Validate operation
+                if !create && !delete {
+                    println!("❌ Specify an operation: --create or --delete");
+                    return Ok(());
+                }
+                
+                if *create && *delete {
+                    println!("❌ Cannot create and delete at the same time");
+                    return Ok(());
+                }
+                
+                let visibility = if *public {
+                    Visibility::Public
+                } else {
+                    Visibility::Private
+                };
+                
+                println!("🌐 Multi-platform operation on {} platforms", platforms.len());
+                println!("   Repository: {}", name);
+                println!("   Platforms: {}", platforms.join(", "));
+                
+                if *delete && !yes {
+                    println!("\n⚠️  WARNING: This will DELETE '{}' from {} platforms!", name, platforms.len());
+                    println!("   This action CANNOT be undone!");
+                    println!("   Run with --yes to confirm");
+                    return Ok(());
+                }
+                
+                let mut results = Vec::new();
+                
+                for platform in platforms {
+                    print!("\n📦 {} - ", platform);
+                    
+                    match get_platform_client(platform) {
+                        Ok(client) => {
+                            if *create {
+                                print!("Creating... ");
+                                match client.create_repo(name, description.as_deref(), visibility.clone()) {
+                                    Ok(repo) => {
+                                        println!("✅ Created");
+                                        println!("   URL: {}", repo.url);
+                                        results.push((platform.clone(), true, None));
+                                    }
+                                    Err(e) => {
+                                        println!("❌ Failed: {}", e);
+                                        results.push((platform.clone(), false, Some(e.to_string())));
+                                    }
+                                }
+                            } else if *delete {
+                                print!("Deleting... ");
+                                let owner_name = owner.as_ref()
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("user");
+                                
+                                match client.delete_repo(owner_name, name) {
+                                    Ok(_) => {
+                                        println!("✅ Deleted");
+                                        results.push((platform.clone(), true, None));
+                                    }
+                                    Err(e) => {
+                                        println!("❌ Failed: {}", e);
+                                        results.push((platform.clone(), false, Some(e.to_string())));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("❌ Platform error: {}", e);
+                            results.push((platform.clone(), false, Some(e.to_string())));
+                        }
+                    }
+                }
+                
+                // Summary
+                let successful = results.iter().filter(|(_, success, _)| *success).count();
+                let failed = results.len() - successful;
+                
+                println!("\n📊 Summary:");
+                println!("   ✅ Successful: {}/{}", successful, results.len());
+                if failed > 0 {
+                    println!("   ❌ Failed: {}", failed);
+                    println!("\n   Failed platforms:");
+                    for (platform, success, error) in results.iter() {
+                        if !success {
+                            println!("     • {}: {}", platform, error.as_ref().unwrap_or(&"Unknown error".to_string()));
+                        }
+                    }
+                }
+                
+                // Push if requested and created successfully
+                if *create && *push && successful > 0 {
+                    println!("\n📤 Pushing to remote...");
+                    let git_repo = GitRepo::open(".")?;
+                    
+                    // Add remotes for successful platforms
+                    for (platform, success, _) in results.iter() {
+                        if *success {
+                            // Try to add remote (may already exist)
+                            let _ = std::process::Command::new("git")
+                                .args(&["remote", "add", platform, &format!("git@{}:{}/{}.git", platform, owner.as_ref().unwrap_or(&"user".to_string()), name)])
+                                .output();
+                        }
+                    }
+                    
+                    git_repo.push(false)?;
+                    println!("✅ Pushed to remotes");
+                }
+            }
+
+            Commands::Repo { 
+                name, platforms, create, delete, public, private, 
+                description, push, yes, owner 
+            } => {
+                use crate::remote::{get_platform_client, Visibility};
+                
+                if platforms.is_empty() {
+                    println!("❌ No platforms specified. Use --platforms github,gitlab,codeberg");
+                    return Ok(());
+                }
+                
+                if !create && !delete {
+                    println!("❌ Specify --create or --delete");
+                    return Ok(());
+                }
+                
+                let visibility = if *public { Visibility::Public } else { Visibility::Private };
+                
+                println!("🌐 Multi-platform: {}", platforms.join(", "));
+                
+                if *delete && !yes {
+                    println!("⚠️  DELETE '{}' from {} platforms? Use --yes", name, platforms.len());
+                    return Ok(());
+                }
+                
+                let mut success_count = 0;
+                let mut fail_count = 0;
+                
+                for platform in platforms {
+                    print!("\n📦 {} - ", platform);
+                    
+                    match get_platform_client(platform) {
+                        Ok(client) => {
+                            if *create {
+                                match client.create_repo(name, description.as_deref(), visibility.clone()) {
+                                    Ok(repo) => {
+                                        println!("✅ Created: {}", repo.url);
+                                        success_count += 1;
+                                    }
+                                    Err(e) => {
+                                        println!("❌ {}", e);
+                                        fail_count += 1;
+                                    }
+                                }
+                            } else if *delete {
+                                let owner_name = owner.as_ref().map(|s| s.as_str()).unwrap_or("user");
+                                match client.delete_repo(owner_name, name) {
+                                    Ok(_) => {
+                                        println!("✅ Deleted");
+                                        success_count += 1;
+                                    }
+                                    Err(e) => {
+                                        println!("❌ {}", e);
+                                        fail_count += 1;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("❌ {}", e);
+                            fail_count += 1;
+                        }
+                    }
+                }
+                
+                println!("\n📊 ✅ {}/{} successful", success_count, success_count + fail_count);
+                
+                if *create && *push && success_count > 0 {
+                    println!("\n📤 Pushing...");
+                    GitRepo::open(".")?.push(false)?;
+                    println!("✅ Pushed");
+                }
+            }
+
             Commands::History { action } => {
                 let repo = GitRepo::open(".")?;
                 match action {
@@ -1040,6 +1550,28 @@ impl Cli {
                     HistoryCommands::VerifyRemote => {
                         repo.verify_remote()?;
                     }
+                    HistoryCommands::Reflog { count } => {
+                        repo.show_reflog(*count)?;
+                    }
+                }
+            }
+
+            Commands::Rebase { target, interactive, continue_rebase, abort, skip } => {
+                let repo = GitRepo::open(".")?;
+                if *continue_rebase {
+                    repo.rebase_continue()?;
+                } else if *abort {
+                    repo.rebase_abort()?;
+                } else if *skip {
+                    repo.rebase_skip()?;
+                } else if *interactive {
+                    let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required for interactive rebase (e.g. HEAD~3 or <branch>)"))?;
+                    repo.rebase_interactive(base)?;
+                } else if let Some(base) = target {
+                    repo.rebase_branch(base)?;
+                    println!("✅ Rebased onto: {}", base);
+                } else {
+                    anyhow::bail!("Specify a target branch/commit or use --interactive / --continue / --abort / --skip");
                 }
             }
         }
@@ -1047,5 +1579,3 @@ impl Cli {
         Ok(())
     }
 }
-
-
