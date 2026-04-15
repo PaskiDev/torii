@@ -201,6 +201,6 @@ torii config set user.name "..."  # global or local config
 
 ## Links
 
-- [Website](https://torii.sh)
+- [Website](https://gitorii.com)
 - [Issues](https://gitlab.com/paskidev/torii/-/issues)
 - [License](LICENSE)
