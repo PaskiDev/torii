@@ -351,10 +351,21 @@ impl MirrorManager {
             format!("refs/heads/{}:refs/heads/{}", branch, branch)
         };
 
-        // Setup callbacks for SSH authentication
+        // Setup callbacks for SSH authentication — try explicit keys then agent
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
+            let username = username_from_url.unwrap_or("git");
+            let home = std::env::var("HOME").unwrap_or_default();
+            // Try ed25519 first, then rsa, then agent
+            let ed25519 = std::path::Path::new(&home).join(".ssh/id_ed25519");
+            let rsa = std::path::Path::new(&home).join(".ssh/id_rsa");
+            if ed25519.exists() {
+                git2::Cred::ssh_key(username, None, &ed25519, None)
+            } else if rsa.exists() {
+                git2::Cred::ssh_key(username, None, &rsa, None)
+            } else {
+                git2::Cred::ssh_key_from_agent(username)
+            }
         });
 
         let mut push_options = git2::PushOptions::new();
