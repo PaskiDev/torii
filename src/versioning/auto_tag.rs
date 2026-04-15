@@ -16,6 +16,7 @@ impl AutoTagger {
         }
     }
     
+    #[allow(dead_code)]
     pub fn with_prefix(mut self, prefix: String) -> Self {
         self.prefix = prefix;
         self
@@ -53,6 +54,7 @@ impl AutoTagger {
     }
     
     /// Calculate the next version based on commit message
+    #[allow(dead_code)]
     pub fn calculate_next_version(&self, commit_msg: &str) -> Result<Option<Version>> {
         let bump = self.determine_bump(commit_msg)?;
         

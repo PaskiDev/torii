@@ -13,10 +13,12 @@ pub enum CommitType {
     Build,
     Ci,
     Revert,
+    #[allow(dead_code)]
     Breaking,
 }
 
 impl CommitType {
+    #[allow(dead_code)]
     pub fn should_create_tag(&self) -> bool {
         matches!(self, 
             CommitType::Feat | 
@@ -28,6 +30,7 @@ impl CommitType {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConventionalCommit {
     pub commit_type: CommitType,
     pub scope: Option<String>,
@@ -114,6 +117,7 @@ impl ConventionalCommit {
         self.breaking
     }
     
+    #[allow(dead_code)]
     pub fn should_create_tag(&self) -> bool {
         self.commit_type.should_create_tag() || self.breaking
     }

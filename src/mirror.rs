@@ -89,6 +89,7 @@ impl Mirror {
     }
     
     /// Get display name for the mirror
+    #[allow(dead_code)]
     pub fn display_name(&self) -> String {
         format!("{}/{}", self.account_name, self.repo_name)
     }
@@ -405,6 +406,7 @@ impl MirrorManager {
     }
     
     /// Remove a mirror by name (legacy)
+    #[allow(dead_code)]
     pub fn remove_mirror(&self, name: &str) -> Result<()> {
         let mut config = self.load_config()?;
         

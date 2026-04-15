@@ -20,22 +20,32 @@ impl GitRepo {
             .map_err(|_| ToriiError::RepositoryNotFound(
                 path_ref.display().to_string()
             ))?;
-        Ok(Self { repo })
+        let git_repo = Self { repo };
+        // Sync .toriignore on every open so all git operations respect it
+        git_repo.sync_toriignore()?;
+        Ok(git_repo)
+    }
+
+    /// Sync .toriignore → .git/info/exclude so git itself respects the patterns.
+    /// Called automatically on open and before staging.
+    pub fn sync_toriignore(&self) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        let toriignore_path = repo_path.join(".toriignore");
+        let exclude_path = self.repo.path().join("info").join("exclude");
+
+        if toriignore_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&toriignore_path) {
+                let header = "# Synced from .toriignore by torii — do not edit manually\n";
+                let _ = std::fs::write(&exclude_path, format!("{}{}", header, content));
+            }
+        }
+
+        Ok(())
     }
 
     /// Add all changes to staging, respecting .toriignore
     pub fn add_all(&self) -> Result<()> {
-        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
-
-        // Sync .toriignore → .git/info/exclude so git itself respects the patterns
-        let toriignore_path = repo_path.join(".toriignore");
-        let exclude_path = self.repo.path().join("info").join("exclude");
-        if toriignore_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&toriignore_path) {
-                let header = "# Synced from .toriignore by torii\n";
-                let _ = std::fs::write(&exclude_path, format!("{}{}", header, content));
-            }
-        }
+        self.sync_toriignore()?;
 
         let mut index = self.repo.index()?;
         index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
@@ -354,13 +364,12 @@ impl GitRepo {
         // Next steps suggestions
         println!("💡 Next steps:");
         if is_clean {
-            println!("  • Start new work: torii switch -c feature-name");
+            println!("  • Start new work: torii branch feature-name -c");
             println!("  • Update from remote: torii sync");
             println!("  • Create snapshot: torii snapshot create");
         } else if !staged.is_empty() && unstaged.is_empty() && untracked.is_empty() {
             println!("  • Commit staged changes: torii save -m \"message\"");
             println!("  • See staged changes: torii diff --staged");
-            println!("  • Unstage changes: git reset HEAD");
         } else if !unstaged.is_empty() || !untracked.is_empty() {
             println!("  • Save all changes: torii save -am \"message\"");
             println!("  • See changes: torii diff");
@@ -373,7 +382,7 @@ impl GitRepo {
     }
 
     /// Get git signature from config or use defaults
-    fn get_signature(&self) -> Result<Signature> {
+    fn get_signature(&self) -> Result<Signature<'_>> {
         let config = self.repo.config()?;
         
         let name = config

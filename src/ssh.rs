@@ -57,6 +57,7 @@ impl SshHelper {
     }
 
     /// Get public key content for display
+    #[allow(dead_code)]
     pub fn get_public_key(key_name: &str) -> Result<String> {
         let ssh_dir = Self::ssh_dir();
         let pub_key_path = ssh_dir.join(format!("{}.pub", key_name));
@@ -69,6 +70,7 @@ impl SshHelper {
     }
 
     /// Recommend protocol based on SSH availability
+    #[allow(dead_code)]
     pub fn recommend_protocol() -> &'static str {
         if Self::has_ssh_keys() {
             "ssh"
@@ -78,6 +80,7 @@ impl SshHelper {
     }
 
     /// Get setup instructions for SSH
+    #[allow(dead_code)]
     pub fn get_setup_instructions() -> String {
         let mut instructions = String::new();
         

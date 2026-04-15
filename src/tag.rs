@@ -1,4 +1,4 @@
-use git2::{Repository, Signature};
+use git2::Repository;
 use crate::error::Result;
 
 pub struct TagManager<'repo> {

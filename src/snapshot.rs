@@ -4,8 +4,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use crate::error::{Result, ToriiError};
 use crate::core::GitRepo;
-// TODO: Implement ToriIgnore for snapshots
-// use crate::toriignore::ToriIgnore;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnapshotMetadata {

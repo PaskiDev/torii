@@ -94,12 +94,12 @@ Torii inherits security properties of `git2-rs` and `libgit2`:
 
 **Important**: Snapshots may contain:
 - Uncommitted code
-- API keys in files (if not gitignored)
+- API keys in files (if not in .toriignore)
 - Passwords in config files
 - Personal data in test files
 
 **Recommendation**: 
-- Use `.gitignore` properly
+- Use `.toriignore` properly
 - Enable snapshot encryption
 - Review snapshot contents before sharing
 

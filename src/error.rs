@@ -12,6 +12,7 @@ pub enum ToriiError {
     RepositoryNotFound(String),
 
     #[error("Branch not found: {0}")]
+    #[allow(dead_code)]
     BranchNotFound(String),
 
     #[error("Snapshot error: {0}")]

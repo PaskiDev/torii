@@ -1,9 +1,8 @@
 // Extended Git operations for Torii
-use git2::{Repository, BranchType, StatusOptions, DiffOptions};
+use git2::{Repository, BranchType};
 use crate::error::Result;
 use crate::core::GitRepo;
 use std::process::Command;
-use std::io::Write;
 use chrono::{DateTime, NaiveDateTime};
 
 impl GitRepo {
@@ -405,10 +404,10 @@ impl GitRepo {
 
         // Create filter script
         let mut filter_script = String::new();
-        let interval_seconds = (end.timestamp() - start.timestamp()) / (total_commits as i64 - 1).max(1);
+        let interval_seconds = (end.and_utc().timestamp() - start.and_utc().timestamp()) / (total_commits as i64 - 1).max(1);
 
         for (i, commit_hash) in commits.iter().enumerate() {
-            let new_timestamp = start.timestamp() + (i as i64 * interval_seconds);
+            let new_timestamp = start.and_utc().timestamp() + (i as i64 * interval_seconds);
             let new_date = DateTime::from_timestamp(new_timestamp, 0)
                 .unwrap()
                 .format("%Y-%m-%d %H:%M:%S +0200");

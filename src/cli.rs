@@ -728,6 +728,10 @@ impl Cli {
                         .ok();
                 }
 
+                // Sync .toriignore → .git/info/exclude immediately
+                let repo = GitRepo::open(repo_path)?;
+                repo.sync_toriignore()?;
+
                 println!("✅ Initialized repository at {}", repo_path);
                 println!("   Created .toriignore with default patterns");
             }
@@ -1245,7 +1249,7 @@ impl Cli {
 
             Commands::Remote { action } => {
                 match action {
-                    RemoteCommands::Create { platform, name, description, public, private, push } => {
+                    RemoteCommands::Create { platform, name, description, public, private: _, push } => {
                         let client = get_platform_client(platform)?;
                         
                         let visibility = if *public {
@@ -1372,8 +1376,8 @@ impl Cli {
             }
 
             Commands::Repo { 
-                name, platforms, create, delete, public, private, 
-                description, push, yes, owner 
+                name, platforms, create, delete, public, private: _,
+                description, push, yes, owner
             } => {
                 use crate::remote::{get_platform_client, Visibility};
                 
@@ -1488,80 +1492,6 @@ impl Cli {
                     
                     git_repo.push(false)?;
                     println!("✅ Pushed to remotes");
-                }
-            }
-
-            Commands::Repo { 
-                name, platforms, create, delete, public, private, 
-                description, push, yes, owner 
-            } => {
-                use crate::remote::{get_platform_client, Visibility};
-                
-                if platforms.is_empty() {
-                    println!("❌ No platforms specified. Use --platforms github,gitlab,codeberg");
-                    return Ok(());
-                }
-                
-                if !create && !delete {
-                    println!("❌ Specify --create or --delete");
-                    return Ok(());
-                }
-                
-                let visibility = if *public { Visibility::Public } else { Visibility::Private };
-                
-                println!("🌐 Multi-platform: {}", platforms.join(", "));
-                
-                if *delete && !yes {
-                    println!("⚠️  DELETE '{}' from {} platforms? Use --yes", name, platforms.len());
-                    return Ok(());
-                }
-                
-                let mut success_count = 0;
-                let mut fail_count = 0;
-                
-                for platform in platforms {
-                    print!("\n📦 {} - ", platform);
-                    
-                    match get_platform_client(platform) {
-                        Ok(client) => {
-                            if *create {
-                                match client.create_repo(name, description.as_deref(), visibility.clone()) {
-                                    Ok(repo) => {
-                                        println!("✅ Created: {}", repo.url);
-                                        success_count += 1;
-                                    }
-                                    Err(e) => {
-                                        println!("❌ {}", e);
-                                        fail_count += 1;
-                                    }
-                                }
-                            } else if *delete {
-                                let owner_name = owner.as_ref().map(|s| s.as_str()).unwrap_or("user");
-                                match client.delete_repo(owner_name, name) {
-                                    Ok(_) => {
-                                        println!("✅ Deleted");
-                                        success_count += 1;
-                                    }
-                                    Err(e) => {
-                                        println!("❌ {}", e);
-                                        fail_count += 1;
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("❌ {}", e);
-                            fail_count += 1;
-                        }
-                    }
-                }
-                
-                println!("\n📊 ✅ {}/{} successful", success_count, success_count + fail_count);
-                
-                if *create && *push && success_count > 0 {
-                    println!("\n📤 Pushing...");
-                    GitRepo::open(".")?.push(false)?;
-                    println!("✅ Pushed");
                 }
             }
 

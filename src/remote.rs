@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use crate::error::{Result, ToriiError};
 
@@ -48,6 +47,7 @@ pub trait PlatformClient {
 
 /// Repository settings for updates
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct RepoSettings {
     pub description: Option<String>,
     pub homepage: Option<String>,
@@ -63,6 +63,7 @@ pub struct RepoSettings {
 
 /// Repository features configuration
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct RepoFeatures {
     pub issues: Option<bool>,
     pub wiki: Option<bool>,
@@ -72,6 +73,7 @@ pub struct RepoFeatures {
 }
 
 /// GitHub API client (placeholder - requires reqwest)
+#[allow(dead_code)]
 pub struct GitHubClient {
     token: String,
     base_url: String,
@@ -331,6 +333,7 @@ impl GitLabClient {
         }
     }
     
+    #[allow(dead_code)]
     pub fn with_url(token: String, base_url: String) -> Self {
         Self {
             token: Some(token),
@@ -673,6 +676,7 @@ pub fn get_platform_client(platform: &str) -> Result<Box<dyn PlatformClient>> {
 // Gitea/Forgejo/Codeberg Clients
 // ============================================================================
 
+#[allow(dead_code)]
 pub struct GiteaClient {
     token: Option<String>,
     base_url: String,
@@ -684,6 +688,7 @@ impl GiteaClient {
     }
 }
 
+#[allow(dead_code)]
 pub struct ForgejoClient {
     token: Option<String>,
     base_url: String,
@@ -695,6 +700,7 @@ impl ForgejoClient {
     }
 }
 
+#[allow(dead_code)]
 pub struct CodebergClient {
     token: Option<String>,
 }

@@ -1,16 +1,18 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs;
 use std::io::{self, BufRead};
 use anyhow::Result;
 
 /// Manages .toriignore patterns
 #[derive(Default)]
+#[allow(dead_code)]
 pub struct ToriIgnore {
     patterns: Vec<String>,
 }
 
 impl ToriIgnore {
     /// Load .toriignore from repository root
+    #[allow(dead_code)]
     pub fn load<P: AsRef<Path>>(repo_path: P) -> Result<Self> {
         let toriignore_path = repo_path.as_ref().join(".toriignore");
 
@@ -76,6 +78,7 @@ impl ToriIgnore {
     }
     
     /// Check if a path should be ignored
+    #[allow(dead_code)]
     pub fn is_ignored<P: AsRef<Path>>(&self, path: P) -> bool {
         let path_str = path.as_ref().to_string_lossy();
         let path_str = path_str.trim_start_matches('/');
@@ -134,32 +137,71 @@ impl ToriIgnore {
             let parts: Vec<&str> = pattern.split("**/").collect();
             if parts.len() == 2 {
                 let suffix = parts[1];
-                if path.contains(suffix) || path.ends_with(suffix) {
+                // Check every possible subpath against suffix pattern
+                for (i, _) in path.match_indices('/') {
+                    if Self::simple_glob(&path[i + 1..], suffix) {
+                        return true;
+                    }
+                }
+                // Also check full path (no leading directory)
+                if Self::simple_glob(path, suffix) {
                     return true;
                 }
             }
         }
-        
+
         // Handle simple * wildcard
         if pattern.starts_with('*') && pattern.ends_with('*') {
             let middle = pattern.trim_matches('*');
             return path.contains(middle);
         }
-        
+
         if pattern.starts_with('*') {
             let suffix = pattern.trim_start_matches('*');
             return path.ends_with(suffix);
         }
-        
+
         if pattern.ends_with('*') {
             let prefix = pattern.trim_end_matches('*');
             return path.starts_with(prefix);
         }
-        
+
         false
+    }
+
+    /// Match a single path segment against a pattern with `*` wildcards (no `**`)
+    fn simple_glob(text: &str, pattern: &str) -> bool {
+        if !pattern.contains('*') {
+            return text == pattern;
+        }
+        let parts: Vec<&str> = pattern.split('*').collect();
+        let mut pos = 0;
+        for (i, part) in parts.iter().enumerate() {
+            if part.is_empty() {
+                continue;
+            }
+            match text[pos..].find(part) {
+                Some(idx) => {
+                    // First segment must match start
+                    if i == 0 && idx != 0 {
+                        return false;
+                    }
+                    pos += idx + part.len();
+                }
+                None => return false,
+            }
+        }
+        // Last segment must match end
+        if let Some(last) = parts.last() {
+            if !last.is_empty() {
+                return text.ends_with(last);
+            }
+        }
+        true
     }
     
     /// Get all patterns
+    #[allow(dead_code)]
     pub fn patterns(&self) -> &[String] {
         &self.patterns
     }

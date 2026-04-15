@@ -1,6 +1,5 @@
-use git2::{Repository, BranchType, Oid};
+use git2::{Repository, BranchType};
 use crate::error::Result;
-use crate::snapshot::SnapshotManager;
 
 pub struct IntegrateHelper<'repo> {
     repo: &'repo Repository,
@@ -67,35 +66,40 @@ impl<'repo> IntegrateHelper<'repo> {
     pub fn merge(&self, target_branch: &str) -> Result<()> {
         let target_ref = self.repo.find_branch(target_branch, BranchType::Local)?;
         let target_commit = target_ref.get().peel_to_commit()?;
-        
-        let mut index = self.repo.index()?;
+
         let head_commit = self.repo.head()?.peel_to_commit()?;
-        
+
         // Perform merge
         let merge_base = self.repo.merge_base(head_commit.id(), target_commit.id())?;
         let merge_base_tree = self.repo.find_commit(merge_base)?.tree()?;
         let our_tree = head_commit.tree()?;
         let their_tree = target_commit.tree()?;
-        
-        index.read_tree(&our_tree)?;
-        
+
         let mut merge_options = git2::MergeOptions::new();
-        let merge_result = self.repo.merge_trees(&merge_base_tree, &our_tree, &their_tree, Some(&mut merge_options))?;
-        
-        if merge_result.has_conflicts() {
+        let mut merged_index = self.repo.merge_trees(&merge_base_tree, &our_tree, &their_tree, Some(&mut merge_options))?;
+
+        if merged_index.has_conflicts() {
             return Err(crate::error::ToriiError::Git(
                 git2::Error::from_str("Merge conflicts detected. Please resolve manually.")
             ).into());
         }
-        
-        // Write merge result
-        let tree_oid = self.repo.index()?.write_tree()?;
+
+        // Write merged index to tree
+        let tree_oid = merged_index.write_tree_to(self.repo)?;
         let tree = self.repo.find_tree(tree_oid)?;
-        
+
+        // Update working directory index
+        let mut repo_index = self.repo.index()?;
+        repo_index.read_tree(&tree)?;
+        repo_index.write()?;
+
+        // Checkout to update working directory
+        self.repo.checkout_tree(tree.as_object(), Some(git2::build::CheckoutBuilder::new().force()))?;
+
         // Create merge commit
         let sig = self.repo.signature()?;
         let msg = format!("Merge branch '{}'", target_branch);
-        
+
         self.repo.commit(
             Some("HEAD"),
             &sig,
@@ -104,7 +108,7 @@ impl<'repo> IntegrateHelper<'repo> {
             &tree,
             &[&head_commit, &target_commit],
         )?;
-        
+
         Ok(())
     }
 

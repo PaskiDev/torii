@@ -59,19 +59,19 @@ For new features, open an issue with:
 1. **Fork** the repository
 2. **Create a branch** from `main`:
    ```bash
-   git checkout -b feature/my-new-feature
+   torii branch feature/my-new-feature -c
    # or
-   git checkout -b fix/my-bug-fix
+   torii branch fix/my-bug-fix -c
    ```
 3. **Develop** your code
 4. **Add tests** if applicable
 5. **Commit** your changes:
    ```bash
-   git commit -m "feat: add configurable snapshot system"
+   torii save -am "feat: add configurable snapshot system"
    ```
 6. **Push** to your fork:
    ```bash
-   git push origin feature/my-new-feature
+   torii sync --push
    ```
 7. **Open a Pull Request**
 
@@ -175,19 +175,26 @@ refactor(core): simplify change detection logic
 ```
 torii/
 ├── src/
-│   ├── core/           # Shared logic (GUI + TUI)
-│   │   ├── git_ops.rs
-│   │   ├── snapshots.rs
-│   │   ├── mirror_sync.rs
-│   │   └── ai_analysis.rs
-│   ├── gui/            # Tauri-specific code
-│   ├── tui/            # Ratatui-specific code
-│   └── main.rs
-├── tests/
-│   ├── integration/
-│   └── unit/
+│   ├── main.rs              # Entry point
+│   ├── cli.rs               # CLI argument parsing and command dispatch
+│   ├── core.rs              # Core git operations (init, add, commit, push, pull, status)
+│   ├── core_extensions.rs   # Extended operations (log, diff, branch, rebase, history)
+│   ├── core_integrate.rs    # Smart merge/rebase integration
+│   ├── core_tag.rs          # Tag operations
+│   ├── scanner.rs           # Sensitive data scanner
+│   ├── snapshot.rs          # Snapshot management (create, restore, stash)
+│   ├── mirror.rs            # Multi-platform mirror sync
+│   ├── remote.rs            # Remote repository management (API clients)
+│   ├── integrate.rs         # Integration analysis helper
+│   ├── tag.rs               # Tag utilities
+│   ├── config.rs            # Torii configuration
+│   ├── toriignore.rs        # .toriignore pattern matching
+│   ├── ssh.rs               # SSH key detection
+│   ├── error.rs             # Error types
+│   ├── duration.rs          # Duration parsing
+│   └── versioning/          # Semantic versioning and auto-tagging
 ├── docs/
-└── examples/
+└── Cargo.toml
 ```
 
 ## 📝 Contribution License
@@ -238,7 +245,9 @@ Signed-off-by: Your Name <your.email@example.com>
 Or use git with the `-s` option:
 
 ```bash
-git commit -s -m "feat: my new feature"
+torii save -am "feat: my new feature
+
+Signed-off-by: Your Name <your.email@example.com>"
 ```
 
 ### Why Copyright Transfer?
