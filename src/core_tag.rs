@@ -1,7 +1,7 @@
 use crate::core::GitRepo;
 use crate::tag::TagManager;
-use std::process::Command;
 use anyhow::Result;
+use git2;
 
 impl GitRepo {
     /// Create a tag
@@ -43,23 +43,18 @@ impl GitRepo {
 
     /// Push tags to remote
     pub fn push_tags(&self, name: Option<&str>) -> Result<()> {
-        let output = if let Some(tag) = name {
-            Command::new("git")
-                .args(&["push", "origin", tag])
-                .current_dir(self.repo.path().parent().unwrap())
-                .output()?
+        if let Some(tag) = name {
+            // Push a specific tag
+            let refspec = format!("refs/tags/{0}:refs/tags/{0}", tag);
+            let mut remote = self.repo.find_remote("origin")?;
+            let callbacks = Self::ssh_callbacks();
+            let mut push_options = git2::PushOptions::new();
+            push_options.remote_callbacks(callbacks);
+            remote.push(&[refspec.as_str()], Some(&mut push_options))?;
         } else {
-            Command::new("git")
-                .args(&["push", "origin", "--tags"])
-                .current_dir(self.repo.path().parent().unwrap())
-                .output()?
-        };
-
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::Error::msg(format!("Failed to push tags: {}", error)));
+            // Push all tags
+            self.push_all_tags_via_git2("origin", false)?;
         }
-
         Ok(())
     }
 

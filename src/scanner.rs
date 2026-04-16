@@ -236,47 +236,65 @@ fn should_skip_file(path: &str) -> bool {
 /// Scan staged files in the git index for sensitive data.
 /// Returns a list of findings.
 pub fn scan_staged(repo_path: &Path) -> Result<Vec<Finding>> {
-    use std::process::Command;
+    use git2::Repository;
 
     let mut findings = Vec::new();
 
-    // Get list of staged files
-    let output = Command::new("git")
-        .args(["diff", "--cached", "--name-only"])
-        .current_dir(repo_path)
-        .output()?;
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| crate::error::ToriiError::Git(e))?;
+    let index = repo.index()
+        .map_err(|e| crate::error::ToriiError::Git(e))?;
 
-    let staged_files = String::from_utf8_lossy(&output.stdout);
+    // Walk staged entries (index vs HEAD diff gives us changed files)
+    let head_tree = repo.head().ok()
+        .and_then(|h| h.peel_to_tree().ok());
 
-    for file_path in staged_files.lines() {
-        if is_example_file(file_path) || should_skip_file(file_path) {
+    let diff = match &head_tree {
+        Some(tree) => repo.diff_tree_to_index(Some(tree), Some(&index), None),
+        None => repo.diff_tree_to_index(None, Some(&index), None),
+    }.map_err(|e| crate::error::ToriiError::Git(e))?;
+
+    let mut staged_files: Vec<String> = Vec::new();
+    diff.foreach(
+        &mut |delta, _| {
+            if let Some(path) = delta.new_file().path() {
+                staged_files.push(path.to_string_lossy().to_string());
+            }
+            true
+        },
+        None, None, None,
+    ).map_err(|e| crate::error::ToriiError::Git(e))?;
+
+    for file_path in &staged_files {
+        let file_path_str = file_path.as_str();
+
+        if is_example_file(file_path_str) || should_skip_file(file_path_str) {
             continue;
         }
 
-        // Check if the file itself is sensitive (e.g. .env, *.pem, id_rsa)
-        if is_sensitive_file(file_path) {
+        if is_sensitive_file(file_path_str) {
             findings.push(Finding {
-                file: file_path.to_string(),
+                file: file_path.clone(),
                 line: 0,
                 pattern_name: "Sensitive file — should not be committed".to_string(),
                 preview: format!("⚠  {} should not be tracked by version control", file_path),
             });
-            continue; // no need to scan content
+            continue;
         }
 
-        // Get staged content of the file
-        let content = Command::new("git")
-            .args(["show", &format!(":{}", file_path)])
-            .current_dir(repo_path)
-            .output();
-
-        let content = match content {
-            Ok(c) if c.status.success() => String::from_utf8_lossy(&c.stdout).to_string(),
-            _ => continue,
+        // Read staged content from index blob
+        let entry = index.get_path(std::path::Path::new(file_path_str), 0);
+        let content = match entry {
+            Some(e) => {
+                match repo.find_blob(e.id) {
+                    Ok(blob) => String::from_utf8_lossy(blob.content()).to_string(),
+                    Err(_) => continue,
+                }
+            }
+            None => continue,
         };
 
         for (line_num, line) in content.lines().enumerate() {
-            // Skip comments
             let trimmed = line.trim();
             if trimmed.starts_with('#') || trimmed.starts_with("//") || trimmed.starts_with("/*") {
                 continue;
@@ -286,12 +304,12 @@ pub fn scan_staged(repo_path: &Path) -> Result<Vec<Finding>> {
                 if (pattern.detect)(line) {
                     let preview = mask(line.trim());
                     findings.push(Finding {
-                        file: file_path.to_string(),
+                        file: file_path.clone(),
                         line: line_num + 1,
                         pattern_name: pattern.name.to_string(),
                         preview,
                     });
-                    break; // one finding per line is enough
+                    break;
                 }
             }
         }
@@ -303,50 +321,79 @@ pub fn scan_staged(repo_path: &Path) -> Result<Vec<Finding>> {
 /// Scan an entire git history for sensitive data (for migration use).
 /// Returns findings grouped by commit.
 pub fn scan_history(repo_path: &Path) -> Result<Vec<(String, Vec<Finding>)>> {
-    use std::process::Command;
+    use git2::Repository;
 
     let mut results = Vec::new();
 
-    // Get all commit hashes
-    let log = Command::new("git")
-        .args(["log", "--format=%H %s", "--all"])
-        .current_dir(repo_path)
-        .output()?;
+    let repo = Repository::discover(repo_path)
+        .map_err(|e| crate::error::ToriiError::Git(e))?;
 
-    let commits: Vec<(String, String)> = String::from_utf8_lossy(&log.stdout)
-        .lines()
-        .filter_map(|l| {
-            let mut parts = l.splitn(2, ' ');
-            let hash = parts.next()?.to_string();
-            let msg = parts.next().unwrap_or("").to_string();
-            Some((hash, msg))
+    // Walk all commits reachable from any reference
+    let mut revwalk = repo.revwalk()
+        .map_err(|e| crate::error::ToriiError::Git(e))?;
+    revwalk.push_glob("*").map_err(|e| crate::error::ToriiError::Git(e))?;
+
+    let commits: Vec<(git2::Oid, String)> = revwalk
+        .filter_map(|id| id.ok())
+        .filter_map(|id| {
+            repo.find_commit(id).ok().map(|c| {
+                let subject = c.summary().unwrap_or("").to_string();
+                (id, subject)
+            })
         })
         .collect();
 
     println!("🔍 Scanning {} commits...", commits.len());
 
-    for (hash, subject) in &commits {
-        // Get files changed in this commit
-        let files = Command::new("git")
-            .args(["diff-tree", "--no-commit-id", "-r", "--name-only", hash])
-            .current_dir(repo_path)
-            .output()?;
+    for (oid, subject) in &commits {
+        let commit = match repo.find_commit(*oid) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Get diff against first parent (or empty tree for root commits)
+        let commit_tree = match commit.tree() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+
+        let diff = match repo.diff_tree_to_tree(
+            parent_tree.as_ref(),
+            Some(&commit_tree),
+            None,
+        ) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
 
         let mut commit_findings = Vec::new();
 
-        for file_path in String::from_utf8_lossy(&files.stdout).lines() {
+        // For each changed file, read its content from the commit tree
+        let mut changed_files: Vec<String> = Vec::new();
+        let _ = diff.foreach(
+            &mut |delta, _| {
+                if let Some(path) = delta.new_file().path() {
+                    changed_files.push(path.to_string_lossy().to_string());
+                }
+                true
+            },
+            None, None, None,
+        );
+
+        for file_path in &changed_files {
             if is_example_file(file_path) || should_skip_file(file_path) {
                 continue;
             }
 
-            let content = Command::new("git")
-                .args(["show", &format!("{}:{}", hash, file_path)])
-                .current_dir(repo_path)
-                .output();
-
-            let content = match content {
-                Ok(c) if c.status.success() => String::from_utf8_lossy(&c.stdout).to_string(),
-                _ => continue,
+            // Read file content from this commit's tree
+            let entry = commit_tree.get_path(std::path::Path::new(file_path));
+            let content = match entry {
+                Ok(e) => match repo.find_blob(e.id()) {
+                    Ok(blob) => String::from_utf8_lossy(blob.content()).to_string(),
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
             };
 
             for (line_num, line) in content.lines().enumerate() {
@@ -358,7 +405,7 @@ pub fn scan_history(repo_path: &Path) -> Result<Vec<(String, Vec<Finding>)>> {
                 for pattern in PATTERNS {
                     if (pattern.detect)(line) {
                         commit_findings.push(Finding {
-                            file: file_path.to_string(),
+                            file: file_path.clone(),
                             line: line_num + 1,
                             pattern_name: pattern.name.to_string(),
                             preview: mask(line.trim()),
@@ -371,7 +418,7 @@ pub fn scan_history(repo_path: &Path) -> Result<Vec<(String, Vec<Finding>)>> {
 
         if !commit_findings.is_empty() {
             results.push((
-                format!("{} — {}", &hash[..8], subject),
+                format!("{} — {}", &oid.to_string()[..8], subject),
                 commit_findings,
             ));
         }

@@ -117,20 +117,31 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Build SSH credentials callback — tries ed25519, then rsa, then agent
+    pub fn ssh_callbacks<'a>() -> git2::RemoteCallbacks<'a> {
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, _allowed_types| {
+            let username = username_from_url.unwrap_or("git");
+            let home = dirs::home_dir().unwrap_or_default();
+            let ed25519 = home.join(".ssh").join("id_ed25519");
+            let rsa = home.join(".ssh").join("id_rsa");
+            if ed25519.exists() {
+                git2::Cred::ssh_key(username, None, &ed25519, None)
+            } else if rsa.exists() {
+                git2::Cred::ssh_key(username, None, &rsa, None)
+            } else {
+                git2::Cred::ssh_key_from_agent(username)
+            }
+        });
+        callbacks
+    }
+
     /// Pull from remote
     pub fn pull(&self) -> Result<()> {
         let mut remote = self.repo.find_remote("origin")?;
-        
+
         // Configure SSH authentication
-        let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key(
-                username_from_url.unwrap(),
-                None,
-                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
-                None,
-            )
-        });
+        let callbacks = Self::ssh_callbacks();
 
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
@@ -168,15 +179,7 @@ impl GitRepo {
         };
 
         // Configure SSH authentication
-        let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            git2::Cred::ssh_key(
-                username_from_url.unwrap(),
-                None,
-                std::path::Path::new(&format!("{}/.ssh/id_ed25519", std::env::var("HOME").unwrap())),
-                None,
-            )
-        });
+        let callbacks = Self::ssh_callbacks();
 
         let mut push_options = git2::PushOptions::new();
         push_options.remote_callbacks(callbacks);
@@ -184,25 +187,35 @@ impl GitRepo {
         // Push branch
         remote.push(&[&refspec], Some(&mut push_options))?;
 
-        // Push tags via git subprocess — git2 doesn't support glob refspecs
-        // and remote object can't be reused after push without reconnecting
-        let repo_path = self.repo.path().parent().unwrap();
-        let mut tag_args = vec!["push", "origin", "--tags"];
-        if force {
-            tag_args.push("--force");
-        }
-        let tag_result = std::process::Command::new("git")
-            .args(&tag_args)
-            .current_dir(repo_path)
-            .output();
+        // Push tags via git2 — enumerate local tags and push each one
+        self.push_all_tags_via_git2("origin", force)?;
 
-        if let Ok(out) = tag_result {
-            if !out.status.success() {
-                let err = String::from_utf8_lossy(&out.stderr);
-                eprintln!("⚠️  Tag push failed: {}", err.trim());
+        Ok(())
+    }
+
+    /// Push all local tags to a remote using git2 (no subprocess needed)
+    pub fn push_all_tags_via_git2(&self, remote_name: &str, force: bool) -> Result<()> {
+        let tags = self.repo.tag_names(None)?;
+        if tags.is_empty() {
+            return Ok(());
+        }
+        let mut remote = self.repo.find_remote(remote_name)?;
+        let refspecs: Vec<String> = tags.iter()
+            .flatten()
+            .map(|t| {
+                let r = format!("refs/tags/{}:refs/tags/{}", t, t);
+                if force { format!("+{}", r) } else { r }
+            })
+            .collect();
+        let refspec_refs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
+        if !refspec_refs.is_empty() {
+            let callbacks = Self::ssh_callbacks();
+            let mut push_options = git2::PushOptions::new();
+            push_options.remote_callbacks(callbacks);
+            if let Err(e) = remote.push(&refspec_refs, Some(&mut push_options)) {
+                eprintln!("⚠️  Tag push failed: {}", e);
             }
         }
-
         Ok(())
     }
 

@@ -143,11 +143,20 @@ impl SnapshotManager {
         fs::remove_dir_all(&git_dir)?;
         self.copy_dir_recursive(&snapshot_git, &git_dir)?;
 
-        // Reset working directory to match restored git state
-        std::process::Command::new("git")
-            .args(&["reset", "--hard", "HEAD"])
-            .current_dir(&self.repo_path)
-            .output()?;
+        // Reset working directory to match restored git state via git2
+        {
+            let repo = git2::Repository::discover(&self.repo_path)
+                .map_err(|e| ToriiError::Git(e))?;
+            let head = repo.head()
+                .map_err(|e| ToriiError::Git(e))?
+                .peel_to_commit()
+                .map_err(|e| ToriiError::Git(e))?;
+            repo.reset(
+                head.as_object(),
+                git2::ResetType::Hard,
+                Some(git2::build::CheckoutBuilder::default().force()),
+            ).map_err(|e| ToriiError::Git(e))?;
+        }
 
         Ok(())
     }
@@ -189,33 +198,55 @@ impl SnapshotManager {
     pub fn stash(&self, name: Option<&str>, include_untracked: bool) -> Result<()> {
         let stash_name = name.unwrap_or("WIP");
 
-        // Stage untracked files temporarily so the snapshot captures them
+        // Stage untracked files via git2 intent-to-add so snapshot captures them
         if include_untracked {
-            let repo_path = std::path::Path::new(".");
-            let output = std::process::Command::new("git")
-                .args(["add", "--intent-to-add", "."])
-                .current_dir(repo_path)
-                .output()?;
-            if !output.status.success() {
-                let err = String::from_utf8_lossy(&output.stderr);
-                eprintln!("⚠️  Could not stage untracked files: {}", err);
+            if let Ok(repo) = git2::Repository::discover(&self.repo_path) {
+                if let Ok(mut index) = repo.index() {
+                    let _ = index.add_all(
+                        ["*"].iter(),
+                        git2::IndexAddOption::DEFAULT | git2::IndexAddOption::CHECK_PATHSPEC,
+                        None,
+                    );
+                    let _ = index.write();
+                }
             }
         }
 
         let snapshot_id = self.create_snapshot(Some(&format!("stash-{}", stash_name)))?;
 
-        // Reset to HEAD, discarding staged + unstaged changes (including untracked if staged above)
-        std::process::Command::new("git")
-            .args(["reset", "--hard", "HEAD"])
-            .current_dir(".")
-            .output()?;
+        // Reset to HEAD via git2, discarding all changes
+        {
+            let repo = git2::Repository::discover(&self.repo_path)
+                .map_err(|e| ToriiError::Git(e))?;
+            let head = repo.head()
+                .map_err(|e| ToriiError::Git(e))?
+                .peel_to_commit()
+                .map_err(|e| ToriiError::Git(e))?;
+            repo.reset(
+                head.as_object(),
+                git2::ResetType::Hard,
+                Some(git2::build::CheckoutBuilder::default().force()),
+            ).map_err(|e| ToriiError::Git(e))?;
 
-        // Remove untracked files if requested
-        if include_untracked {
-            std::process::Command::new("git")
-                .args(["clean", "-fd"])
-                .current_dir(".")
-                .output()?;
+            // Remove untracked files if requested
+            if include_untracked {
+                let mut opts = git2::StatusOptions::new();
+                opts.include_untracked(true).recurse_untracked_dirs(true);
+                if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
+                    for entry in statuses.iter() {
+                        if entry.status().is_wt_new() {
+                            if let Some(path) = entry.path() {
+                                let full_path = self.repo_path.join(path);
+                                if full_path.is_dir() {
+                                    let _ = std::fs::remove_dir_all(&full_path);
+                                } else {
+                                    let _ = std::fs::remove_file(&full_path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         println!("📦 Stashed changes");

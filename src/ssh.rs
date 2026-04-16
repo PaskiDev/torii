@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::fs;
-use std::env;
 use crate::error::Result;
+use dirs;
 
 /// SSH key detection and management
 pub struct SshHelper;
@@ -29,10 +29,9 @@ impl SshHelper {
 
     /// Get SSH directory path
     pub fn ssh_dir() -> PathBuf {
-        let home = env::var("HOME")
-            .or_else(|_| env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".ssh")
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".ssh")
     }
 
     /// List available SSH keys

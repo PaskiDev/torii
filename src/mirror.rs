@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Result, ToriiError};
 use crate::core::GitRepo;
 use crate::duration::format_duration;
+use dirs;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum MirrorType {
@@ -352,14 +353,13 @@ impl MirrorManager {
             format!("refs/heads/{}:refs/heads/{}", branch, branch)
         };
 
-        // Setup callbacks for SSH authentication — try explicit keys then agent
+        // Setup SSH callbacks — ed25519, then rsa, then agent
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, _allowed_types| {
             let username = username_from_url.unwrap_or("git");
-            let home = std::env::var("HOME").unwrap_or_default();
-            // Try ed25519 first, then rsa, then agent
-            let ed25519 = std::path::Path::new(&home).join(".ssh/id_ed25519");
-            let rsa = std::path::Path::new(&home).join(".ssh/id_rsa");
+            let home = dirs::home_dir().unwrap_or_default();
+            let ed25519 = home.join(".ssh").join("id_ed25519");
+            let rsa = home.join(".ssh").join("id_rsa");
             if ed25519.exists() {
                 git2::Cred::ssh_key(username, None, &ed25519, None)
             } else if rsa.exists() {
@@ -374,14 +374,38 @@ impl MirrorManager {
 
         remote.push(&[&refspec], Some(&mut push_options))?;
 
-        // Push tags via subprocess (git2 doesn't support glob refspecs)
-        let repo_path = repo.repository().path().parent().unwrap().to_path_buf();
-        let mut tag_args = vec!["push", &mirror.name, "--tags"];
-        if force { tag_args.push("--force"); }
-        let _ = std::process::Command::new("git")
-            .args(&tag_args)
-            .current_dir(&repo_path)
-            .output();
+        // Push tags via git2 — enumerate local tags and push each one
+        let tags = repo.repository().tag_names(None)?;
+        if !tags.is_empty() {
+            let refspecs: Vec<String> = tags.iter()
+                .flatten()
+                .map(|t| {
+                    let r = format!("refs/tags/{}:refs/tags/{}", t, t);
+                    if force { format!("+{}", r) } else { r }
+                })
+                .collect();
+            let refspec_refs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
+            if !refspec_refs.is_empty() {
+                let mut tag_remote = repo.repository().find_remote(&mirror.name)?;
+                let mut tag_callbacks = git2::RemoteCallbacks::new();
+                tag_callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                    let username = username_from_url.unwrap_or("git");
+                    let home = dirs::home_dir().unwrap_or_default();
+                    let ed25519 = home.join(".ssh").join("id_ed25519");
+                    let rsa = home.join(".ssh").join("id_rsa");
+                    if ed25519.exists() {
+                        git2::Cred::ssh_key(username, None, &ed25519, None)
+                    } else if rsa.exists() {
+                        git2::Cred::ssh_key(username, None, &rsa, None)
+                    } else {
+                        git2::Cred::ssh_key_from_agent(username)
+                    }
+                });
+                let mut tag_push_opts = git2::PushOptions::new();
+                tag_push_opts.remote_callbacks(tag_callbacks);
+                let _ = tag_remote.push(&refspec_refs, Some(&mut tag_push_opts));
+            }
+        }
 
         Ok(())
     }

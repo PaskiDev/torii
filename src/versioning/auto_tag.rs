@@ -2,6 +2,7 @@ use anyhow::Result;
 use crate::versioning::conventional::{ConventionalCommit, CommitType};
 use crate::versioning::semver::{Version, VersionBump};
 use crate::core::GitRepo;
+use git2;
 
 pub struct AutoTagger {
     repo: GitRepo,
@@ -78,32 +79,40 @@ impl AutoTagger {
     
     /// Calculate next version by scanning commits since the last tag
     pub fn calculate_next_version_from_log(&self) -> Result<Option<Version>> {
-        use std::process::Command;
+        let latest = self.get_latest_version()?;
 
-        let repo_path = self.repo.repo.path().parent().unwrap().to_path_buf();
-
-        // Get commits since last tag (or all commits if no tag)
-        let range = match self.get_latest_version()? {
-            Some(v) => format!("v{}..HEAD", v),
-            None => "HEAD".to_string(),
+        // Find the OID of the latest tag commit (if any)
+        let since_oid: Option<git2::Oid> = if let Some(ref v) = latest {
+            let tag_name = format!("{}{}", self.prefix, v);
+            self.repo.repo.find_reference(&format!("refs/tags/{}", tag_name))
+                .ok()
+                .and_then(|r| r.peel_to_commit().ok())
+                .map(|c| c.id())
+        } else {
+            None
         };
 
-        let output = Command::new("git")
-            .args(["log", &range, "--format=%s"])
-            .current_dir(&repo_path)
-            .output()?;
-
-        let messages = String::from_utf8_lossy(&output.stdout);
+        // Walk commits from HEAD, stopping at the tag commit
+        let mut revwalk = self.repo.repo.revwalk()?;
+        revwalk.push_head()?;
+        revwalk.set_sorting(git2::Sort::TIME)?;
 
         let mut highest = VersionBump::None;
 
-        for msg in messages.lines() {
-            let bump = self.determine_bump(msg).unwrap_or(VersionBump::None);
-            match bump {
-                VersionBump::Major => { highest = VersionBump::Major; break; }
-                VersionBump::Minor if highest != VersionBump::Major => { highest = VersionBump::Minor; }
-                VersionBump::Patch if highest == VersionBump::None => { highest = VersionBump::Patch; }
-                _ => {}
+        for oid in revwalk.filter_map(|r| r.ok()) {
+            // Stop when we reach the tagged commit
+            if Some(oid) == since_oid {
+                break;
+            }
+            if let Ok(commit) = self.repo.repo.find_commit(oid) {
+                let msg = commit.summary().unwrap_or("");
+                let bump = self.determine_bump(msg).unwrap_or(VersionBump::None);
+                match bump {
+                    VersionBump::Major => { highest = VersionBump::Major; break; }
+                    VersionBump::Minor if highest != VersionBump::Major => { highest = VersionBump::Minor; }
+                    VersionBump::Patch if highest == VersionBump::None => { highest = VersionBump::Patch; }
+                    _ => {}
+                }
             }
         }
 
@@ -111,7 +120,7 @@ impl AutoTagger {
             return Ok(None);
         }
 
-        let base = self.get_latest_version()?.unwrap_or_else(Version::initial);
+        let base = latest.unwrap_or_else(Version::initial);
         Ok(Some(base.bump(highest)))
     }
 }

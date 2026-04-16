@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 use std::path::PathBuf;
+use dirs;
 use crate::config::ToriiConfig;
 use crate::core::GitRepo;
 use crate::remote::{get_platform_client, Visibility, RepoSettings, RepoFeatures};
@@ -1152,8 +1153,10 @@ impl Cli {
                         let config_path = if *local {
                             std::path::PathBuf::from(".").join(".torii").join("config.toml")
                         } else {
-                            let home = std::env::var("HOME")?;
-                            std::path::PathBuf::from(home).join(".config").join("torii").join("config.toml")
+                            dirs::config_dir()
+                                .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?
+                                .join("torii")
+                                .join("config.toml")
                         };
                         
                         // Ensure config exists
@@ -1214,12 +1217,8 @@ impl Cli {
                         if *push {
                             println!("\n📤 Pushing to remote...");
                             let git_repo = GitRepo::open(".")?;
-                            
-                            // Add remote
-                            std::process::Command::new("git")
-                                .args(&["remote", "add", "origin", &repo.ssh_url])
-                                .output()?;
-                            
+                            // Add remote via git2
+                            let _ = git_repo.repository().remote("origin", &repo.ssh_url);
                             git_repo.push(false)?;
                             println!("✅ Pushed to remote");
                         }
@@ -1426,13 +1425,11 @@ impl Cli {
                     println!("\n📤 Pushing to remote...");
                     let git_repo = GitRepo::open(".")?;
                     
-                    // Add remotes for successful platforms
+                    // Add remotes for successful platforms via git2
                     for (platform, success, _) in results.iter() {
                         if *success {
-                            // Try to add remote (may already exist)
-                            let _ = std::process::Command::new("git")
-                                .args(&["remote", "add", platform, &format!("git@{}:{}/{}.git", platform, owner.as_ref().unwrap_or(&"user".to_string()), name)])
-                                .output();
+                            let url = format!("git@{}:{}/{}.git", platform, owner.as_ref().unwrap_or(&"user".to_string()), name);
+                            let _ = git_repo.repository().remote(platform, &url);
                         }
                     }
                     
