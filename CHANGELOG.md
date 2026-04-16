@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-04-17
+
+### Fixed
+- `torii sync --force` and `torii sync --push` now also sync replica mirrors automatically
+- Renamed remaining internal `slaves` variable references to `replicas` in mirror output
+- Mirror list output now shows `PRIMARY` instead of `MASTER`
+
 ## [0.1.6] - 2026-04-16
 
 ### Added
@@ -103,7 +110,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-platform URL generation (SSH and HTTPS)
 - Autofetch configuration for mirrors
 
-[Unreleased]: https://gitlab.com/paskidev/torii/-/compare/v0.1.5...HEAD
+[Unreleased]: https://gitlab.com/paskidev/torii/-/compare/v0.1.7...HEAD
+[0.1.7]: https://gitlab.com/paskidev/torii/-/compare/v0.1.6...v0.1.7
+[0.1.6]: https://gitlab.com/paskidev/torii/-/compare/v0.1.5...v0.1.6
 [0.1.5]: https://gitlab.com/paskidev/torii/-/compare/v0.1.4...v0.1.5
 [0.1.4]: https://gitlab.com/paskidev/torii/-/compare/v0.1.3...v0.1.4
 [0.1.3]: https://gitlab.com/paskidev/torii/-/compare/v0.1.2...v0.1.3

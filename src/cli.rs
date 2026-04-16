@@ -807,12 +807,16 @@ impl Cli {
                 } else if *force {
                     repo.push(true)?;
                     println!("✅ Force synced with remote");
+                    let mirror_mgr = MirrorManager::new(".")?;
+                    mirror_mgr.sync_replicas_if_any(true)?;
                 } else if *pull {
                     repo.pull()?;
                     println!("✅ Pulled from remote");
                 } else if *push {
                     repo.push(false)?;
                     println!("✅ Pushed to remote");
+                    let mirror_mgr = MirrorManager::new(".")?;
+                    mirror_mgr.sync_replicas_if_any(false)?;
                 } else {
                     // Default: pull then push
                     repo.pull()?;
@@ -820,7 +824,7 @@ impl Cli {
                     println!("✅ Synced with remote");
                     // Also sync replica mirrors if any are configured
                     let mirror_mgr = MirrorManager::new(".")?;
-                    mirror_mgr.sync_replicas_if_any(*force)?;
+                    mirror_mgr.sync_replicas_if_any(false)?;
                 }
             }
 
