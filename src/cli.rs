@@ -194,16 +194,6 @@ enum Commands {
         all: bool,
     },
 
-    /// Switch to a branch
-    Switch {
-        /// Branch name
-        branch: String,
-
-        /// Create new branch
-        #[arg(short = 'c', long)]
-        create: bool,
-    },
-
     /// Clone a repository
     Clone {
         /// Repository URL or platform shorthand (e.g., github user/repo)
@@ -217,53 +207,10 @@ enum Commands {
         directory: Option<String>,
     },
 
-    /// Integrate changes from another branch (smart merge/rebase)
-    /// DEPRECATED: Use 'torii sync <branch>' instead
-    Integrate {
-        /// Branch to integrate
-        branch: String,
-
-        /// Force merge (even if rebase is recommended)
-        #[arg(long)]
-        merge: bool,
-
-        /// Force rebase (even if merge is recommended)
-        #[arg(long)]
-        rebase: bool,
-
-        /// Show preview without executing
-        #[arg(long)]
-        preview: bool,
-    },
-
     /// Tag management
     Tag {
         #[command(subcommand)]
         action: TagCommands,
-    },
-
-    /// Apply a commit to current branch
-    CherryPick {
-        /// Commit hash to cherry-pick
-        commit: String,
-
-        /// Continue after resolving conflicts
-        #[arg(long)]
-        r#continue: bool,
-
-        /// Abort cherry-pick
-        #[arg(long)]
-        abort: bool,
-    },
-
-    /// Show who changed each line of a file
-    Blame {
-        /// File to blame
-        file: String,
-
-        /// Line range (e.g., 10,20)
-        #[arg(short = 'L', long)]
-        lines: Option<String>,
     },
 
     /// Snapshot management
@@ -286,53 +233,25 @@ enum Commands {
 
     /// Show details of a commit, tag, or file
     Show {
-        /// Commit hash, tag name, or ref (defaults to HEAD)
+        /// Commit hash, tag name, ref, or file path (defaults to HEAD)
         object: Option<String>,
+
+        /// Show blame for a file (who changed each line)
+        #[arg(long)]
+        blame: bool,
+
+        /// Line range for blame (e.g., 10,20)
+        #[arg(short = 'L', long, requires = "blame")]
+        lines: Option<String>,
     },
 
     /// Check SSH configuration
     SshCheck,
 
-    /// Undo last operation (quick access to snapshot undo)
-    Undo,
-
     /// Manage repository history
     History {
         #[command(subcommand)]
         action: HistoryCommands,
-    },
-
-    /// Scan staged files or full history for sensitive data (API keys, tokens, passwords)
-    Scan {
-        /// Scan the entire git history instead of only staged files
-        #[arg(long)]
-        history: bool,
-    },
-
-    /// Rebase current branch (interactive or onto a target)
-    Rebase {
-        /// Target branch or commit to rebase onto
-        target: Option<String>,
-
-        /// Interactive rebase (opens editor to squash, reorder, drop commits)
-        #[arg(short, long)]
-        interactive: bool,
-
-        /// Path to a pre-written rebase todo file (skips editor)
-        #[arg(long, value_name = "FILE")]
-        todo_file: Option<PathBuf>,
-
-        /// Continue an in-progress rebase
-        #[arg(long)]
-        continue_rebase: bool,
-
-        /// Abort the current rebase
-        #[arg(long)]
-        abort: bool,
-
-        /// Skip the current patch
-        #[arg(long)]
-        skip: bool,
     },
 
     /// Manage Torii configuration
@@ -529,6 +448,63 @@ enum HistoryCommands {
     RemoveFile {
         /// File path to remove from all commits
         file: String,
+    },
+
+    /// Apply a commit from another branch to current branch
+    CherryPick {
+        /// Commit hash to cherry-pick
+        commit: Option<String>,
+
+        /// Continue after resolving conflicts
+        #[arg(long)]
+        r#continue: bool,
+
+        /// Abort cherry-pick
+        #[arg(long)]
+        abort: bool,
+    },
+
+    /// Show who changed each line of a file
+    Blame {
+        /// File to blame
+        file: String,
+
+        /// Line range (e.g., 10,20)
+        #[arg(short = 'L', long)]
+        lines: Option<String>,
+    },
+
+    /// Scan staged files or full history for sensitive data
+    Scan {
+        /// Scan the entire git history instead of only staged files
+        #[arg(long)]
+        history: bool,
+    },
+
+    /// Rebase current branch onto a target
+    Rebase {
+        /// Target branch or commit to rebase onto
+        target: Option<String>,
+
+        /// Interactive rebase
+        #[arg(short, long)]
+        interactive: bool,
+
+        /// Path to a pre-written rebase todo file (skips editor)
+        #[arg(long, value_name = "FILE")]
+        todo_file: Option<PathBuf>,
+
+        /// Continue an in-progress rebase
+        #[arg(long)]
+        r#continue: bool,
+
+        /// Abort the current rebase
+        #[arg(long)]
+        abort: bool,
+
+        /// Skip the current patch
+        #[arg(long)]
+        skip: bool,
     },
 }
 
@@ -907,18 +883,6 @@ impl Cli {
                 }
             }
 
-            Commands::Switch { branch, create } => {
-                let repo = GitRepo::open(".")?;
-                
-                if *create {
-                    repo.create_branch(branch)?;
-                    println!("✅ Created branch: {}", branch);
-                }
-                
-                repo.switch_branch(branch)?;
-                println!("✅ Switched to branch: {}", branch);
-            }
-
             Commands::Clone { source, args, directory } => {
                 if args.is_empty() && !source.starts_with("http") && !source.starts_with("git@") {
                     anyhow::bail!("Use: torii clone <platform> <user/repo> or provide full URL");
@@ -971,11 +935,6 @@ impl Cli {
                     url.split('/').last().unwrap_or("repo").trim_end_matches(".git")
                 });
                 println!("✅ Cloned repository to: {}", dir_name);
-            }
-
-            Commands::Integrate { branch, merge, rebase, preview } => {
-                let repo = GitRepo::open(".")?;
-                repo.integrate(branch, *merge, *rebase, *preview)?;
             }
 
             Commands::Tag { action } => {
@@ -1034,22 +993,6 @@ impl Cli {
                         }
                     }
                 }
-            }
-
-            Commands::CherryPick { commit, r#continue, abort } => {
-                let repo = GitRepo::open(".")?;
-                if *r#continue {
-                    repo.cherry_pick_continue()?;
-                } else if *abort {
-                    repo.cherry_pick_abort()?;
-                } else {
-                    repo.cherry_pick(commit)?;
-                }
-            }
-
-            Commands::Blame { file, lines } => {
-                let repo = GitRepo::open(".")?;
-                repo.blame(file, lines.as_deref())?;
             }
 
             Commands::Snapshot { action } => {
@@ -1164,13 +1107,6 @@ impl Cli {
                     println!("   5. Add it to your Git hosting service");
                 }
             }
-
-            Commands::Undo => {
-                let manager = SnapshotManager::new(".")?;
-                manager.undo()?;
-                println!("✅ Undone last operation");
-            }
-
 
             Commands::Config { action } => {
                 match action {
@@ -1512,9 +1448,14 @@ impl Cli {
                 repo.ls(path.as_deref())?;
             }
 
-            Commands::Show { object } => {
+            Commands::Show { object, blame, lines } => {
                 let repo = GitRepo::open(".")?;
-                repo.show(object.as_deref())?;
+                if *blame {
+                    let file = object.as_deref().ok_or_else(|| anyhow::anyhow!("File path required for --blame"))?;
+                    repo.blame(file, lines.as_deref())?;
+                } else {
+                    repo.show(object.as_deref())?;
+                }
             }
 
             Commands::History { action } => {
@@ -1537,64 +1478,73 @@ impl Cli {
                     HistoryCommands::RemoveFile { file } => {
                         repo.remove_file_from_history(file)?;
                     }
-                }
-            }
-
-            Commands::Scan { history } => {
-                let repo_path = std::path::Path::new(".");
-                if *history {
-                    println!("🔍 Scanning full git history for sensitive data...\n");
-                    let results = scanner::scan_history(repo_path)?;
-                    if results.is_empty() {
-                        println!("✅ No sensitive data found in history.");
-                    } else {
-                        println!("⚠️  Found sensitive data in {} commit(s):\n", results.len());
-                        for (commit, findings) in &results {
-                            println!("  📌 {}", commit);
-                            for f in findings {
-                                println!("     {}:{} — {}", f.file, f.line, f.pattern_name);
-                                println!("     {}", f.preview);
+                    HistoryCommands::CherryPick { commit, r#continue, abort } => {
+                        if *r#continue {
+                            repo.cherry_pick_continue()?;
+                        } else if *abort {
+                            repo.cherry_pick_abort()?;
+                        } else {
+                            let hash = commit.as_deref().ok_or_else(|| anyhow::anyhow!("Commit hash required: torii history cherry-pick <hash>"))?;
+                            repo.cherry_pick(hash)?;
+                        }
+                    }
+                    HistoryCommands::Blame { file, lines } => {
+                        repo.blame(file, lines.as_deref())?;
+                    }
+                    HistoryCommands::Scan { history } => {
+                        let repo_path = std::path::Path::new(".");
+                        if *history {
+                            println!("🔍 Scanning full git history for sensitive data...\n");
+                            let results = scanner::scan_history(repo_path)?;
+                            if results.is_empty() {
+                                println!("✅ No sensitive data found in history.");
+                            } else {
+                                println!("⚠️  Found sensitive data in {} commit(s):\n", results.len());
+                                for (commit, findings) in &results {
+                                    println!("  📌 {}", commit);
+                                    for f in findings {
+                                        println!("     {}:{} — {}", f.file, f.line, f.pattern_name);
+                                        println!("     {}", f.preview);
+                                    }
+                                    println!();
+                                }
+                                println!("💡 To clean history: torii history rebase <base> --todo-file <plan>");
                             }
-                            println!();
+                        } else {
+                            println!("🔍 Scanning staged files for sensitive data...\n");
+                            let findings = scanner::scan_staged(repo_path)?;
+                            if findings.is_empty() {
+                                println!("✅ No sensitive data detected in staged files.");
+                            } else {
+                                println!("⚠️  Found {} issue(s):\n", findings.len());
+                                for f in &findings {
+                                    println!("  {}:{} — {}", f.file, f.line, f.pattern_name);
+                                    println!("  {}\n", f.preview);
+                                }
+                                println!("💡 Tip: use .env.example for placeholder values.");
+                            }
                         }
-                        println!("💡 To clean history: torii rebase <base> --todo-file <plan>");
-                        println!("   Or use 'git filter-repo' to remove specific files.");
                     }
-                } else {
-                    println!("🔍 Scanning staged files for sensitive data...\n");
-                    let findings = scanner::scan_staged(repo_path)?;
-                    if findings.is_empty() {
-                        println!("✅ No sensitive data detected in staged files.");
-                    } else {
-                        println!("⚠️  Found {} issue(s):\n", findings.len());
-                        for f in &findings {
-                            println!("  {}:{} — {}", f.file, f.line, f.pattern_name);
-                            println!("  {}\n", f.preview);
+                    HistoryCommands::Rebase { target, interactive, todo_file, r#continue, abort, skip } => {
+                        if *r#continue {
+                            repo.rebase_continue()?;
+                        } else if *abort {
+                            repo.rebase_abort()?;
+                        } else if *skip {
+                            repo.rebase_skip()?;
+                        } else if let Some(todo) = todo_file {
+                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase <base> --todo-file plan.txt"))?;
+                            repo.rebase_with_todo(base, todo)?;
+                        } else if *interactive {
+                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase HEAD~3 --interactive"))?;
+                            repo.rebase_interactive(base)?;
+                        } else if let Some(base) = target {
+                            repo.rebase_branch(base)?;
+                            println!("✅ Rebased onto: {}", base);
+                        } else {
+                            anyhow::bail!("Specify a target or use --interactive / --todo-file / --continue / --abort / --skip");
                         }
-                        println!("💡 Tip: use .env.example for placeholder values.");
                     }
-                }
-            }
-
-            Commands::Rebase { target, interactive, todo_file, continue_rebase, abort, skip } => {
-                let repo = GitRepo::open(".")?;
-                if *continue_rebase {
-                    repo.rebase_continue()?;
-                } else if *abort {
-                    repo.rebase_abort()?;
-                } else if *skip {
-                    repo.rebase_skip()?;
-                } else if let Some(todo) = todo_file {
-                    let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required when using --todo-file (e.g. torii rebase <base> --todo-file plan.txt)"))?;
-                    repo.rebase_with_todo(base, todo)?;
-                } else if *interactive {
-                    let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required for interactive rebase (e.g. HEAD~3 or <branch>)"))?;
-                    repo.rebase_interactive(base)?;
-                } else if let Some(base) = target {
-                    repo.rebase_branch(base)?;
-                    println!("✅ Rebased onto: {}", base);
-                } else {
-                    anyhow::bail!("Specify a target branch/commit or use --interactive / --todo-file / --continue / --abort / --skip");
                 }
             }
         }
