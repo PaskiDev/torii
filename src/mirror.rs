@@ -285,6 +285,32 @@ impl MirrorManager {
         Ok(())
     }
 
+    /// Sync replicas silently if any are configured — called automatically by `torii sync`
+    pub fn sync_replicas_if_any(&self, force: bool) -> Result<()> {
+        let config = self.load_config()?;
+        let replicas: Vec<_> = config.mirrors.iter()
+            .filter(|m| m.mirror_type == MirrorType::Replica && m.enabled)
+            .collect();
+        if replicas.is_empty() {
+            return Ok(());
+        }
+        let repo = GitRepo::open(&self.repo_path)?;
+        let mut failed = vec![];
+        for mirror in &replicas {
+            if let Err(e) = self.sync_to_mirror(&repo, mirror, force) {
+                failed.push(format!("{}/{}: {}", mirror.platform, mirror.account_name, e));
+            }
+        }
+        let ok = replicas.len() - failed.len();
+        if ok > 0 {
+            println!("🪞 Mirrors synced: {}/{}", ok, replicas.len());
+        }
+        for f in &failed {
+            eprintln!("⚠️  Mirror sync failed: {}", f);
+        }
+        Ok(())
+    }
+
     /// Sync to all replica mirrors (push from master)
     pub fn sync_all(&self, force: bool) -> Result<()> {
         let config = self.load_config()?;

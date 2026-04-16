@@ -702,7 +702,7 @@ impl GitRepo {
 
         while let Some(op) = rebase.next() {
             op.map_err(|e| crate::error::ToriiError::Git(e))?;
-            let mut index = self.repo.index()
+            let index = self.repo.index()
                 .map_err(|e| crate::error::ToriiError::Git(e))?;
             if index.has_conflicts() {
                 println!("⚠️  Rebase conflict. Resolve conflicts and run: torii history rebase --continue");
@@ -752,8 +752,6 @@ impl GitRepo {
 
     /// Show details of a commit, tag, or file at a given ref
     pub fn show(&self, object: Option<&str>) -> Result<()> {
-        let repo_path = self.repo.path().parent().unwrap();
-
         // Use the ref or default to HEAD
         let target = object.unwrap_or("HEAD");
 

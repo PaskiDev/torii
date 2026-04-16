@@ -818,6 +818,9 @@ impl Cli {
                     repo.pull()?;
                     repo.push(false)?;
                     println!("✅ Synced with remote");
+                    // Also sync replica mirrors if any are configured
+                    let mirror_mgr = MirrorManager::new(".")?;
+                    mirror_mgr.sync_replicas_if_any(*force)?;
                 }
             }
 
