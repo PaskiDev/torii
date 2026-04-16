@@ -1051,7 +1051,7 @@ impl Cli {
                     }
                     MirrorCommands::SetPrimary { platform, account } => {
                         mirror_mgr.set_primary(platform, account)?;
-                        println!("✅ Set as primary", platform, account);
+                        println!("✅ Set as primary: {}/{}", platform, account);
                     }
                     MirrorCommands::Remove { platform, account } => {
                         mirror_mgr.remove_mirror_by_account(platform, account)?;
