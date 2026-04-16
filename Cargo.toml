@@ -39,5 +39,8 @@ toml = "0.8"
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# Platform-specific directories
+dirs = "5.0"
+
 [dev-dependencies]
 tempfile = "3.12"

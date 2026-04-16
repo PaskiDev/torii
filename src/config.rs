@@ -152,9 +152,9 @@ impl Default for ToriiConfig {
 impl ToriiConfig {
     /// Get the global config file path
     fn global_config_path() -> Result<PathBuf> {
-        let home = std::env::var("HOME")
-            .map_err(|_| ToriiError::InvalidConfig("HOME environment variable not set".to_string()))?;
-        let config_dir = PathBuf::from(home).join(".config").join("torii");
+        let config_dir = dirs::config_dir()
+            .ok_or_else(|| ToriiError::InvalidConfig("Could not determine config directory for this platform".to_string()))?
+            .join("torii");
         fs::create_dir_all(&config_dir)?;
         Ok(config_dir.join("config.toml"))
     }
