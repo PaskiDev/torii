@@ -278,6 +278,18 @@ enum Commands {
         action: MirrorCommands,
     },
 
+    /// List all tracked files in the repository
+    Ls {
+        /// Filter by path prefix (e.g. src/)
+        path: Option<String>,
+    },
+
+    /// Show details of a commit, tag, or file
+    Show {
+        /// Commit hash, tag name, or ref (defaults to HEAD)
+        object: Option<String>,
+    },
+
     /// Check SSH configuration
     SshCheck,
 
@@ -1493,6 +1505,16 @@ impl Cli {
                     git_repo.push(false)?;
                     println!("✅ Pushed to remotes");
                 }
+            }
+
+            Commands::Ls { path } => {
+                let repo = GitRepo::open(".")?;
+                repo.ls(path.as_deref())?;
+            }
+
+            Commands::Show { object } => {
+                let repo = GitRepo::open(".")?;
+                repo.show(object.as_deref())?;
             }
 
             Commands::History { action } => {

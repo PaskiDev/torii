@@ -655,4 +655,108 @@ impl GitRepo {
 
         Ok(())
     }
+
+    /// List all tracked files in the index
+    pub fn ls(&self, path_filter: Option<&str>) -> Result<()> {
+        let mut index = self.repo.index()?;
+        index.read(true)?;
+
+        let entries: Vec<_> = index.iter()
+            .filter(|e| {
+                let path = String::from_utf8_lossy(&e.path).to_string();
+                match path_filter {
+                    Some(filter) => path.starts_with(filter),
+                    None => true,
+                }
+            })
+            .collect();
+
+        if entries.is_empty() {
+            println!("No tracked files.");
+            return Ok(());
+        }
+
+        for entry in &entries {
+            let path = String::from_utf8_lossy(&entry.path);
+            println!("{}", path);
+        }
+
+        println!();
+        println!("{} tracked file(s)", entries.len());
+
+        Ok(())
+    }
+
+    /// Show details of a commit, tag, or file at a given ref
+    pub fn show(&self, object: Option<&str>) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap();
+
+        // Use the ref or default to HEAD
+        let target = object.unwrap_or("HEAD");
+
+        // Try to resolve as commit first
+        let resolved = self.repo.revparse_single(target);
+
+        match resolved {
+            Ok(obj) => {
+                match obj.kind() {
+                    Some(git2::ObjectType::Commit) => {
+                        let commit = obj.peel_to_commit()?;
+                        let sig = commit.author();
+                        let time = commit.time();
+                        let timestamp = chrono::DateTime::from_timestamp(time.seconds(), 0)
+                            .unwrap_or_default();
+
+                        println!("commit {}", commit.id());
+                        println!("Author: {} <{}>", sig.name().unwrap_or(""), sig.email().unwrap_or(""));
+                        println!("Date:   {}", timestamp.format("%Y-%m-%d %H:%M:%S"));
+                        println!();
+                        println!("    {}", commit.message().unwrap_or("").trim());
+                        println!();
+
+                        // Show diff vs parent
+                        let output = Command::new("git")
+                            .args(["show", "--stat", "--patch", target])
+                            .current_dir(repo_path)
+                            .output()?;
+
+                        if output.status.success() {
+                            let diff = String::from_utf8_lossy(&output.stdout);
+                            // Skip the header lines already printed above
+                            let lines: Vec<&str> = diff.lines().collect();
+                            let skip = lines.iter().position(|l| l.starts_with("diff --git") || l.starts_with("---")).unwrap_or(0);
+                            for line in &lines[skip..] {
+                                println!("{}", line);
+                            }
+                        }
+                    }
+                    Some(git2::ObjectType::Tag) => {
+                        let tag = obj.peel_to_tag()?;
+                        println!("tag {}", tag.name().unwrap_or(""));
+                        if let Some(tagger) = tag.tagger() {
+                            println!("Tagger: {} <{}>", tagger.name().unwrap_or(""), tagger.email().unwrap_or(""));
+                        }
+                        println!();
+                        println!("{}", tag.message().unwrap_or("").trim());
+                    }
+                    Some(git2::ObjectType::Blob) => {
+                        let blob = obj.peel_to_blob()?;
+                        let content = std::str::from_utf8(blob.content())
+                            .unwrap_or("<binary>");
+                        print!("{}", content);
+                    }
+                    _ => {
+                        println!("{}", obj.id());
+                    }
+                }
+            }
+            Err(_) => {
+                return Err(crate::error::ToriiError::InvalidConfig(
+                    format!("Unknown ref or object: '{}'", target)
+                ).into());
+            }
+        }
+
+        Ok(())
+    }
 }
