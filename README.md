@@ -21,17 +21,26 @@ cargo install --path .
 ## Quick start
 
 ```bash
-# Save your work (replaces git add + git commit)
-torii save -am "feat: add user auth"
+# Initialize
+torii init
 
-# Stage specific files only
-torii save src/auth.rs tests/auth.rs -m "feat: add user auth"
+# Daily workflow
+torii status                          # see what changed
+torii save -m "feat: add user auth"   # stage all + commit
+torii sync                            # pull + push
 
-# Sync with remote (pull + push)
-torii sync
+# Specific files only
+torii save src/auth.rs -m "fix: null check"
 
-# Push only
-torii sync --push
+# Branches
+torii branch feature/login -c        # create and switch
+torii sync main                      # merge main into current branch
+torii branch -d feature/login        # delete when done
+
+# Undo things
+torii snapshot stash                  # stash work in progress
+torii save --revert abc1234           # revert a commit
+torii save --reset HEAD~1 --reset-mode soft  # undo last commit, keep changes
 ```
 
 ## Command reference
@@ -171,13 +180,13 @@ torii tag release --dry-run       # preview without creating
 Mirror your repository across multiple platforms simultaneously.
 
 ```bash
-torii mirror add-master github user myrepo user
-torii mirror add-slave gitlab user myrepo user
-torii mirror add-slave codeberg user myrepo user
+torii mirror add-primary gitlab user myrepo user
+torii mirror add-replica github user myrepo user
+torii mirror add-replica codeberg user myrepo user
 torii mirror sync
 torii mirror sync --force
 torii mirror list
-torii mirror set-master gitlab user
+torii mirror set-primary gitlab user
 torii mirror remove github user
 torii mirror autofetch --enable --interval 30m
 torii mirror autofetch --disable
