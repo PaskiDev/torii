@@ -1,5 +1,6 @@
 stages:
   - release
+  - publish
 
 release:
   stage: release
@@ -30,3 +31,20 @@ release:
           }
         }" \
         "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/releases"
+
+publish-crates:
+  stage: publish
+  image: rust:latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+  id_tokens:
+    CRATES_IO_ID_TOKEN:
+      aud: crates.io
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq jq
+  script:
+    - |
+      TOKEN=$(curl -s -X POST https://crates.io/api/v1/trusted_publishing/tokens \
+        -H "Authorization: Bearer $CRATES_IO_ID_TOKEN" \
+        -H "Content-Type: application/json" | jq -r .token)
+      cargo publish --token "$TOKEN"
