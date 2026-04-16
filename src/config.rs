@@ -8,18 +8,40 @@ use crate::error::{Result, ToriiError};
 pub struct ToriiConfig {
     /// User settings
     pub user: UserConfig,
-    
+
     /// Snapshot settings
     pub snapshot: SnapshotConfig,
-    
+
     /// Mirror settings
     pub mirror: MirrorConfig,
-    
+
     /// Git settings
     pub git: GitConfig,
-    
+
     /// UI settings
     pub ui: UiConfig,
+
+    /// Platform auth tokens
+    #[serde(default)]
+    pub auth: AuthConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct AuthConfig {
+    /// GitHub personal access token
+    pub github_token: Option<String>,
+
+    /// GitLab personal access token
+    pub gitlab_token: Option<String>,
+
+    /// Gitea token
+    pub gitea_token: Option<String>,
+
+    /// Forgejo token
+    pub forgejo_token: Option<String>,
+
+    /// Codeberg token
+    pub codeberg_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -122,6 +144,7 @@ impl Default for ToriiConfig {
                 verbose: false,
                 date_format: "%Y-%m-%d %H:%M".to_string(),
             },
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -214,10 +237,17 @@ impl ToriiConfig {
         
         // Git config
         base.git = overlay.git;
-        
+
         // UI config
         base.ui = overlay.ui;
-        
+
+        // Auth config
+        if overlay.auth.github_token.is_some() { base.auth.github_token = overlay.auth.github_token; }
+        if overlay.auth.gitlab_token.is_some() { base.auth.gitlab_token = overlay.auth.gitlab_token; }
+        if overlay.auth.gitea_token.is_some() { base.auth.gitea_token = overlay.auth.gitea_token; }
+        if overlay.auth.forgejo_token.is_some() { base.auth.forgejo_token = overlay.auth.forgejo_token; }
+        if overlay.auth.codeberg_token.is_some() { base.auth.codeberg_token = overlay.auth.codeberg_token; }
+
         base
     }
     
@@ -247,6 +277,11 @@ impl ToriiConfig {
             ("ui", "emoji") => Some(self.ui.emoji.to_string()),
             ("ui", "verbose") => Some(self.ui.verbose.to_string()),
             ("ui", "date_format") => Some(self.ui.date_format.clone()),
+            ("auth", "github_token") => self.auth.github_token.clone().map(|_| "[set]".to_string()),
+            ("auth", "gitlab_token") => self.auth.gitlab_token.clone().map(|_| "[set]".to_string()),
+            ("auth", "gitea_token") => self.auth.gitea_token.clone().map(|_| "[set]".to_string()),
+            ("auth", "forgejo_token") => self.auth.forgejo_token.clone().map(|_| "[set]".to_string()),
+            ("auth", "codeberg_token") => self.auth.codeberg_token.clone().map(|_| "[set]".to_string()),
             _ => None,
         }
     }
@@ -315,6 +350,11 @@ impl ToriiConfig {
                     .map_err(|_| ToriiError::InvalidConfig("Value must be true or false".to_string()))?;
             }
             ("ui", "date_format") => self.ui.date_format = value.to_string(),
+            ("auth", "github_token") => self.auth.github_token = Some(value.to_string()),
+            ("auth", "gitlab_token") => self.auth.gitlab_token = Some(value.to_string()),
+            ("auth", "gitea_token") => self.auth.gitea_token = Some(value.to_string()),
+            ("auth", "forgejo_token") => self.auth.forgejo_token = Some(value.to_string()),
+            ("auth", "codeberg_token") => self.auth.codeberg_token = Some(value.to_string()),
             _ => return Err(ToriiError::InvalidConfig(format!("Unknown config key: {}", key))),
         }
         
@@ -362,7 +402,14 @@ impl ToriiConfig {
         items.push(("ui.emoji".to_string(), self.ui.emoji.to_string()));
         items.push(("ui.verbose".to_string(), self.ui.verbose.to_string()));
         items.push(("ui.date_format".to_string(), self.ui.date_format.clone()));
-        
+
+        // Auth (show [set] instead of actual token value)
+        if self.auth.github_token.is_some() { items.push(("auth.github_token".to_string(), "[set]".to_string())); }
+        if self.auth.gitlab_token.is_some() { items.push(("auth.gitlab_token".to_string(), "[set]".to_string())); }
+        if self.auth.gitea_token.is_some() { items.push(("auth.gitea_token".to_string(), "[set]".to_string())); }
+        if self.auth.forgejo_token.is_some() { items.push(("auth.forgejo_token".to_string(), "[set]".to_string())); }
+        if self.auth.codeberg_token.is_some() { items.push(("auth.codeberg_token".to_string(), "[set]".to_string())); }
+
         items
     }
 }

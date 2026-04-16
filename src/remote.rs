@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::config::ToriiConfig;
 use crate::error::{Result, ToriiError};
 
 /// Remote repository visibility
@@ -88,29 +89,23 @@ impl GitHubClient {
     }
     
     fn get_token() -> Result<String> {
-        // Try to get token from environment or config
+        // 1. Environment variable
         if let Ok(token) = std::env::var("GITHUB_TOKEN") {
             return Ok(token);
         }
-        
         if let Ok(token) = std::env::var("GH_TOKEN") {
             return Ok(token);
         }
-        
-        // Try to read from git config
-        let output = std::process::Command::new("git")
-            .args(&["config", "--global", "github.token"])
-            .output()?;
-        
-        if output.status.success() {
-            let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !token.is_empty() {
+
+        // 2. Torii global config
+        if let Ok(config) = ToriiConfig::load_global() {
+            if let Some(token) = config.auth.github_token {
                 return Ok(token);
             }
         }
-        
+
         Err(ToriiError::InvalidConfig(
-            "GitHub token not found. Set GITHUB_TOKEN env var or run: git config --global github.token YOUR_TOKEN".to_string()
+            "GitHub token not found. Run: torii config set auth.github_token YOUR_TOKEN".to_string()
         ))
     }
 }
@@ -646,24 +641,32 @@ pub fn get_platform_client(platform: &str) -> Result<Box<dyn PlatformClient>> {
             Ok(Box::new(GitHubClient::new(token)))
         }
         "gitlab" => {
-            let token = std::env::var("GITLAB_TOKEN").ok();
+            let config = ToriiConfig::load_global().unwrap_or_default();
+            let token = std::env::var("GITLAB_TOKEN").ok()
+                .or(config.auth.gitlab_token)
+                .ok_or_else(|| ToriiError::InvalidConfig(
+                    "GitLab token not found. Run: torii config set auth.gitlab_token YOUR_TOKEN".to_string()
+                ))?;
             let base_url = std::env::var("GITLAB_URL").ok();
-            Ok(Box::new(GitLabClient::new(token, base_url)))
+            Ok(Box::new(GitLabClient::new(Some(token), base_url)))
         }
         "gitea" => {
-            let token = std::env::var("GITEA_TOKEN").ok();
+            let config = ToriiConfig::load_global().unwrap_or_default();
+            let token = std::env::var("GITEA_TOKEN").ok().or(config.auth.gitea_token);
             let base_url = std::env::var("GITEA_URL")
                 .unwrap_or_else(|_| "https://gitea.com".to_string());
             Ok(Box::new(GiteaClient::new(token, base_url)))
         }
         "forgejo" => {
-            let token = std::env::var("FORGEJO_TOKEN").ok();
+            let config = ToriiConfig::load_global().unwrap_or_default();
+            let token = std::env::var("FORGEJO_TOKEN").ok().or(config.auth.forgejo_token);
             let base_url = std::env::var("FORGEJO_URL")
                 .unwrap_or_else(|_| "https://codeberg.org".to_string());
             Ok(Box::new(ForgejoClient::new(token, base_url)))
         }
         "codeberg" => {
-            let token = std::env::var("CODEBERG_TOKEN").ok();
+            let config = ToriiConfig::load_global().unwrap_or_default();
+            let token = std::env::var("CODEBERG_TOKEN").ok().or(config.auth.codeberg_token);
             Ok(Box::new(CodebergClient::new(token)))
         }
         _ => Err(ToriiError::InvalidConfig(

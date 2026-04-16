@@ -884,53 +884,51 @@ impl Cli {
             }
 
             Commands::Clone { source, args, directory } => {
-                if args.is_empty() && !source.starts_with("http") && !source.starts_with("git@") {
-                    anyhow::bail!("Use: torii clone <platform> <user/repo> or provide full URL");
-                }
-                
                 let url = if !args.is_empty() {
+                    // Shorthand: torii clone <platform> <user/repo>
                     let platform = source;
                     let user_repo = &args[0];
-                    let protocol = if SshHelper::has_ssh_keys() { "ssh" } else { "https" };
-                    
-                    match platform.as_str() {
-                        "github" => {
-                            if protocol == "ssh" {
-                                format!("git@github.com:{}.git", user_repo)
-                            } else {
-                                format!("https://github.com/{}.git", user_repo)
-                            }
+
+                    // Use config protocol, fall back to SSH if keys available
+                    let use_ssh = {
+                        let cfg = ToriiConfig::load_global().unwrap_or_default();
+                        if cfg.mirror.default_protocol == "https" {
+                            false
+                        } else {
+                            SshHelper::has_ssh_keys()
                         }
-                        "gitlab" => {
-                            if protocol == "ssh" {
-                                format!("git@gitlab.com:{}.git", user_repo)
-                            } else {
-                                format!("https://gitlab.com/{}.git", user_repo)
-                            }
-                        }
-                        "codeberg" => {
-                            if protocol == "ssh" {
-                                format!("git@codeberg.org:{}.git", user_repo)
-                            } else {
-                                format!("https://codeberg.org/{}.git", user_repo)
-                            }
-                        }
-                        "bitbucket" => {
-                            if protocol == "ssh" {
-                                format!("git@bitbucket.org:{}.git", user_repo)
-                            } else {
-                                format!("https://bitbucket.org/{}.git", user_repo)
-                            }
-                        }
-                        _ => anyhow::bail!("Unknown platform: {}", platform),
+                    };
+
+                    let (ssh_host, https_host) = match platform.as_str() {
+                        "github"    => ("github.com", "github.com"),
+                        "gitlab"    => ("gitlab.com", "gitlab.com"),
+                        "codeberg"  => ("codeberg.org", "codeberg.org"),
+                        "bitbucket" => ("bitbucket.org", "bitbucket.org"),
+                        "gitea"     => ("gitea.com", "gitea.com"),
+                        "forgejo"   => ("codeberg.org", "codeberg.org"),
+                        _ => anyhow::bail!(
+                            "Unknown platform: {}. Supported: github, gitlab, codeberg, bitbucket, gitea, forgejo",
+                            platform
+                        ),
+                    };
+
+                    if use_ssh {
+                        format!("git@{}:{}.git", ssh_host, user_repo)
+                    } else {
+                        format!("https://{}/{}.git", https_host, user_repo)
                     }
-                } else {
+                } else if source.starts_with("http") || source.starts_with("git@") {
+                    // Full URL passthrough
                     source.clone()
+                } else {
+                    anyhow::bail!(
+                        "Usage:\n  torii clone <platform> <user/repo>   e.g. torii clone github user/repo\n  torii clone <url>                     e.g. torii clone git@github.com:user/repo.git"
+                    )
                 };
-                
+
                 let target_dir = directory.as_deref();
                 GitRepo::clone_repo(&url, target_dir)?;
-                
+
                 let dir_name = target_dir.unwrap_or_else(|| {
                     url.split('/').last().unwrap_or("repo").trim_end_matches(".git")
                 });
