@@ -2,7 +2,7 @@
 
 A human-first Git client. Simpler commands, built-in safety nets, and multi-platform support — designed for developers who want to focus on code, not version control syntax.
 
-> Git was designed for Linus, by Linus. Torii is designed for everyone.
+> Git was designed for Linus, by Linus. Torii is designed for everyone — including AI.
 
 ## Install
 
