@@ -7,8 +7,8 @@ use crate::duration::format_duration;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum MirrorType {
-    Master,
-    Slave,
+    Primary,
+    Replica,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -145,14 +145,14 @@ impl MirrorManager {
         account_name: &str,
         repo_name: &str,
         protocol: Protocol,
-        is_master: bool,
+        is_primary: bool,
     ) -> Result<()> {
         let mut config = self.load_config()?;
         
         // Check if master already exists
-        if is_master && config.mirrors.iter().any(|m| m.mirror_type == MirrorType::Master) {
+        if is_primary && config.mirrors.iter().any(|m| m.mirror_type == MirrorType::Primary) {
             return Err(ToriiError::Mirror(
-                "A master mirror already exists. Use 'torii mirror set-master' to change it.".to_string()
+                "A primary mirror already exists. Use 'torii mirror set-primary' to change it.".to_string()
             ));
         }
         
@@ -160,7 +160,7 @@ impl MirrorManager {
         let url = Mirror::generate_url(platform, &account_type, account_name, repo_name, &protocol);
         
         // Generate remote name
-        let remote_name = if is_master {
+        let remote_name = if is_primary {
             "origin".to_string()
         } else {
             format!("{}-{}", platform, account_name)
@@ -174,7 +174,7 @@ impl MirrorManager {
             repo_name: repo_name.to_string(),
             url: url.clone(),
             protocol,
-            mirror_type: if is_master { MirrorType::Master } else { MirrorType::Slave },
+            mirror_type: if is_primary { MirrorType::Primary } else { MirrorType::Replica },
             enabled: true,
         };
 
@@ -188,7 +188,7 @@ impl MirrorManager {
     }
     
     /// Set a mirror as master
-    pub fn set_master(&self, platform: &str, account_name: &str) -> Result<()> {
+    pub fn set_primary(&self, platform: &str, account_name: &str) -> Result<()> {
         let mut config = self.load_config()?;
         
         // Find the mirror
@@ -198,11 +198,11 @@ impl MirrorManager {
         
         // Set all to slave
         for mirror in &mut config.mirrors {
-            mirror.mirror_type = MirrorType::Slave;
+            mirror.mirror_type = MirrorType::Replica;
         }
         
         // Set selected as master
-        config.mirrors[mirror_index].mirror_type = MirrorType::Master;
+        config.mirrors[mirror_index].mirror_type = MirrorType::Primary;
         
         self.save_config(&config)?;
         Ok(())
@@ -221,8 +221,8 @@ impl MirrorManager {
         if config.mirrors.is_empty() {
             println!("No mirrors configured");
             println!();
-            println!("💡 Add a master mirror first:");
-            println!("   torii mirror add-master <platform> <user|org> <account> <repo>");
+            println!("💡 Add a primary mirror first:");
+            println!("   torii mirror add-primary <platform> <user|org> <account> <repo>");
             return Ok(());
         }
 
@@ -230,7 +230,7 @@ impl MirrorManager {
         println!();
 
         // Show master first
-        for mirror in config.mirrors.iter().filter(|m| m.mirror_type == MirrorType::Master) {
+        for mirror in config.mirrors.iter().filter(|m| m.mirror_type == MirrorType::Primary) {
             let status = if mirror.enabled { "✅" } else { "❌" };
             let account_type = match mirror.account_type {
                 AccountType::User => "👤",
@@ -254,11 +254,11 @@ impl MirrorManager {
 
         // Show slaves
         let slaves: Vec<_> = config.mirrors.iter()
-            .filter(|m| m.mirror_type == MirrorType::Slave)
+            .filter(|m| m.mirror_type == MirrorType::Replica)
             .collect();
             
         if !slaves.is_empty() {
-            println!("  Slave Mirrors:");
+            println!("  Replica Mirrors:");
             for mirror in slaves {
                 let status = if mirror.enabled { "✅" } else { "❌" };
                 let account_type = match mirror.account_type {
@@ -284,33 +284,33 @@ impl MirrorManager {
         Ok(())
     }
 
-    /// Sync to all slave mirrors (push from master)
+    /// Sync to all replica mirrors (push from master)
     pub fn sync_all(&self, force: bool) -> Result<()> {
         let config = self.load_config()?;
         let repo = GitRepo::open(&self.repo_path)?;
 
-        // Find master mirror
+        // Find primary mirror
         let master = config.mirrors.iter()
-            .find(|m| m.mirror_type == MirrorType::Master);
+            .find(|m| m.mirror_type == MirrorType::Primary);
         
         if master.is_none() {
-            println!("⚠️  No master mirror configured. Add one with:");
-            println!("   torii mirror add-master <platform> <user|org> <account> <repo>");
+            println!("⚠️  No primary mirror configured. Add one with:");
+            println!("   torii mirror add-primary <platform> <user|org> <account> <repo>");
             return Ok(());
         }
 
-        // Get slave mirrors
+        // Get replica mirrors
         let slaves: Vec<_> = config.mirrors.iter()
-            .filter(|m| m.mirror_type == MirrorType::Slave && m.enabled)
+            .filter(|m| m.mirror_type == MirrorType::Replica && m.enabled)
             .collect();
 
         if slaves.is_empty() {
-            println!("ℹ️  No slave mirrors configured. Add one with:");
-            println!("   torii mirror add-slave <platform> <user|org> <account> <repo>");
+            println!("ℹ️  No replica mirrors configured. Add one with:");
+            println!("   torii mirror add-replica <platform> <user|org> <account> <repo>");
             return Ok(());
         }
 
-        println!("📤 Syncing from master to {} slave mirror(s)...\n", slaves.len());
+        println!("📤 Syncing from primary to {} replica mirror(s)...\n", slaves.len());
 
         let mut success_count = 0;
         let mut fail_count = 0;

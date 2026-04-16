@@ -616,8 +616,8 @@ enum TagCommands {
 
 #[derive(Subcommand)]
 enum MirrorCommands {
-    /// Add master mirror (main repository)
-    AddMaster {
+    /// Add primary mirror (main repository)
+    AddPrimary {
         /// Platform (github, gitlab, bitbucket, codeberg)
         platform: String,
 
@@ -635,8 +635,8 @@ enum MirrorCommands {
         protocol: Option<String>,
     },
 
-    /// Add slave mirror (will sync from master)
-    AddSlave {
+    /// Add replica mirror (will sync from master)
+    AddReplica {
         /// Platform (github, gitlab, bitbucket, codeberg)
         platform: String,
 
@@ -657,15 +657,15 @@ enum MirrorCommands {
     /// List all mirrors
     List,
 
-    /// Sync to all slave mirrors
+    /// Sync to all replica mirrors
     Sync {
         /// Force sync
         #[arg(short, long)]
         force: bool,
     },
 
-    /// Set a mirror as master
-    SetMaster {
+    /// Set a mirror as primary
+    SetPrimary {
         /// Platform
         platform: String,
 
@@ -1031,17 +1031,17 @@ impl Cli {
             Commands::Mirror { action } => {
                 let mirror_mgr = MirrorManager::new(".")?;
                 match action {
-                    MirrorCommands::AddMaster { platform, account_type, account, repo, protocol } => {
+                    MirrorCommands::AddPrimary { platform, account_type, account, repo, protocol } => {
                         let acc_type = parse_account_type(account_type)?;
                         let proto = parse_protocol(protocol.as_ref());
                         mirror_mgr.add_mirror(platform, acc_type, account, repo, proto, true)?;
-                        println!("✅ Master mirror added: {}/{} on {}", account, repo, platform);
+                        println!("✅ Primary mirror added: : {}/{} on {}", account, repo, platform);
                     }
-                    MirrorCommands::AddSlave { platform, account_type, account, repo, protocol } => {
+                    MirrorCommands::AddReplica { platform, account_type, account, repo, protocol } => {
                         let acc_type = parse_account_type(account_type)?;
                         let proto = parse_protocol(protocol.as_ref());
                         mirror_mgr.add_mirror(platform, acc_type, account, repo, proto, false)?;
-                        println!("✅ Slave mirror added: {}/{} on {}", account, repo, platform);
+                        println!("✅ Replica mirror added: {}/{} on {}", account, repo, platform);
                     }
                     MirrorCommands::List => {
                         mirror_mgr.list_mirrors()?;
@@ -1049,9 +1049,9 @@ impl Cli {
                     MirrorCommands::Sync { force } => {
                         mirror_mgr.sync_all(*force)?;
                     }
-                    MirrorCommands::SetMaster { platform, account } => {
-                        mirror_mgr.set_master(platform, account)?;
-                        println!("✅ Set {}/{} as master", platform, account);
+                    MirrorCommands::SetPrimary { platform, account } => {
+                        mirror_mgr.set_primary(platform, account)?;
+                        println!("✅ Set as primary", platform, account);
                     }
                     MirrorCommands::Remove { platform, account } => {
                         mirror_mgr.remove_mirror_by_account(platform, account)?;
