@@ -75,6 +75,11 @@ const PATTERNS: &[Pattern] = &[
     Pattern {
         name: "GitHub/GitLab token",
         detect: |l| {
+            let trimmed = l.trim();
+            // Skip HTML/template lines — tokens inside HTML are demo content
+            if trimmed.starts_with('<') || trimmed.starts_with("//") || trimmed.starts_with("*") {
+                return false;
+            }
             l.split_whitespace().any(|w| {
                 let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
                 w.starts_with("ghp_") || w.starts_with("gho_") ||
@@ -231,6 +236,8 @@ fn should_skip_file(path: &str) -> bool {
         || lower.contains("bun.lock")
         || lower.contains("package-lock")
         || lower.contains("yarn.lock")
+        || lower.contains("/i18n/")
+        || lower.contains("\\i18n\\")
 }
 
 /// Scan staged files in the git index for sensitive data.
