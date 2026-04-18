@@ -47,7 +47,8 @@ impl GitRepo {
             // Push a specific tag
             let refspec = format!("refs/tags/{0}:refs/tags/{0}", tag);
             let mut remote = self.repo.find_remote("origin")?;
-            let callbacks = Self::ssh_callbacks();
+            let remote_url = remote.url().unwrap_or("").to_string();
+            let callbacks = Self::auth_callbacks_for(&remote_url);
             let mut push_options = git2::PushOptions::new();
             push_options.remote_callbacks(callbacks);
             remote.push(&[refspec.as_str()], Some(&mut push_options))?;

@@ -1,3 +1,8 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+    - when: never
+
 stages:
   - release
   - publish
@@ -16,10 +21,7 @@ release:
       echo "Creating release for $CI_COMMIT_TAG"
       echo "$NOTES"
 
-      curl --fail-with-body \
-        --header "PRIVATE-TOKEN: ${GITLAB_RELEASE_TOKEN}" \
-        --header "Content-Type: application/json" \
-        --data "{
+      PAYLOAD="{
           \"name\": \"Torii ${CI_COMMIT_TAG}\",
           \"tag_name\": \"${CI_COMMIT_TAG}\",
           \"description\": $(echo "$NOTES" | jq -Rs .),
@@ -29,8 +31,24 @@ release:
               {\"name\": \"Changelog\", \"url\": \"https://gitlab.com/paskidev/torii/-/blob/main/CHANGELOG.md\", \"link_type\": \"other\"}
             ]
           }
-        }" \
-        "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/releases"
+        }"
+
+      HTTP_STATUS=$(curl -s -o /tmp/release_resp.json -w "%{http_code}" \
+        --header "PRIVATE-TOKEN: ${GITLAB_RELEASE_TOKEN}" \
+        --header "Content-Type: application/json" \
+        --data "$PAYLOAD" \
+        "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/releases")
+
+      echo "GitLab API response: $HTTP_STATUS"
+      cat /tmp/release_resp.json
+
+      if [ "$HTTP_STATUS" = "201" ]; then
+        echo "Release created."
+      elif [ "$HTTP_STATUS" = "409" ]; then
+        echo "Release already exists — skipping."
+      else
+        echo "Unexpected status $HTTP_STATUS" && exit 1
+      fi
 
 publish-crates:
   stage: publish

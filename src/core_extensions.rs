@@ -598,7 +598,8 @@ impl GitRepo {
 
         let mut remote = self.repo.find_remote("origin")
             .map_err(|e| crate::error::ToriiError::Git(e))?;
-        let callbacks = GitRepo::ssh_callbacks();
+        let remote_url = remote.url().unwrap_or("").to_string();
+        let callbacks = GitRepo::auth_callbacks_for(&remote_url);
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
         remote.fetch(&[] as &[&str], Some(&mut fetch_options), None)

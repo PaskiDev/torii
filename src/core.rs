@@ -119,19 +119,45 @@ impl GitRepo {
 
     /// Build SSH credentials callback — tries ed25519, then rsa, then agent
     pub fn ssh_callbacks<'a>() -> git2::RemoteCallbacks<'a> {
+        Self::auth_callbacks_for("")
+    }
+
+    /// Build auth callbacks for SSH and HTTPS token auth.
+    /// Pass the remote URL so the correct token is selected per host.
+    pub fn auth_callbacks_for<'a>(url: &str) -> git2::RemoteCallbacks<'a> {
+        let cfg = crate::config::ToriiConfig::load_global().unwrap_or_default();
+        let url_owned = url.to_string();
         let mut callbacks = git2::RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            let username = username_from_url.unwrap_or("git");
-            let home = dirs::home_dir().unwrap_or_default();
-            let ed25519 = home.join(".ssh").join("id_ed25519");
-            let rsa = home.join(".ssh").join("id_rsa");
-            if ed25519.exists() {
-                git2::Cred::ssh_key(username, None, &ed25519, None)
-            } else if rsa.exists() {
-                git2::Cred::ssh_key(username, None, &rsa, None)
-            } else {
-                git2::Cred::ssh_key_from_agent(username)
+        callbacks.credentials(move |cb_url, username_from_url, allowed_types| {
+            let effective_url = if url_owned.is_empty() { cb_url } else { &url_owned };
+            if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+                let username = username_from_url.unwrap_or("git");
+                let home = dirs::home_dir().unwrap_or_default();
+                let ed25519 = home.join(".ssh").join("id_ed25519");
+                let rsa = home.join(".ssh").join("id_rsa");
+                if ed25519.exists() {
+                    return git2::Cred::ssh_key(username, None, &ed25519, None);
+                } else if rsa.exists() {
+                    return git2::Cred::ssh_key(username, None, &rsa, None);
+                } else {
+                    return git2::Cred::ssh_key_from_agent(username);
+                }
             }
+            if allowed_types.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                let token = if effective_url.contains("github.com") {
+                    cfg.auth.github_token.clone()
+                } else if effective_url.contains("gitlab.com") {
+                    cfg.auth.gitlab_token.clone()
+                } else if effective_url.contains("codeberg.org") {
+                    cfg.auth.codeberg_token.clone()
+                } else {
+                    cfg.auth.gitea_token.clone()
+                };
+                if let Some(token) = token {
+                    return git2::Cred::userpass_plaintext("oauth2", &token);
+                }
+            }
+            git2::Cred::default()
         });
         callbacks
     }
@@ -140,8 +166,8 @@ impl GitRepo {
     pub fn pull(&self) -> Result<()> {
         let mut remote = self.repo.find_remote("origin")?;
 
-        // Configure SSH authentication
-        let callbacks = Self::ssh_callbacks();
+        let remote_url = remote.url().unwrap_or("").to_string();
+        let callbacks = Self::auth_callbacks_for(&remote_url);
 
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
@@ -171,15 +197,15 @@ impl GitRepo {
     pub fn push(&self, force: bool) -> Result<()> {
         let mut remote = self.repo.find_remote("origin")?;
         let branch = self.get_current_branch()?;
-        
+
         let refspec = if force {
             format!("+refs/heads/{}:refs/heads/{}", branch, branch)
         } else {
             format!("refs/heads/{}:refs/heads/{}", branch, branch)
         };
 
-        // Configure SSH authentication
-        let callbacks = Self::ssh_callbacks();
+        let remote_url = remote.url().unwrap_or("").to_string();
+        let callbacks = Self::auth_callbacks_for(&remote_url);
 
         let mut push_options = git2::PushOptions::new();
         push_options.remote_callbacks(callbacks);
@@ -200,6 +226,7 @@ impl GitRepo {
             return Ok(());
         }
         let mut remote = self.repo.find_remote(remote_name)?;
+        let remote_url = remote.url().unwrap_or("").to_string();
         let refspecs: Vec<String> = tags.iter()
             .flatten()
             .map(|t| {
@@ -209,7 +236,7 @@ impl GitRepo {
             .collect();
         let refspec_refs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
         if !refspec_refs.is_empty() {
-            let callbacks = Self::ssh_callbacks();
+            let callbacks = Self::auth_callbacks_for(&remote_url);
             let mut push_options = git2::PushOptions::new();
             push_options.remote_callbacks(callbacks);
             if let Err(e) = remote.push(&refspec_refs, Some(&mut push_options)) {

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-04-19
+
+### Fixed
+- `torii sync`, `torii fetch`, `torii push tags` now authenticate with HTTPS token (gitlab_token, github_token, etc.) — previously only SSH was supported, causing auth failures on HTTPS remotes
+- GitLab CI pipeline no longer fails with exit code 22 when release already exists (409 treated as success)
+- Pipeline now only triggers on version tags (`vX.Y.Z`), suppressing unwanted branch pipelines
+
 ## [0.1.8] - 2026-04-17
 
 ### Fixed
