@@ -1,5 +1,5 @@
 // Extended Git operations for Torii
-use git2::{Repository, BranchType};
+use git2::BranchType;
 use crate::error::Result;
 use crate::core::GitRepo;
 use chrono::{DateTime, NaiveDateTime};
