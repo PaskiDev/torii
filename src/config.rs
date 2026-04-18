@@ -403,12 +403,12 @@ impl ToriiConfig {
         items.push(("ui.verbose".to_string(), self.ui.verbose.to_string()));
         items.push(("ui.date_format".to_string(), self.ui.date_format.clone()));
 
-        // Auth (show [set] instead of actual token value)
-        if self.auth.github_token.is_some() { items.push(("auth.github_token".to_string(), "[set]".to_string())); }
-        if self.auth.gitlab_token.is_some() { items.push(("auth.gitlab_token".to_string(), "[set]".to_string())); }
-        if self.auth.gitea_token.is_some() { items.push(("auth.gitea_token".to_string(), "[set]".to_string())); }
-        if self.auth.forgejo_token.is_some() { items.push(("auth.forgejo_token".to_string(), "[set]".to_string())); }
-        if self.auth.codeberg_token.is_some() { items.push(("auth.codeberg_token".to_string(), "[set]".to_string())); }
+        // Auth (always show, mask value if set)
+        items.push(("auth.github_token".to_string(), if self.auth.github_token.is_some() { "[set]".to_string() } else { "[not set]".to_string() }));
+        items.push(("auth.gitlab_token".to_string(), if self.auth.gitlab_token.is_some() { "[set]".to_string() } else { "[not set]".to_string() }));
+        items.push(("auth.gitea_token".to_string(), if self.auth.gitea_token.is_some() { "[set]".to_string() } else { "[not set]".to_string() }));
+        items.push(("auth.forgejo_token".to_string(), if self.auth.forgejo_token.is_some() { "[set]".to_string() } else { "[not set]".to_string() }));
+        items.push(("auth.codeberg_token".to_string(), if self.auth.codeberg_token.is_some() { "[set]".to_string() } else { "[not set]".to_string() }));
 
         items
     }
