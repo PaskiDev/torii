@@ -369,15 +369,58 @@ impl GitRepo {
         let target = if let Some(dir) = directory {
             dir.to_string()
         } else {
-            // Extract repo name from URL
             url.split('/')
                 .last()
                 .unwrap_or("repo")
                 .trim_end_matches(".git")
                 .to_string()
         };
-        
-        Repository::clone(url, &target)?;
+
+        let cfg = crate::config::ToriiConfig::load_global().unwrap_or_default();
+
+        let mut callbacks = git2::RemoteCallbacks::new();
+        let url_owned = url.to_string();
+        callbacks.credentials(move |_url, username_from_url, allowed_types| {
+            if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+                let username = username_from_url.unwrap_or("git");
+                let home = dirs::home_dir().unwrap_or_default();
+                let ed25519 = home.join(".ssh").join("id_ed25519");
+                let rsa = home.join(".ssh").join("id_rsa");
+                if ed25519.exists() {
+                    return git2::Cred::ssh_key(username, None, &ed25519, None);
+                } else if rsa.exists() {
+                    return git2::Cred::ssh_key(username, None, &rsa, None);
+                } else {
+                    return git2::Cred::ssh_key_from_agent(username);
+                }
+            }
+            if allowed_types.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+                // Pick token based on hostname
+                let token = if url_owned.contains("github.com") {
+                    cfg.auth.github_token.clone()
+                } else if url_owned.contains("gitlab.com") {
+                    cfg.auth.gitlab_token.clone()
+                } else if url_owned.contains("codeberg.org") {
+                    cfg.auth.codeberg_token.clone()
+                } else if url_owned.contains("bitbucket.org") {
+                    cfg.auth.github_token.clone() // fallback
+                } else {
+                    cfg.auth.gitea_token.clone()
+                };
+                if let Some(token) = token {
+                    return git2::Cred::userpass_plaintext("oauth2", &token);
+                }
+            }
+            git2::Cred::default()
+        });
+
+        let mut fetch_opts = git2::FetchOptions::new();
+        fetch_opts.remote_callbacks(callbacks);
+
+        git2::build::RepoBuilder::new()
+            .fetch_options(fetch_opts)
+            .clone(url, std::path::Path::new(&target))?;
+
         Ok(())
     }
 
