@@ -6,10 +6,21 @@ use crate::core::GitRepo;
 use crate::duration::format_duration;
 use dirs;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub enum MirrorType {
     Primary,
     Replica,
+}
+
+impl<'de> serde::Deserialize<'de> for MirrorType {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.as_str() {
+            "Primary" | "Master" => Ok(MirrorType::Primary),
+            "Replica" | "Slave" => Ok(MirrorType::Replica),
+            other => Err(serde::de::Error::unknown_variant(other, &["Primary", "Replica"])),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
