@@ -10,6 +10,21 @@ A human-first Git client. Simpler commands, built-in safety nets, and multi-plat
 cargo install gitorii
 ```
 
+> **⚠️ Important:** `cargo install` compiles from source and requires system dependencies. Install them first:
+>
+> **Linux (Debian/Ubuntu)**
+> ```bash
+> sudo apt install perl libssl-dev pkg-config
+> ```
+> **Linux (Fedora/RHEL)**
+> ```bash
+> sudo dnf install perl openssl-devel pkg-config
+> ```
+> **macOS**
+> ```bash
+> brew install openssl
+> ```
+
 Or build from source:
 
 ```bash
