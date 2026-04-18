@@ -82,6 +82,10 @@ const PATTERNS: &[Pattern] = &[
             }
             l.split_whitespace().any(|w| {
                 let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
+                // Skip obvious placeholder/example tokens
+                if w.ends_with("xxx") || w.ends_with("_xxx") || w.contains("xxxx") {
+                    return false;
+                }
                 w.starts_with("ghp_") || w.starts_with("gho_") ||
                 w.starts_with("ghs_") || w.starts_with("github_pat_") ||
                 w.starts_with("glpat-") || w.starts_with("glptt-")

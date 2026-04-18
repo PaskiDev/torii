@@ -40,7 +40,19 @@ fn parse_protocol(s: Option<&String>) -> Protocol {
 
 #[derive(Parser)]
 #[command(name = "torii")]
-#[command(version, about = "A modern git client with simplified commands", long_about = None)]
+#[command(version, about = "A modern git client with simplified commands")]
+#[command(after_help = "Examples:
+  torii init                          Initialize a new repo
+  torii save -am \"feat: add login\"    Stage all and commit
+  torii sync                          Pull and push
+  torii sync main                     Integrate main into current branch
+  torii branch feature/auth -c        Create and switch to branch
+  torii clone github user/repo        Clone from GitHub
+  torii log --oneline --graph         Show compact history graph
+  torii snapshot stash                Stash work in progress
+  torii mirror sync                   Push to all configured mirrors
+
+Run 'torii <command> --help' for detailed usage of any command.")]
 pub struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -49,6 +61,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize a new repository
+    #[command(after_help = "Examples:
+  torii init               Initialize in current directory
+  torii init --path ~/projects/myrepo   Initialize in specific path")]
     Init {
         /// Path to initialize (defaults to current directory)
         #[arg(short, long)]
@@ -56,12 +71,19 @@ enum Commands {
     },
 
     /// Save current work (simplified commit)
+    #[command(after_help = "Examples:
+  torii save -m \"fix: null check\"              Commit staged changes
+  torii save -am \"feat: add login\"             Stage all and commit
+  torii save src/auth.rs -m \"fix: token\"       Stage specific file and commit
+  torii save --amend -m \"fix: typo\"            Amend last commit message
+  torii save --revert abc1234 -m \"revert\"      Revert a specific commit
+  torii save --reset HEAD~1 --reset-mode soft  Undo last commit, keep changes")]
     Save {
         /// Commit message
         #[arg(short, long)]
         message: String,
 
-        /// Add all changes before committing
+        /// Stage all changes before committing
         #[arg(short, long)]
         all: bool,
 
@@ -73,12 +95,12 @@ enum Commands {
         #[arg(long)]
         amend: bool,
 
-        /// Revert a specific commit
-        #[arg(long)]
+        /// Revert a specific commit by hash
+        #[arg(long, value_name = "HASH")]
         revert: Option<String>,
 
-        /// Reset to a specific commit (soft, mixed, or hard)
-        #[arg(long)]
+        /// Reset to a specific commit (soft keeps changes staged, mixed unstages, hard discards)
+        #[arg(long, value_name = "HASH")]
         reset: Option<String>,
 
         /// Reset mode: soft, mixed, or hard (default: mixed)
@@ -86,9 +108,19 @@ enum Commands {
         reset_mode: String,
     },
 
-    /// Sync with remote (simplified push/pull) or integrate a branch
+    /// Sync with remote (pull+push) or integrate a branch
+    #[command(after_help = "Examples:
+  torii sync                    Pull from remote then push
+  torii sync --pull             Pull only
+  torii sync --push             Push only
+  torii sync --force            Force push (rewrites remote history)
+  torii sync --fetch            Fetch remote refs without merging
+  torii sync main               Integrate main into current branch (smart merge/rebase)
+  torii sync main --merge       Force merge strategy
+  torii sync main --rebase      Force rebase strategy
+  torii sync main --preview     Preview what would happen without executing")]
     Sync {
-        /// Branch to integrate (smart merge/rebase). If not specified, syncs with remote
+        /// Branch to integrate (smart merge/rebase). If omitted, syncs with remote
         branch: Option<String>,
 
         /// Pull only
@@ -99,19 +131,19 @@ enum Commands {
         #[arg(short = 'P', long)]
         push: bool,
 
-        /// Force push (rewrite remote history)
+        /// Force push (rewrites remote history — use with caution)
         #[arg(short, long)]
         force: bool,
 
-        /// Fetch only (update remote refs without merging)
+        /// Fetch remote refs without merging
         #[arg(long)]
         fetch: bool,
 
-        /// Force merge (when integrating a branch)
+        /// Force merge strategy when integrating a branch
         #[arg(long)]
         merge: bool,
 
-        /// Force rebase (when integrating a branch)
+        /// Force rebase strategy when integrating a branch
         #[arg(long)]
         rebase: bool,
 
@@ -121,19 +153,32 @@ enum Commands {
     },
 
     /// Show repository status
+    #[command(after_help = "Examples:
+  torii status    Show staged, unstaged, and untracked files")]
     Status,
 
     /// Show commit history
+    #[command(after_help = "Examples:
+  torii log                          Last 10 commits
+  torii log -n 50                    Last 50 commits
+  torii log --oneline                One line per commit
+  torii log --graph                  Branch graph
+  torii log --oneline --graph        Compact graph view
+  torii log --author \"Alice\"         Filter by author
+  torii log --since 2024-01-01       Commits after date
+  torii log --until 2024-12-31       Commits before date
+  torii log --grep \"feat\"            Filter by message pattern
+  torii log --stat                   Show file change stats per commit")]
     Log {
-        /// Number of commits to show
+        /// Number of commits to show (default: 10)
         #[arg(short = 'n', long)]
         count: Option<usize>,
 
-        /// Show as one line per commit
+        /// Show one line per commit
         #[arg(long)]
         oneline: bool,
 
-        /// Show graph
+        /// Show branch graph
         #[arg(long)]
         graph: bool,
 
@@ -149,7 +194,7 @@ enum Commands {
         #[arg(long)]
         until: Option<String>,
 
-        /// Filter commits whose message matches the pattern
+        /// Filter commits whose message matches this pattern
         #[arg(long)]
         grep: Option<String>,
 
@@ -158,81 +203,154 @@ enum Commands {
         stat: bool,
     },
 
-    /// Show changes
+    /// Show unstaged or staged changes
+    #[command(after_help = "Examples:
+  torii diff            Show unstaged changes
+  torii diff --staged   Show staged changes (ready to commit)
+  torii diff --last     Show changes in last commit")]
     Diff {
         /// Show staged changes
         #[arg(long)]
         staged: bool,
 
-        /// Show last commit
+        /// Show last commit diff
         #[arg(long)]
         last: bool,
     },
 
     /// Manage branches
+    #[command(after_help = "Examples:
+  torii branch                      List local branches
+  torii branch --all                List local and remote branches
+  torii branch feature/auth -c      Create and switch to branch
+  torii branch main                 Switch to existing branch
+  torii branch -d feature/auth      Delete branch
+  torii branch --rename new-name    Rename current branch")]
     Branch {
-        /// Branch name to switch to (if exists) or create with -c
+        /// Branch name to switch to or create with -c
         name: Option<String>,
 
         /// Create new branch and switch to it
         #[arg(short, long)]
         create: bool,
 
-        /// Delete a branch
+        /// Delete branch by name
         #[arg(short, long)]
         delete: Option<String>,
 
-        /// List all branches
+        /// List local branches
         #[arg(short, long)]
         list: bool,
 
-        /// Rename current branch
+        /// Rename current branch to this name
         #[arg(short, long)]
         rename: Option<String>,
 
-        /// Show all branches (local and remote)
+        /// Show all branches including remote
         #[arg(short, long)]
         all: bool,
     },
 
     /// Clone a repository
+    #[command(after_help = "Examples:
+  torii clone github user/repo              Clone from GitHub (auto SSH/HTTPS)
+  torii clone gitlab user/repo              Clone from GitLab
+  torii clone github user/repo --protocol https   Force HTTPS
+  torii clone github user/repo -d my-dir   Clone into specific directory
+  torii clone https://github.com/user/repo.git    Clone from full URL
+  torii clone git@github.com:user/repo.git        Clone via SSH URL
+
+Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo
+
+Protocol is auto-detected: SSH if keys are configured, HTTPS otherwise.
+Override with --protocol or set default: torii config set mirror.default_protocol https")]
     Clone {
-        /// Repository URL or platform shorthand (e.g., github user/repo)
+        /// Platform (github, gitlab, ...) or full URL (https://... / git@...)
         source: String,
 
-        /// Additional arguments for platform shorthand
+        /// Repository as user/repo (when using platform shorthand)
         args: Vec<String>,
 
-        /// Target directory
+        /// Target directory name
         #[arg(short = 'd', long)]
         directory: Option<String>,
+
+        /// Protocol to use: ssh or https (default: auto-detect)
+        #[arg(long)]
+        protocol: Option<String>,
     },
 
-    /// Tag management
+    /// Manage tags and releases
+    #[command(after_help = "Examples:
+  torii tag list                      List all tags
+  torii tag create v1.2.0 -m \"Release\"   Create annotated tag
+  torii tag delete v1.0.0             Delete a tag
+  torii tag push v1.2.0               Push specific tag to remote
+  torii tag push                      Push all tags to remote
+  torii tag show v1.2.0               Show tag details
+  torii tag release                   Auto-bump version from conventional commits
+  torii tag release --bump minor      Force minor bump
+  torii tag release --dry-run         Preview without creating tag
+
+Auto-bump rules (Conventional Commits):
+  feat:        → minor bump (0.1.0 → 0.2.0)
+  fix: / perf: → patch bump (0.1.0 → 0.1.1)
+  feat!:       → major bump (0.1.0 → 1.0.0)")]
     Tag {
         #[command(subcommand)]
         action: TagCommands,
     },
 
-    /// Snapshot management
+    /// Save and restore work-in-progress snapshots
+    #[command(after_help = "Examples:
+  torii snapshot create -n \"before-refactor\"   Create named snapshot
+  torii snapshot list                           List all snapshots
+  torii snapshot restore <id>                   Restore a snapshot
+  torii snapshot delete <id>                    Delete a snapshot
+  torii snapshot stash                          Stash current work
+  torii snapshot stash -u                       Stash including untracked files
+  torii snapshot unstash                        Restore latest stash
+  torii snapshot unstash <id> --keep            Restore stash but keep it
+  torii snapshot undo                           Undo last operation")]
     Snapshot {
         #[command(subcommand)]
         action: SnapshotCommands,
     },
 
-    /// Mirror management (multi-platform sync)
+    /// Mirror repository across multiple platforms
+    #[command(after_help = "Examples:
+  torii mirror add-master gitlab user paskidev myrepo    Set GitLab as primary
+  torii mirror add-slave github user paskidev myrepo     Add GitHub as mirror
+  torii mirror sync                                      Push to all mirrors
+  torii mirror sync --force                              Force push to all mirrors
+  torii mirror list                                      List configured mirrors
+  torii mirror remove github user                        Remove a mirror
+  torii mirror autofetch --enable --interval 30m         Auto-fetch every 30 min
+  torii mirror autofetch --disable                       Disable auto-fetch
+  torii mirror autofetch --status                        Show autofetch status
+
+Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
     Mirror {
         #[command(subcommand)]
         action: MirrorCommands,
     },
 
-    /// List all tracked files in the repository
+    /// List all tracked files
+    #[command(after_help = "Examples:
+  torii ls           List all tracked files
+  torii ls src/      List tracked files under src/")]
     Ls {
         /// Filter by path prefix (e.g. src/)
         path: Option<String>,
     },
 
-    /// Show details of a commit, tag, or file
+    /// Show commit, tag, or file details
+    #[command(after_help = "Examples:
+  torii show                      Show HEAD commit with diff
+  torii show abc1234              Show specific commit
+  torii show v1.0.0               Show tag details
+  torii show src/main.rs --blame  Show line-by-line change history
+  torii show src/main.rs --blame -L 10,20   Blame specific line range")]
     Show {
         /// Commit hash, tag name, ref, or file path (defaults to HEAD)
         object: Option<String>,
@@ -246,22 +364,70 @@ enum Commands {
         lines: Option<String>,
     },
 
-    /// Check SSH configuration
+    /// Check and troubleshoot SSH configuration
+    #[command(after_help = "Examples:
+  torii ssh-check    Verify SSH keys and show setup instructions if needed")]
     SshCheck,
 
-    /// Manage repository history
+    /// Manage commit history (rebase, cherry-pick, blame, scan)
+    #[command(after_help = "Examples:
+  torii history reflog                        Show HEAD movement history
+  torii history rebase main                   Rebase current branch onto main
+  torii history rebase -i HEAD~5              Interactive rebase last 5 commits
+  torii history rebase --continue             Continue after resolving conflicts
+  torii history rebase --abort                Abort current rebase
+  torii history cherry-pick abc1234           Apply a commit to current branch
+  torii history blame src/main.rs             Line-by-line change history
+  torii history blame src/main.rs -L 10,20    Specific line range
+  torii history scan                          Scan staged files for secrets
+  torii history scan --history                Scan entire git history for secrets
+  torii history remove-file secrets.txt       Purge file from all commits
+  torii history rewrite \"2024-01-01\" \"2024-12-31\"  Rewrite commit dates
+  torii history clean                         GC and expire reflog")]
     History {
         #[command(subcommand)]
         action: HistoryCommands,
     },
 
     /// Manage Torii configuration
+    #[command(after_help = "Examples:
+  torii config list                              Show all config values
+  torii config list --local                      Show local repo config
+  torii config get user.name                     Get a value
+  torii config set user.name \"Alice\"             Set a global value
+  torii config set user.email \"a@b.com\" --local  Set a local value
+  torii config set auth.github_token ghp_xxx     Set GitHub token
+  torii config set auth.gitlab_token glpat-xxx   Set GitLab token
+  torii config set mirror.default_protocol https Use HTTPS by default
+  torii config edit                              Open config in editor
+  torii config reset                             Reset to defaults
+
+Available keys:
+  user.name, user.email, user.editor
+  auth.github_token, auth.gitlab_token, auth.gitea_token
+  auth.forgejo_token, auth.codeberg_token
+  git.default_branch, git.sign_commits, git.pull_rebase
+  mirror.default_protocol, mirror.autofetch_enabled
+  snapshot.auto_enabled, snapshot.auto_interval_minutes
+  ui.colors, ui.emoji, ui.verbose, ui.date_format")]
     Config {
         #[command(subcommand)]
         action: ConfigCommands,
     },
 
     /// Manage remote repositories (create, delete, configure)
+    #[command(after_help = "Examples:
+  torii remote create github myrepo --public          Create public repo on GitHub
+  torii remote create gitlab myrepo --private         Create private repo on GitLab
+  torii remote create github myrepo --private --push  Create and push current branch
+  torii remote delete github owner myrepo --yes        Delete repo (no confirmation)
+  torii remote visibility github owner myrepo --public Make repo public
+  torii remote visibility github owner myrepo --private Make repo private
+  torii remote configure github owner myrepo --default-branch main
+  torii remote info github owner myrepo               Show repo details
+  torii remote list github                            List all your GitHub repos
+
+Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
     Remote {
         #[command(subcommand)]
         action: RemoteCommands,
@@ -891,19 +1057,23 @@ impl Cli {
                 }
             }
 
-            Commands::Clone { source, args, directory } => {
+            Commands::Clone { source, args, directory, protocol } => {
                 let url = if !args.is_empty() {
                     // Shorthand: torii clone <platform> <user/repo>
                     let platform = source;
                     let user_repo = &args[0];
 
-                    // Use config protocol, fall back to SSH if keys available
-                    let use_ssh = {
-                        let cfg = ToriiConfig::load_global().unwrap_or_default();
-                        if cfg.mirror.default_protocol == "https" {
-                            false
-                        } else {
-                            SshHelper::has_ssh_keys()
+                    // Protocol priority: --protocol flag > config > auto-detect
+                    let use_ssh = match protocol.as_deref() {
+                        Some("https") | Some("http") => false,
+                        Some("ssh") => true,
+                        _ => {
+                            let cfg = ToriiConfig::load_global().unwrap_or_default();
+                            if cfg.mirror.default_protocol == "https" {
+                                false
+                            } else {
+                                SshHelper::has_ssh_keys()
+                            }
                         }
                     };
 
@@ -915,7 +1085,7 @@ impl Cli {
                         "gitea"     => ("gitea.com", "gitea.com"),
                         "forgejo"   => ("codeberg.org", "codeberg.org"),
                         _ => anyhow::bail!(
-                            "Unknown platform: {}. Supported: github, gitlab, codeberg, bitbucket, gitea, forgejo",
+                            "Unknown platform '{}'. Supported: github, gitlab, codeberg, bitbucket, gitea, forgejo",
                             platform
                         ),
                     };
@@ -926,11 +1096,10 @@ impl Cli {
                         format!("https://{}/{}.git", https_host, user_repo)
                     }
                 } else if source.starts_with("http") || source.starts_with("git@") {
-                    // Full URL passthrough
                     source.clone()
                 } else {
                     anyhow::bail!(
-                        "Usage:\n  torii clone <platform> <user/repo>   e.g. torii clone github user/repo\n  torii clone <url>                     e.g. torii clone git@github.com:user/repo.git"
+                        "Usage:\n  torii clone <platform> <user/repo>        e.g. torii clone github user/repo\n  torii clone <platform> <user/repo> --protocol https\n  torii clone <url>                          e.g. torii clone https://github.com/user/repo.git"
                     )
                 };
 
