@@ -117,10 +117,6 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Build SSH credentials callback — tries ed25519, then rsa, then agent
-    pub fn ssh_callbacks<'a>() -> git2::RemoteCallbacks<'a> {
-        Self::auth_callbacks_for("")
-    }
 
     /// Build auth callbacks for SSH and HTTPS token auth.
     /// Pass the remote URL so the correct token is selected per host.
