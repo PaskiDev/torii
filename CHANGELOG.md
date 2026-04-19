@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-04-19
+
+### Changed
+- Updated LICENSE to TSAL-1.0 (Torii Source-Available License)
+- CI pipeline now only triggers on version tags, no branch pipelines
+
 ## [0.1.15] - 2026-04-19
 
 ### Fixed
