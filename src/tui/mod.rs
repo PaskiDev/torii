@@ -44,6 +44,13 @@ fn run_loop(
             match action {
                 Action::Quit => break,
 
+                Action::SidebarUp => { app.sidebar_up(); }
+                Action::SidebarDown => { app.sidebar_down(); }
+                Action::SidebarEnter => {
+                    app.sidebar_focused = false;
+                    app.sidebar_enter();
+                }
+
                 Action::Refresh => {
                     app.refresh()?;
                     app.set_status("refreshed");
@@ -92,6 +99,81 @@ fn run_loop(
                 Action::SyncRun => {
                     run_sync(app);
                     app.refresh()?;
+                }
+
+                Action::TagPush => {
+                    if let Some(tag) = app.tag_view.tags.get(app.tag_view.idx) {
+                        let name = tag.name.clone();
+                        let status = std::process::Command::new("git")
+                            .args(["push", "origin", &name])
+                            .current_dir(&app.repo_path)
+                            .status();
+                        app.tag_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("pushed tag: {}", name),
+                            _ => format!("failed to push tag: {}", name),
+                        });
+                    }
+                }
+
+                Action::TagDelete => {
+                    if let Some(tag) = app.tag_view.tags.get(app.tag_view.idx) {
+                        let name = tag.name.clone();
+                        let status = std::process::Command::new("git")
+                            .args(["tag", "-d", &name])
+                            .current_dir(&app.repo_path)
+                            .status();
+                        app.tag_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("deleted tag: {}", name),
+                            _ => format!("failed to delete tag: {}", name),
+                        });
+                        app.go_to(View::Tag);
+                    }
+                }
+
+                Action::HistoryCherryPick => {
+                    if let Some(entry) = app.history_view.reflog.get(app.history_view.idx) {
+                        let hash = entry.id.clone();
+                        let status = std::process::Command::new("git")
+                            .args(["cherry-pick", &hash])
+                            .current_dir(&app.repo_path)
+                            .status();
+                        app.history_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("cherry-picked: {}", hash),
+                            _ => format!("cherry-pick failed: {}", hash),
+                        });
+                        app.refresh()?;
+                    }
+                }
+
+                Action::RemoteInfo => {
+                    if let Some(remote) = app.remote_view.remotes.get(app.remote_view.idx) {
+                        app.remote_view.status = Some(format!("{} → {}", remote.name, remote.url));
+                    }
+                }
+
+                Action::MirrorSync => {
+                    let status = std::process::Command::new("torii")
+                        .args(["mirror", "sync"])
+                        .current_dir(&app.repo_path)
+                        .status();
+                    app.mirror_view.status = Some(match status {
+                        Ok(s) if s.success() => "synced all mirrors".to_string(),
+                        _ => "mirror sync failed".to_string(),
+                    });
+                }
+
+                Action::WorkspaceSync => {
+                    if let Some(ws) = app.workspace_view.workspaces.get(app.workspace_view.ws_idx) {
+                        let name = ws.name.clone();
+                        let status = std::process::Command::new("torii")
+                            .args(["workspace", "sync", &name])
+                            .status();
+                        app.workspace_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("synced workspace: {}", name),
+                            _ => format!("sync failed for: {}", name),
+                        });
+                        app.go_to(View::Workspace);
+                    }
                 }
             }
         }

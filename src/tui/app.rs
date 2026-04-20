@@ -10,6 +10,12 @@ pub enum View {
     Commit,
     Snapshot,
     Sync,
+    Tag,
+    History,
+    Remote,
+    Mirror,
+    Workspace,
+    Help,
 }
 
 #[derive(Debug, Clone)]
@@ -125,14 +131,21 @@ impl Default for BranchState {
 
 // ── Commit state ─────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommitFocus {
+    List,
+    Input,
+}
+
 pub struct CommitState {
     pub message: String,
     pub cursor: usize,
+    pub focus: CommitFocus,
 }
 
 impl Default for CommitState {
     fn default() -> Self {
-        Self { message: String::new(), cursor: 0 }
+        Self { message: String::new(), cursor: 0, focus: CommitFocus::List }
     }
 }
 
@@ -188,11 +201,110 @@ impl Default for SyncState {
     }
 }
 
+// ── Tag state ────────────────────────────────────────────────────────────────
+
+pub struct TagEntry {
+    pub name: String,
+    pub message: String,
+    pub time: String,
+}
+
+pub struct TagState {
+    pub tags: Vec<TagEntry>,
+    pub idx: usize,
+    pub status: Option<String>,
+}
+
+impl Default for TagState {
+    fn default() -> Self { Self { tags: vec![], idx: 0, status: None } }
+}
+
+// ── History state ─────────────────────────────────────────────────────────────
+
+pub struct ReflogEntry {
+    pub id: String,
+    pub message: String,
+    pub time: String,
+}
+
+pub struct HistoryState {
+    pub reflog: Vec<ReflogEntry>,
+    pub idx: usize,
+    pub status: Option<String>,
+}
+
+impl Default for HistoryState {
+    fn default() -> Self { Self { reflog: vec![], idx: 0, status: None } }
+}
+
+// ── Remote state ──────────────────────────────────────────────────────────────
+
+pub struct RemoteEntry {
+    pub name: String,
+    pub url: String,
+}
+
+pub struct RemoteState {
+    pub remotes: Vec<RemoteEntry>,
+    pub idx: usize,
+    pub status: Option<String>,
+}
+
+impl Default for RemoteState {
+    fn default() -> Self { Self { remotes: vec![], idx: 0, status: None } }
+}
+
+// ── Mirror state ──────────────────────────────────────────────────────────────
+
+pub struct MirrorEntry {
+    pub name: String,
+    pub url: String,
+    pub kind: String,
+}
+
+pub struct MirrorState {
+    pub mirrors: Vec<MirrorEntry>,
+    pub idx: usize,
+    pub status: Option<String>,
+}
+
+impl Default for MirrorState {
+    fn default() -> Self { Self { mirrors: vec![], idx: 0, status: None } }
+}
+
+// ── Workspace state ───────────────────────────────────────────────────────────
+
+pub struct WorkspaceRepo {
+    pub path: String,
+    pub branch: String,
+    pub ahead: usize,
+    pub behind: usize,
+    pub dirty: bool,
+}
+
+pub struct WorkspaceEntry {
+    pub name: String,
+    pub repos: Vec<WorkspaceRepo>,
+}
+
+pub struct WorkspaceState {
+    pub workspaces: Vec<WorkspaceEntry>,
+    pub ws_idx: usize,
+    pub repo_idx: usize,
+    pub status: Option<String>,
+}
+
+impl Default for WorkspaceState {
+    fn default() -> Self { Self { workspaces: vec![], ws_idx: 0, repo_idx: 0, status: None } }
+}
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 
 pub struct App {
     pub should_quit: bool,
     pub view: View,
+    pub sidebar_idx: usize,
+    pub sidebar_focused: bool,
     pub status_msg: Option<String>,
 
     // Repo state (shared across views)
@@ -215,6 +327,11 @@ pub struct App {
     pub commit_view: CommitState,
     pub snapshot_view: SnapshotState,
     pub sync_view: SyncState,
+    pub tag_view: TagState,
+    pub history_view: HistoryState,
+    pub remote_view: RemoteState,
+    pub mirror_view: MirrorState,
+    pub workspace_view: WorkspaceState,
 }
 
 impl App {
@@ -222,6 +339,8 @@ impl App {
         let mut app = Self {
             should_quit: false,
             view: View::Dashboard,
+            sidebar_idx: 0,
+            sidebar_focused: false,
             status_msg: None,
             repo_path: ".".to_string(),
             branch: String::new(),
@@ -238,9 +357,40 @@ impl App {
             commit_view: CommitState::default(),
             snapshot_view: SnapshotState::default(),
             sync_view: SyncState::default(),
+            tag_view: TagState::default(),
+            history_view: HistoryState::default(),
+            remote_view: RemoteState::default(),
+            mirror_view: MirrorState::default(),
+            workspace_view: WorkspaceState::default(),
         };
         app.refresh()?;
         Ok(app)
+    }
+
+    pub fn sidebar_up(&mut self) {
+        if self.sidebar_idx > 0 { self.sidebar_idx -= 1; }
+    }
+
+    pub fn sidebar_down(&mut self) {
+        if self.sidebar_idx < 10 { self.sidebar_idx += 1; }
+    }
+
+    pub fn sidebar_enter(&mut self) {
+        let view = match self.sidebar_idx {
+            0  => View::Dashboard,
+            1  => View::Commit,
+            2  => View::Sync,
+            3  => View::Snapshot,
+            4  => View::Log,
+            5  => View::Branch,
+            6  => View::Tag,
+            7  => View::History,
+            8  => View::Remote,
+            9  => View::Mirror,
+            10 => View::Workspace,
+            _  => View::Dashboard,
+        };
+        self.go_to(view);
     }
 
     pub fn go_to(&mut self, view: View) {
@@ -256,14 +406,34 @@ impl App {
                 self.log.idx = self.dashboard.log_idx;
                 self.log.scroll = 0;
             }
+            View::Tag       => self.load_tags(),
+            View::History   => self.load_reflog(),
+            View::Remote    => self.load_remotes(),
+            View::Mirror    => self.load_mirrors(),
+            View::Workspace => self.load_workspaces(),
             _ => {}
         }
+        self.sidebar_idx = match &view {
+            View::Dashboard => 0,
+            View::Commit    => 1,
+            View::Sync      => 2,
+            View::Snapshot  => 3,
+            View::Log       => 4,
+            View::Branch    => 5,
+            View::Tag       => 6,
+            View::History   => 7,
+            View::Remote    => 8,
+            View::Mirror    => 9,
+            View::Workspace => 10,
+            _               => self.sidebar_idx,
+        };
         self.view = view;
         self.status_msg = None;
     }
 
     pub fn go_back(&mut self) {
         self.view = View::Dashboard;
+        self.sidebar_idx = 0;
         self.status_msg = None;
     }
 
@@ -562,6 +732,163 @@ impl App {
             SyncOp::Fetch     => SyncOp::ForcePush,
         };
     }
+
+    // ── Tag helpers ──────────────────────────────────────────────────────────
+
+    fn load_tags(&mut self) {
+        self.tag_view.tags.clear();
+        let Ok(repo) = Repository::discover(&self.repo_path) else { return };
+        let _ = repo.tag_foreach(|oid, name| {
+            let name = String::from_utf8_lossy(name).to_string();
+            let name = name.trim_start_matches("refs/tags/").to_string();
+            let (message, time) = repo.find_object(oid, None).ok()
+                .and_then(|obj| obj.peel_to_commit().ok())
+                .map(|c| (
+                    c.summary().unwrap_or("").to_string(),
+                    format_age(c.time().seconds()),
+                ))
+                .unwrap_or_default();
+            self.tag_view.tags.push(TagEntry { name, message, time });
+            true
+        });
+        self.tag_view.idx = 0;
+    }
+
+    pub fn tag_move_up(&mut self) {
+        if self.tag_view.idx > 0 { self.tag_view.idx -= 1; }
+    }
+
+    pub fn tag_move_down(&mut self) {
+        if self.tag_view.idx + 1 < self.tag_view.tags.len() { self.tag_view.idx += 1; }
+    }
+
+    // ── History helpers ──────────────────────────────────────────────────────
+
+    fn load_reflog(&mut self) {
+        self.history_view.reflog.clear();
+        let Ok(repo) = Repository::discover(&self.repo_path) else { return };
+        let Ok(reflog) = repo.reflog("HEAD") else { return };
+        for entry in reflog.iter() {
+            let id = entry.id_new().to_string()[..7].to_string();
+            let message = entry.message().unwrap_or("").to_string();
+            let time = format_age(entry.committer().when().seconds());
+            self.history_view.reflog.push(ReflogEntry { id, message, time });
+        }
+        self.history_view.idx = 0;
+    }
+
+    pub fn history_move_up(&mut self) {
+        if self.history_view.idx > 0 { self.history_view.idx -= 1; }
+    }
+
+    pub fn history_move_down(&mut self) {
+        if self.history_view.idx + 1 < self.history_view.reflog.len() {
+            self.history_view.idx += 1;
+        }
+    }
+
+    // ── Remote helpers ───────────────────────────────────────────────────────
+
+    fn load_remotes(&mut self) {
+        self.remote_view.remotes.clear();
+        let Ok(repo) = Repository::discover(&self.repo_path) else { return };
+        let Ok(remotes) = repo.remotes() else { return };
+        for name in remotes.iter().flatten() {
+            let url = repo.find_remote(name)
+                .ok()
+                .and_then(|r| r.url().map(|u| u.to_string()))
+                .unwrap_or_default();
+            self.remote_view.remotes.push(RemoteEntry { name: name.to_string(), url });
+        }
+        self.remote_view.idx = 0;
+    }
+
+    pub fn remote_move_up(&mut self) {
+        if self.remote_view.idx > 0 { self.remote_view.idx -= 1; }
+    }
+
+    pub fn remote_move_down(&mut self) {
+        if self.remote_view.idx + 1 < self.remote_view.remotes.len() {
+            self.remote_view.idx += 1;
+        }
+    }
+
+    // ── Mirror helpers ───────────────────────────────────────────────────────
+
+    fn load_mirrors(&mut self) {
+        self.mirror_view.mirrors.clear();
+        // Mirrors stored in .torii/mirrors.toml
+        let mirrors_path = std::path::Path::new(&self.repo_path).join(".torii/mirrors.toml");
+        if !mirrors_path.exists() { return; }
+        let Ok(content) = std::fs::read_to_string(&mirrors_path) else { return };
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with("url") {
+                let url = line.split('=').nth(1).unwrap_or("").trim().trim_matches('"').to_string();
+                self.mirror_view.mirrors.push(MirrorEntry {
+                    name: format!("mirror-{}", self.mirror_view.mirrors.len() + 1),
+                    url,
+                    kind: "replica".to_string(),
+                });
+            }
+        }
+        self.mirror_view.idx = 0;
+    }
+
+    pub fn mirror_move_up(&mut self) {
+        if self.mirror_view.idx > 0 { self.mirror_view.idx -= 1; }
+    }
+
+    pub fn mirror_move_down(&mut self) {
+        if self.mirror_view.idx + 1 < self.mirror_view.mirrors.len() {
+            self.mirror_view.idx += 1;
+        }
+    }
+
+    // ── Workspace helpers ────────────────────────────────────────────────────
+
+    fn load_workspaces(&mut self) {
+        self.workspace_view.workspaces.clear();
+        let ws_path = dirs::home_dir()
+            .map(|h| h.join(".torii/workspaces.toml"))
+            .unwrap_or_default();
+        if !ws_path.exists() { return; }
+        let Ok(content) = std::fs::read_to_string(&ws_path) else { return };
+        let mut current_ws: Option<WorkspaceEntry> = None;
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                if let Some(ws) = current_ws.take() {
+                    self.workspace_view.workspaces.push(ws);
+                }
+                let name = line.trim_matches(|c| c == '[' || c == ']').to_string();
+                current_ws = Some(WorkspaceEntry { name, repos: vec![] });
+            } else if line.starts_with("path") {
+                if let Some(ws) = current_ws.as_mut() {
+                    let path = line.split('=').nth(1).unwrap_or("").trim().trim_matches('"').to_string();
+                    let (branch, ahead, behind, dirty) = repo_quick_status(&path);
+                    ws.repos.push(WorkspaceRepo { path, branch, ahead, behind, dirty });
+                }
+            }
+        }
+        if let Some(ws) = current_ws.take() {
+            self.workspace_view.workspaces.push(ws);
+        }
+        self.workspace_view.ws_idx = 0;
+        self.workspace_view.repo_idx = 0;
+    }
+
+    pub fn workspace_move_up(&mut self) {
+        if self.workspace_view.ws_idx > 0 { self.workspace_view.ws_idx -= 1; }
+        self.workspace_view.repo_idx = 0;
+    }
+
+    pub fn workspace_move_down(&mut self) {
+        if self.workspace_view.ws_idx + 1 < self.workspace_view.workspaces.len() {
+            self.workspace_view.ws_idx += 1;
+        }
+        self.workspace_view.repo_idx = 0;
+    }
 }
 
 // ── Git helpers ───────────────────────────────────────────────────────────────
@@ -627,4 +954,16 @@ fn format_age(ts: i64) -> String {
     else if diff < 3600 { format!("{}m ago", diff / 60) }
     else if diff < 86400 { format!("{}h ago", diff / 3600) }
     else                { format!("{}d ago", diff / 86400) }
+}
+
+fn repo_quick_status(path: &str) -> (String, usize, usize, bool) {
+    let Ok(repo) = Repository::discover(path) else { return ("?".into(), 0, 0, false) };
+    let branch = repo.head().ok()
+        .and_then(|h| h.shorthand().map(|s| s.to_string()))
+        .unwrap_or_else(|| "detached".to_string());
+    let (ahead, behind) = ahead_behind(&repo, &branch).unwrap_or((0, 0));
+    let dirty = repo.statuses(None)
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    (branch, ahead, behind, dirty)
 }
