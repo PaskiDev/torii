@@ -22,7 +22,7 @@ pub const C_GREEN: Color    = Color::Rgb(100, 220, 100);
 pub const C_RED: Color      = Color::Rgb(255, 100, 100);
 pub const C_BORDER: Color   = Color::Rgb(60, 60, 80);
 
-const SIDEBAR_WIDTH: u16 = 18;
+const SIDEBAR_WIDTH: u16 = 20;
 
 struct Tab {
     key: &'static str,
@@ -95,6 +95,19 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    if app.sidebar_focused {
+        let line = Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled(" open  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
+            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+        ]);
+        f.render_widget(Paragraph::new(line), area);
+        return;
+    }
     let line = match app.view {
         View::Dashboard => {
             use crate::tui::app::Panel;
@@ -209,15 +222,23 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    // Sidebar: brand block (top) | tabs (middle) | help+quit (bottom, same height as hint)
+    let border_color = if app.sidebar_focused { BRAND_COLOR } else { C_BORDER };
+
+    // Single right border for the whole sidebar column
+    let outer = Block::default()
+        .borders(Borders::RIGHT)
+        .border_style(Style::default().fg(border_color));
+    let inner_area = outer.inner(area);
+    f.render_widget(outer, area);
+
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),  // brand: name + branch + status
             Constraint::Min(1),     // tabs
-            Constraint::Length(2),  // help + quit — aligned with hint row
+            Constraint::Length(2),  // help + quit
         ])
-        .split(area);
+        .split(inner_area);
 
     // Brand
     let (status_label, status_color) = if app.ahead > 0 && app.behind > 0 {
@@ -242,8 +263,8 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ]),
     ])
     .block(Block::default()
-        .borders(Borders::BOTTOM | Borders::RIGHT)
-        .border_style(Style::default().fg(C_BORDER))
+        .borders(Borders::BOTTOM)
+        .border_style(Style::default().fg(border_color))
         .padding(Padding::new(1, 1, 0, 0)));
     f.render_widget(brand, rows[0]);
 
@@ -277,8 +298,8 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     f.render_widget(
         List::new(tab_items)
             .block(Block::default()
-                .borders(Borders::BOTTOM | Borders::RIGHT)
-                .border_style(Style::default().fg(C_BORDER))
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(border_color))
                 .padding(Padding::new(1, 1, 0, 0))),
         rows[1],
     );
@@ -301,9 +322,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ])),
     ]);
     f.render_widget(
-        bottom.block(Block::default()
-            .borders(Borders::RIGHT)
-            .border_style(Style::default().fg(C_BORDER))),
+        bottom.block(Block::default().borders(Borders::NONE)),
         rows[2],
     );
 }

@@ -340,7 +340,7 @@ impl App {
             should_quit: false,
             view: View::Dashboard,
             sidebar_idx: 0,
-            sidebar_focused: false,
+            sidebar_focused: true,
             status_msg: None,
             repo_path: ".".to_string(),
             branch: String::new(),

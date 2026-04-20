@@ -70,8 +70,7 @@ fn handle_dashboard(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
 
     match (key.modifiers, key.code) {
-        (_, KeyCode::Tab)                            => app.next_panel(),
-        (KeyModifiers::SHIFT, KeyCode::BackTab)      => app.prev_panel(),
+        (_, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::BackTab) => app.prev_panel(),
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.move_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.move_down(),
 
@@ -165,7 +164,7 @@ fn handle_commit(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         CommitFocus::List => {
             if let Some(a) = handle_global_nav(key, app) { return Some(a); }
             match (key.modifiers, key.code) {
-                (_, KeyCode::Enter) | (_, KeyCode::Tab) => app.commit_view.focus = CommitFocus::Input,
+                (_, KeyCode::Enter) => app.commit_view.focus = CommitFocus::Input,
                 (_, KeyCode::Esc)                       => app.go_back(),
                 _ => {}
             }
