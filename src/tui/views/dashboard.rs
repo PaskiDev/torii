@@ -46,7 +46,7 @@ fn render_file_list(
     selected: usize,
     title: &str,
 ) {
-    let is_active = app.dashboard.selected_panel == panel;
+    let is_active = !app.sidebar_focused && app.dashboard.selected_panel == panel;
     let border_style = if is_active {
         Style::default().fg(BRAND_COLOR)
     } else {
@@ -82,7 +82,7 @@ fn render_file_list(
 }
 
 fn render_log(f: &mut Frame, app: &App, area: Rect) {
-    let is_active = app.dashboard.selected_panel == Panel::Log;
+    let is_active = !app.sidebar_focused && app.dashboard.selected_panel == Panel::Log;
     let border_style = if is_active {
         Style::default().fg(BRAND_COLOR)
     } else {

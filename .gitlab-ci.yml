@@ -25,6 +25,7 @@ variables:
         mkdir -p .cargo
         printf '[target.%s]\nlinker = "%s"\n' "$TARGET" "$LINKER" >> .cargo/config.toml
       fi
+  retry: 0
   script:
     - export PATH="$CARGO_HOME/bin:$PATH"
     - cargo build --release --target $TARGET
@@ -60,6 +61,7 @@ build-windows-x86_64:
 
 release:
   stage: release
+  retry: 0
   image: alpine:latest
   needs:
     - build-linux-x86_64

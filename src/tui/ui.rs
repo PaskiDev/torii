@@ -76,18 +76,26 @@ pub fn render(f: &mut Frame, app: &App) {
 
     render_sidebar(f, app, cols[0]);
 
+    // Content border — red when content has focus, dim when sidebar does
+    let content_border_color = if app.sidebar_focused { C_BORDER } else { BRAND_COLOR };
+    let content_outer = Block::default()
+        .borders(Borders::LEFT)
+        .border_style(Style::default().fg(content_border_color));
+    let content_inner = content_outer.inner(content_rows[0]);
+    f.render_widget(content_outer, content_rows[0]);
+
     match app.view {
-        View::Dashboard => views::dashboard::render(f, app, content_rows[0]),
-        View::Commit    => views::commit::render(f, app, content_rows[0]),
-        View::Sync      => views::sync::render(f, app, content_rows[0]),
-        View::Snapshot  => views::snapshot::render(f, app, content_rows[0]),
-        View::Log       => views::log::render(f, app, content_rows[0]),
-        View::Branch    => views::branch::render(f, app, content_rows[0]),
-        View::Tag       => views::tag::render(f, app, content_rows[0]),
-        View::History   => views::history::render(f, app, content_rows[0]),
-        View::Remote    => views::remote::render(f, app, content_rows[0]),
-        View::Mirror    => views::mirror::render(f, app, content_rows[0]),
-        View::Workspace => views::workspace::render(f, app, content_rows[0]),
+        View::Dashboard => views::dashboard::render(f, app, content_inner),
+        View::Commit    => views::commit::render(f, app, content_inner),
+        View::Sync      => views::sync::render(f, app, content_inner),
+        View::Snapshot  => views::snapshot::render(f, app, content_inner),
+        View::Log       => views::log::render(f, app, content_inner),
+        View::Branch    => views::branch::render(f, app, content_inner),
+        View::Tag       => views::tag::render(f, app, content_inner),
+        View::History   => views::history::render(f, app, content_inner),
+        View::Remote    => views::remote::render(f, app, content_inner),
+        View::Mirror    => views::mirror::render(f, app, content_inner),
+        View::Workspace => views::workspace::render(f, app, content_inner),
         View::Diff | View::Help => {}
     }
 
@@ -281,13 +289,9 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             ("  ", Style::default().fg(C_SUBTLE), None)
         };
 
-        let accent = if is_current_view || is_sidebar_sel { BRAND_COLOR } else { BRAND_COLOR };
         let mut item = ListItem::new(Line::from(vec![
             Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
-            Span::styled(format!("{:<9}", tab.label), label_style),
-            Span::styled("[", Style::default().fg(accent)),
-            Span::styled(tab.key, Style::default().fg(accent).add_modifier(if is_current_view { Modifier::BOLD } else { Modifier::empty() })),
-            Span::styled("]", Style::default().fg(accent)),
+            Span::styled(tab.label, label_style),
         ]));
         if let Some(color) = bg {
             item = item.style(Style::default().bg(color));
@@ -308,17 +312,13 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let bottom = List::new(vec![
         ListItem::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<9}", "help"), Style::default().fg(C_SUBTLE)),
-            Span::styled("[", Style::default().fg(BRAND_COLOR)),
-            Span::styled("?", Style::default().fg(BRAND_COLOR)),
-            Span::styled("]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("help  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[?]", Style::default().fg(BRAND_COLOR)),
         ])),
         ListItem::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(format!("{:<9}", "quit"), Style::default().fg(C_SUBTLE)),
-            Span::styled("[", Style::default().fg(BRAND_COLOR)),
-            Span::styled("q", Style::default().fg(BRAND_COLOR)),
-            Span::styled("]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("quit  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[q]", Style::default().fg(BRAND_COLOR)),
         ])),
     ]);
     f.render_widget(

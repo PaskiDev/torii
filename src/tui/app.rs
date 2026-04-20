@@ -434,6 +434,7 @@ impl App {
     pub fn go_back(&mut self) {
         self.view = View::Dashboard;
         self.sidebar_idx = 0;
+        self.sidebar_focused = true;
         self.status_msg = None;
     }
 

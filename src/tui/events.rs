@@ -213,6 +213,7 @@ fn handle_sidebar(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => return Some(Action::SidebarDown),
         (_, KeyCode::Enter)                           => return Some(Action::SidebarEnter),
         (_, KeyCode::Esc)                             => { app.sidebar_focused = false; }
+        (_, KeyCode::Char('?'))                       => { app.sidebar_focused = false; app.go_to(View::Help); }
         (_, KeyCode::Char('q')) |
         (KeyModifiers::CONTROL, KeyCode::Char('c'))   => return Some(Action::Quit),
         _ => {}
