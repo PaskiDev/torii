@@ -679,9 +679,9 @@ impl GitRepo {
     pub fn revert_commit(&self, commit_hash: &str) -> Result<()> {
         println!("🔄 Reverting commit {}...", commit_hash);
 
-        let oid = git2::Oid::from_str(commit_hash)
-            .map_err(|e| crate::error::ToriiError::Git(e))?;
-        let commit = self.repo.find_commit(oid)
+        let commit = self.repo.revparse_single(commit_hash)
+            .map_err(|e| crate::error::ToriiError::Git(e))?
+            .peel_to_commit()
             .map_err(|e| crate::error::ToriiError::Git(e))?;
 
         self.repo.revert(&commit, None)
@@ -712,9 +712,9 @@ impl GitRepo {
     pub fn reset_commit(&self, commit_hash: &str, mode: &str) -> Result<()> {
         println!("🔄 Resetting to commit {} (mode: {})...", commit_hash, mode);
 
-        let oid = git2::Oid::from_str(commit_hash)
+        let obj = self.repo.revparse_single(commit_hash)
             .map_err(|e| crate::error::ToriiError::Git(e))?;
-        let commit = self.repo.find_commit(oid)
+        let commit = obj.peel_to_commit()
             .map_err(|e| crate::error::ToriiError::Git(e))?;
 
         let reset_type = match mode {
@@ -726,7 +726,8 @@ impl GitRepo {
         self.repo.reset(commit.as_object(), reset_type, None)
             .map_err(|e| crate::error::ToriiError::Git(e))?;
 
-        println!("✅ Reset to {}", &commit_hash[..7.min(commit_hash.len())]);
+        let short = commit.id().to_string();
+        println!("✅ Reset to {}", &short[..7]);
         Ok(())
     }
 
