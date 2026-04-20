@@ -487,10 +487,107 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
         action: WorkspaceCommands,
     },
 
+    /// Manage pull requests / merge requests
+    #[command(after_help = "Examples:
+  torii pr create -t \"feat: login\" --base main
+  torii pr list
+  torii pr view 42
+  torii pr merge 42
+  torii pr close 42
+  torii pr checkout 42")]
+    Pr {
+        #[command(subcommand)]
+        action: PrCommands,
+    },
+
     /// Open the interactive TUI dashboard
     #[command(after_help = "Examples:
   torii tui   Open dashboard (status, log, file navigation)")]
     Tui,
+}
+
+#[derive(Subcommand)]
+enum PrCommands {
+    /// Create a pull request / merge request
+    Create {
+        /// Title
+        #[arg(short, long)]
+        title: String,
+        /// Description / body
+        #[arg(short, long)]
+        body: Option<String>,
+        /// Source branch (defaults to current branch)
+        #[arg(long)]
+        head: Option<String>,
+        /// Target branch (defaults to default branch)
+        #[arg(long, default_value = "main")]
+        base: String,
+        /// Create as draft
+        #[arg(long)]
+        draft: bool,
+        /// Platform: github or gitlab (auto-detected from remote if omitted)
+        #[arg(long)]
+        platform: Option<String>,
+    },
+    /// List open pull requests
+    List {
+        /// State: open, closed, merged, all
+        #[arg(long, default_value = "open")]
+        state: String,
+        /// Platform: github or gitlab
+        #[arg(long)]
+        platform: Option<String>,
+        /// owner/repo (auto-detected from remote if omitted)
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// View a pull request
+    View {
+        /// PR number
+        number: u64,
+        /// Platform: github or gitlab
+        #[arg(long)]
+        platform: Option<String>,
+        /// owner/repo
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Merge a pull request
+    Merge {
+        /// PR number
+        number: u64,
+        /// Merge method: merge, squash, rebase
+        #[arg(long, default_value = "merge")]
+        method: String,
+        /// Platform: github or gitlab
+        #[arg(long)]
+        platform: Option<String>,
+        /// owner/repo
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Close a pull request without merging
+    Close {
+        /// PR number
+        number: u64,
+        /// Platform: github or gitlab
+        #[arg(long)]
+        platform: Option<String>,
+        /// owner/repo
+        #[arg(long)]
+        repo: Option<String>,
+    },
+    /// Checkout the branch of a pull request
+    Checkout {
+        /// PR number
+        number: u64,
+        /// Platform: github or gitlab
+        #[arg(long)]
+        platform: Option<String>,
+        /// owner/repo
+        #[arg(long)]
+        repo: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1808,6 +1905,128 @@ impl Cli {
                     }
                     WorkspaceCommands::Sync { workspace, force } => {
                         WorkspaceManager::sync(workspace, *force)?;
+                    }
+                }
+            }
+
+            Commands::Pr { action } => {
+                use crate::pr::{get_pr_client, detect_platform_from_remote, CreatePrOptions, MergeMethod};
+
+                // Resolve platform + owner/repo from remote URL or explicit args
+                let auto = detect_platform_from_remote(".");
+
+                let resolve = |platform: &Option<String>, repo_arg: &Option<String>| -> anyhow::Result<(String, String, String)> {
+                    let (plat, owner, repo_name) = if let (Some(p), Some(r)) = (platform, repo_arg) {
+                        let mut parts = r.splitn(2, '/');
+                        let o = parts.next().unwrap_or("").to_string();
+                        let n = parts.next().unwrap_or("").to_string();
+                        (p.clone(), o, n)
+                    } else if let Some((p, o, n)) = &auto {
+                        (
+                            platform.clone().unwrap_or_else(|| p.clone()),
+                            o.clone(),
+                            n.clone(),
+                        )
+                    } else {
+                        anyhow::bail!("Could not detect platform/repo from remote. Use --platform and --repo owner/repo");
+                    };
+                    Ok((plat, owner, repo_name))
+                };
+
+                match action {
+                    PrCommands::Create { title, body, head, base, draft, platform } => {
+                        let (plat, owner, repo_name) = resolve(platform, &None)?;
+                        let client = get_pr_client(&plat)?;
+
+                        // Default head to current branch
+                        let head_branch = if let Some(h) = head {
+                            h.clone()
+                        } else {
+                            let repo = git2::Repository::discover(".")?;
+                            let head_ref = repo.head()?;
+                            head_ref.shorthand().unwrap_or("main").to_string()
+                        };
+
+                        let pr = client.create(&owner, &repo_name, CreatePrOptions {
+                            title: title.clone(),
+                            body: body.clone(),
+                            head: head_branch,
+                            base: base.clone(),
+                            draft: *draft,
+                        })?;
+
+                        println!("✅ PR #{} created", pr.number);
+                        println!("   {} → {}", pr.head, pr.base);
+                        println!("   {}", pr.url);
+                    }
+
+                    PrCommands::List { state, platform, repo } => {
+                        let (plat, owner, repo_name) = resolve(platform, repo)?;
+                        let client = get_pr_client(&plat)?;
+                        let prs = client.list(&owner, &repo_name, state)?;
+
+                        if prs.is_empty() {
+                            println!("No {} pull requests found.", state);
+                            return Ok(());
+                        }
+
+                        println!("📋 {} pull requests ({}):\n", prs.len(), state);
+                        for pr in &prs {
+                            let draft_tag = if pr.draft { " [draft]" } else { "" };
+                            println!("  #{:<5} {}{}", pr.number, pr.title, draft_tag);
+                            println!("         {} → {}  by {}  {}", pr.head, pr.base, pr.author, pr.url);
+                            println!();
+                        }
+                    }
+
+                    PrCommands::View { number, platform, repo } => {
+                        let (plat, owner, repo_name) = resolve(platform, repo)?;
+                        let client = get_pr_client(&plat)?;
+                        let pr = client.get(&owner, &repo_name, *number)?;
+
+                        println!("PR #{} — {}", pr.number, pr.title);
+                        println!("State:    {}", pr.state);
+                        println!("Branch:   {} → {}", pr.head, pr.base);
+                        println!("Author:   {}", pr.author);
+                        println!("Created:  {}", pr.created_at);
+                        if let Some(m) = pr.mergeable {
+                            println!("Mergeable: {}", if m { "yes" } else { "no" });
+                        }
+                        println!("URL:      {}", pr.url);
+                        if let Some(body) = &pr.body {
+                            if !body.is_empty() {
+                                println!("\n{}", body);
+                            }
+                        }
+                    }
+
+                    PrCommands::Merge { number, method, platform, repo } => {
+                        let (plat, owner, repo_name) = resolve(platform, repo)?;
+                        let client = get_pr_client(&plat)?;
+                        let merge_method = match method.as_str() {
+                            "squash" => MergeMethod::Squash,
+                            "rebase" => MergeMethod::Rebase,
+                            _ => MergeMethod::Merge,
+                        };
+                        client.merge(&owner, &repo_name, *number, merge_method)?;
+                        println!("✅ PR #{} merged", number);
+                    }
+
+                    PrCommands::Close { number, platform, repo } => {
+                        let (plat, owner, repo_name) = resolve(platform, repo)?;
+                        let client = get_pr_client(&plat)?;
+                        client.close(&owner, &repo_name, *number)?;
+                        println!("✅ PR #{} closed", number);
+                    }
+
+                    PrCommands::Checkout { number, platform, repo } => {
+                        let (plat, owner, repo_name) = resolve(platform, repo)?;
+                        let client = get_pr_client(&plat)?;
+                        let pr = client.get(&owner, &repo_name, *number)?;
+                        let branch = client.checkout_branch(&pr);
+                        let git_repo = crate::core::GitRepo::open(".")?;
+                        git_repo.switch_branch(&branch)?;
+                        println!("✅ Checked out branch: {}", branch);
                     }
                 }
             }
