@@ -86,9 +86,17 @@ const PATTERNS: &[Pattern] = &[
                 if w.ends_with("xxx") || w.ends_with("_xxx") || w.contains("xxxx") {
                     return false;
                 }
-                w.starts_with("ghp_") || w.starts_with("gho_") ||
+                // Skip bare prefixes used in docs (ghp_, glpat-, etc.) — real tokens are longer
+                let is_prefix_only = (w.starts_with("ghp_") && w.len() <= 5) ||
+                    (w.starts_with("gho_") && w.len() <= 5) ||
+                    (w.starts_with("ghs_") && w.len() <= 5) ||
+                    (w.starts_with("glpat-") && w.len() <= 7) ||
+                    (w.starts_with("glptt-") && w.len() <= 7) ||
+                    (w.starts_with("github_pat_") && w.len() <= 12);
+                if is_prefix_only { return false; }
+                (w.starts_with("ghp_") || w.starts_with("gho_") ||
                 w.starts_with("ghs_") || w.starts_with("github_pat_") ||
-                w.starts_with("glpat-") || w.starts_with("glptt-")
+                w.starts_with("glpat-") || w.starts_with("glptt-")) && w.len() > 20
             })
         },
     },
@@ -163,8 +171,8 @@ const PATTERNS: &[Pattern] = &[
         detect: |l| {
             l.split_whitespace().any(|w| {
                 let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                w.starts_with("sk_live_") || w.starts_with("pk_live_") ||
-                w.starts_with("rk_live_")
+                (w.starts_with("sk_live_") || w.starts_with("pk_live_") ||
+                w.starts_with("rk_live_")) && w.len() > 16
             })
         },
     },
