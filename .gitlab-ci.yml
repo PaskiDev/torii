@@ -83,7 +83,7 @@ release:
         NAME="$2"
         echo "Uploading $NAME..."
         HTTP=$(curl -s -o /tmp/up.json -w "%{http_code}" \
-          --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           --upload-file "$FILE" \
           "${PACKAGE_REGISTRY_URL}/${TAG}/${NAME}")
         echo "  → $HTTP"
