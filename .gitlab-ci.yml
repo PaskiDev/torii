@@ -10,107 +10,85 @@ stages:
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
   RUSTUP_HOME: $CI_PROJECT_DIR/.rustup
+  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/gitorii"
 
-.build_binary:
+.build_linux:
   stage: build
+  image: rust:1-bookworm
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl build-essential pkg-config libssl-dev
+    - apt-get update -qq && apt-get install -y -qq curl build-essential pkg-config libssl-dev $EXTRA_PKGS
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    - export PATH="$RUSTUP_HOME/../bin:$CARGO_HOME/bin:$PATH"
+    - export PATH="$CARGO_HOME/bin:$PATH"
     - rustup target add $TARGET
+    - |
+      if [ -n "$LINKER" ]; then
+        mkdir -p .cargo
+        printf '[target.%s]\nlinker = "%s"\n' "$TARGET" "$LINKER" >> .cargo/config.toml
+      fi
   script:
-    - export PATH="$RUSTUP_HOME/../bin:$CARGO_HOME/bin:$PATH"
+    - export PATH="$CARGO_HOME/bin:$PATH"
     - cargo build --release --target $TARGET
-    - mv target/$TARGET/release/torii torii-$TARGET
+    - cp target/$TARGET/release/torii${EXT:-} torii-${ASSET_NAME}
   artifacts:
     paths:
-      - torii-$TARGET
+      - torii-${ASSET_NAME}
     expire_in: 1 hour
 
 build-linux-x86_64:
-  extends: .build_binary
-  image: rust:1-bookworm
+  extends: .build_linux
   variables:
     TARGET: x86_64-unknown-linux-gnu
+    ASSET_NAME: linux-x86_64
 
 build-linux-aarch64:
-  extends: .build_binary
-  image: rust:1-bookworm
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq curl build-essential pkg-config libssl-dev gcc-aarch64-linux-gnu
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    - export PATH="$RUSTUP_HOME/../bin:$CARGO_HOME/bin:$PATH"
-    - rustup target add aarch64-unknown-linux-gnu
-    - mkdir -p .cargo
-    - |
-      cat >> .cargo/config.toml <<'EOF'
-      [target.aarch64-unknown-linux-gnu]
-      linker = "aarch64-linux-gnu-gcc"
-      EOF
+  extends: .build_linux
   variables:
     TARGET: aarch64-unknown-linux-gnu
+    ASSET_NAME: linux-aarch64
+    EXTRA_PKGS: gcc-aarch64-linux-gnu
+    LINKER: aarch64-linux-gnu-gcc
 
 build-windows-x86_64:
-  extends: .build_binary
-  image: rust:1-bookworm
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq curl build-essential pkg-config libssl-dev mingw-w64
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    - export PATH="$RUSTUP_HOME/../bin:$CARGO_HOME/bin:$PATH"
-    - rustup target add x86_64-pc-windows-gnu
-    - mkdir -p .cargo
-    - |
-      cat >> .cargo/config.toml <<'EOF'
-      [target.x86_64-pc-windows-gnu]
-      linker = "x86_64-w64-mingw32-gcc"
-      EOF
+  extends: .build_linux
   variables:
     TARGET: x86_64-pc-windows-gnu
-  script:
-    - export PATH="$RUSTUP_HOME/../bin:$CARGO_HOME/bin:$PATH"
-    - cargo build --release --target $TARGET
-    - mv target/$TARGET/release/torii.exe torii-windows-x86_64.exe
-  artifacts:
-    paths:
-      - torii-windows-x86_64.exe
-    expire_in: 1 hour
+    ASSET_NAME: windows-x86_64.exe
+    EXTRA_PKGS: mingw-w64
+    LINKER: x86_64-w64-mingw32-gcc
+    EXT: .exe
 
 build-macos-x86_64:
-  extends: .build_binary
+  stage: build
   tags:
     - macos
   before_script:
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    - export PATH="$HOME/.cargo/bin:$PATH"
+    - source "$HOME/.cargo/env"
     - rustup target add x86_64-apple-darwin
   script:
-    - export PATH="$HOME/.cargo/bin:$PATH"
+    - source "$HOME/.cargo/env"
     - cargo build --release --target x86_64-apple-darwin
-    - mv target/x86_64-apple-darwin/release/torii torii-x86_64-apple-darwin
-  variables:
-    TARGET: x86_64-apple-darwin
+    - cp target/x86_64-apple-darwin/release/torii torii-macos-x86_64
   artifacts:
     paths:
-      - torii-x86_64-apple-darwin
+      - torii-macos-x86_64
     expire_in: 1 hour
 
 build-macos-aarch64:
-  extends: .build_binary
+  stage: build
   tags:
     - macos
   before_script:
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-    - export PATH="$HOME/.cargo/bin:$PATH"
+    - source "$HOME/.cargo/env"
     - rustup target add aarch64-apple-darwin
   script:
-    - export PATH="$HOME/.cargo/bin:$PATH"
+    - source "$HOME/.cargo/env"
     - cargo build --release --target aarch64-apple-darwin
-    - mv target/aarch64-apple-darwin/release/torii torii-aarch64-apple-darwin
-  variables:
-    TARGET: aarch64-apple-darwin
+    - cp target/aarch64-apple-darwin/release/torii torii-macos-aarch64
   artifacts:
     paths:
-      - torii-aarch64-apple-darwin
+      - torii-macos-aarch64
     expire_in: 1 hour
 
 release:
@@ -127,60 +105,68 @@ release:
   before_script:
     - apk add --no-cache curl jq
   script:
-    - TAG="${CI_COMMIT_TAG#v}"
-    - NOTES=$(awk "/^## \[${TAG}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md | sed '/^$/d')
-    - echo "Creating release for $CI_COMMIT_TAG"
+    - TAG="${CI_COMMIT_TAG}"
+    - VER="${TAG#v}"
+    - NOTES=$(awk "/^## \[${VER}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md | sed '/^$/d')
 
+    # Upload binaries to Generic Package Registry — URLs are permanent and predictable
     - |
-      upload_asset() {
-        local file="$1"
-        local name="$2"
-        HTTP_STATUS=$(curl -s -o /tmp/upload_resp.json -w "%{http_code}" \
+      upload() {
+        FILE="$1"
+        NAME="$2"
+        echo "Uploading $NAME..."
+        HTTP=$(curl -s -o /tmp/up.json -w "%{http_code}" \
           --header "PRIVATE-TOKEN: ${GITLAB_RELEASE_TOKEN}" \
-          --form "file=@${file}" \
-          "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/uploads")
-        if [ "$HTTP_STATUS" != "201" ]; then
-          echo "Upload failed for $name: $HTTP_STATUS"
-          cat /tmp/upload_resp.json
-          return 1
+          --upload-file "$FILE" \
+          "${PACKAGE_REGISTRY_URL}/${TAG}/${NAME}")
+        echo "  → $HTTP"
+        if [ "$HTTP" != "201" ] && [ "$HTTP" != "200" ]; then
+          cat /tmp/up.json
+          echo "Upload failed: $HTTP" && exit 1
         fi
-        cat /tmp/upload_resp.json | jq -r '.url'
       }
 
-    - URL_LINUX_X64=$(upload_asset "torii-x86_64-unknown-linux-gnu" "torii-linux-x86_64")
-    - URL_LINUX_ARM64=$(upload_asset "torii-aarch64-unknown-linux-gnu" "torii-linux-aarch64")
-    - URL_WINDOWS=$(upload_asset "torii-windows-x86_64.exe" "torii-windows-x86_64.exe")
+    - upload torii-linux-x86_64     torii-linux-x86_64
+    - upload torii-linux-aarch64    torii-linux-aarch64
+    - upload torii-windows-x86_64.exe torii-windows-x86_64.exe
+
+    # Create the release with links pointing to the package registry URLs
+    - |
+      BASE="${PACKAGE_REGISTRY_URL}/${TAG}"
+      PAYLOAD=$(jq -n \
+        --arg name "Gitorii ${TAG}" \
+        --arg tag  "${TAG}" \
+        --arg desc "${NOTES}" \
+        --arg lx64  "${BASE}/torii-linux-x86_64" \
+        --arg larm  "${BASE}/torii-linux-aarch64" \
+        --arg win   "${BASE}/torii-windows-x86_64.exe" \
+        '{
+          name: $name,
+          tag_name: $tag,
+          description: $desc,
+          assets: {
+            links: [
+              { name: "torii-linux-x86_64",        url: $lx64, link_type: "package" },
+              { name: "torii-linux-aarch64",        url: $larm, link_type: "package" },
+              { name: "torii-windows-x86_64.exe",   url: $win,  link_type: "package" },
+              { name: "Install via cargo",           url: "https://crates.io/crates/gitorii", link_type: "other" },
+              { name: "Changelog",                  url: "https://gitlab.com/paskidev/torii/-/blob/main/CHANGELOG.md", link_type: "other" }
+            ]
+          }
+        }')
 
     - |
-      PAYLOAD="{
-        \"name\": \"Gitorii ${CI_COMMIT_TAG}\",
-        \"tag_name\": \"${CI_COMMIT_TAG}\",
-        \"description\": $(echo "$NOTES" | jq -Rs .),
-        \"assets\": {
-          \"links\": [
-            {\"name\": \"torii-linux-x86_64\", \"url\": \"https://gitlab.com${URL_LINUX_X64}\", \"link_type\": \"package\"},
-            {\"name\": \"torii-linux-aarch64\", \"url\": \"https://gitlab.com${URL_LINUX_ARM64}\", \"link_type\": \"package\"},
-            {\"name\": \"torii-windows-x86_64.exe\", \"url\": \"https://gitlab.com${URL_WINDOWS}\", \"link_type\": \"package\"},
-            {\"name\": \"Install via cargo\", \"url\": \"https://crates.io/crates/gitorii\", \"link_type\": \"other\"},
-            {\"name\": \"Changelog\", \"url\": \"https://gitlab.com/paskidev/torii/-/blob/main/CHANGELOG.md\", \"link_type\": \"other\"}
-          ]
-        }
-      }"
-
-    - |
-      HTTP_STATUS=$(curl -s -o /tmp/release_resp.json -w "%{http_code}" \
+      HTTP=$(curl -s -o /tmp/release.json -w "%{http_code}" \
         --header "PRIVATE-TOKEN: ${GITLAB_RELEASE_TOKEN}" \
         --header "Content-Type: application/json" \
         --data "$PAYLOAD" \
-        "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/releases")
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases")
 
-      echo "GitLab API response: $HTTP_STATUS"
-      cat /tmp/release_resp.json
-
-      if [ "$HTTP_STATUS" = "201" ]; then
-        echo "Release created."
-      elif [ "$HTTP_STATUS" = "409" ]; then
+      cat /tmp/release.json
+      if [ "$HTTP" = "201" ]; then
+        echo "✅ Release ${TAG} created."
+      elif [ "$HTTP" = "409" ]; then
         echo "Release already exists — skipping."
       else
-        echo "Unexpected status $HTTP_STATUS" && exit 1
+        echo "Unexpected status $HTTP" && exit 1
       fi
