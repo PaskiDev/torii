@@ -253,6 +253,26 @@ torii clone github <user>/<repo> -d dir # clone into specific directory
 torii ssh-check                         # verify SSH key setup
 ```
 
+## Gitorii vs other Git clients
+
+| Feature | Gitorii | Lazygit | GitUI | Tig | Magit | gh CLI |
+|---------|:-------:|:-------:|:-----:|:---:|:-----:|:------:|
+| Pure CLI (no TUI required) | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Secret scanner (pre-commit) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Scan full git history | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Snapshots (pre-op safety saves) | ✓ | ✗ | ✗ | ✗ | ~ | ✗ |
+| Multi-remote mirrors | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Workspace (multi-repo commands) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| PR / MR creation from CLI | ✓ | ~ | ✗ | ✗ | ~ | ✓ |
+| GitHub + GitLab native support | ✓ | ✗ | ✗ | ✗ | ~ | ✗ |
+| Conventional commits auto-tag | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Remove file from entire history | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Interactive rebase | ✓ | ✓ | ~ | ✗ | ✓ | ✗ |
+| No runtime dependencies | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ |
+
+> ✓ supported · ~ partial · ✗ not supported  
+> Full comparison at [gitorii.com/vs](https://gitorii.com/vs)
+
 ## Why Gitorii?
 
 | Git | Gitorii |
