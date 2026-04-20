@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -24,13 +24,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.tag_view.tags.iter().enumerate().map(|(i, t)| {
             let is_sel = i == app.tag_view.idx;
             let style = if is_sel {
-                Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
             let prefix = if is_sel { "█ " } else { "  " };
             let line = Line::from(vec![
-                Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
+                Span::styled(prefix, Style::default().fg(app.brand_color())),
                 Span::styled(format!("{:<20}", &t.name), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{:<40}", &t.message), Style::default().fg(C_WHITE)),
                 Span::styled(&t.time, Style::default().fg(C_DIM)),
@@ -47,7 +47,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             format!(" tags ({}) ", app.tag_view.tags.len()),
             Style::default().fg(C_SUBTLE),
         ))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(C_BORDER));
     f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
 
@@ -56,7 +56,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let status_color = if app.tag_view.status.is_some() { C_GREEN } else { C_DIM };
     let status_block = Block::default()
         .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(C_BORDER));
     f.render_widget(
         Paragraph::new(Line::from(vec![

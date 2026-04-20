@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, DiffLineKind};
-use super::super::ui::{BRAND_COLOR, C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_RED, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_RED, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -20,11 +20,12 @@ pub fn render(f: &mut Frame, app: &App) {
         ])
         .split(area);
 
+    let bc = app.brand_color();
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(" diff  ", Style::default().fg(BRAND_COLOR)),
+        Span::styled(" diff  ", Style::default().fg(bc)),
         Span::styled(&app.diff.title, Style::default().fg(C_WHITE)),
     ]))
-    .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(C_BORDER)));
+    .block(Block::default().borders(Borders::ALL).border_type(app.border_type()).border_style(Style::default().fg(C_BORDER)));
     f.render_widget(header, chunks[0]);
 
     let visible_lines: Vec<ListItem> = app.diff.lines
@@ -32,10 +33,10 @@ pub fn render(f: &mut Frame, app: &App) {
         .skip(app.diff.scroll)
         .map(|line| {
             let (fg, prefix) = match line.kind {
-                DiffLineKind::Added   => (C_GREEN,      "+ "),
-                DiffLineKind::Removed => (C_RED,        "- "),
-                DiffLineKind::Header  => (BRAND_COLOR,  "  "),
-                DiffLineKind::Context => (C_SUBTLE,     "  "),
+                DiffLineKind::Added   => (C_GREEN,  "+ "),
+                DiffLineKind::Removed => (C_RED,    "- "),
+                DiffLineKind::Header  => (bc,        "  "),
+                DiffLineKind::Context => (C_SUBTLE,  "  "),
             };
             ListItem::new(Line::from(vec![
                 Span::styled(prefix, Style::default().fg(fg)),
@@ -46,16 +47,16 @@ pub fn render(f: &mut Frame, app: &App) {
 
     f.render_widget(
         List::new(visible_lines)
-            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(C_BORDER))),
+            .block(Block::default().borders(Borders::ALL).border_type(app.border_type()).border_style(Style::default().fg(C_BORDER))),
         chunks[1],
     );
 
     let total = app.diff.lines.len();
     let pct = if total == 0 { 0 } else { (app.diff.scroll * 100) / total.max(1) };
     let footer = Line::from(vec![
-        Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
         Span::styled(" scroll  ", Style::default().fg(C_SUBTLE)),
-        Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
+        Span::styled("[Esc]", Style::default().fg(bc)),
         Span::styled(" back  ", Style::default().fg(C_SUBTLE)),
         Span::styled(format!("{}% ({}/{})", pct, app.diff.scroll, total), Style::default().fg(C_DIM)),
     ]);

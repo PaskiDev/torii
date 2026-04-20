@@ -6,9 +6,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
-use super::super::ui::BRAND_COLOR;
-
-pub fn render(f: &mut Frame, _app: &crate::tui::app::App) {
+pub fn render(f: &mut Frame, app: &crate::tui::app::App) {
+    let bc = app.brand_color();
+    let bt = app.border_type();
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -22,10 +22,10 @@ pub fn render(f: &mut Frame, _app: &crate::tui::app::App) {
     // Header
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" ⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
+            Span::styled(" ⛩  gitorii", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
             Span::styled("  keybindings", Style::default().fg(Color::Gray)),
         ]))
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))),
+        .block(Block::default().borders(Borders::ALL).border_type(bt).border_style(Style::default().fg(Color::DarkGray))),
         chunks[0],
     );
 
@@ -76,7 +76,7 @@ pub fn render(f: &mut Frame, _app: &crate::tui::app::App) {
     let mut items: Vec<ListItem> = vec![];
     for (section, binds) in sections {
         items.push(ListItem::new(Line::from(
-            Span::styled(format!("  {}", section.to_uppercase()), Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD))
+            Span::styled(format!("  {}", section.to_uppercase()), Style::default().fg(bc).add_modifier(Modifier::BOLD))
         )));
         for (key, desc) in *binds {
             items.push(ListItem::new(Line::from(vec![
@@ -89,13 +89,13 @@ pub fn render(f: &mut Frame, _app: &crate::tui::app::App) {
 
     f.render_widget(
         List::new(items)
-            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))),
+            .block(Block::default().borders(Borders::ALL).border_type(bt).border_style(Style::default().fg(Color::DarkGray))),
         chunks[1],
     );
 
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("[Esc / ?]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Esc / ?]", Style::default().fg(bc)),
             Span::raw(" close"),
         ])),
         chunks[2],

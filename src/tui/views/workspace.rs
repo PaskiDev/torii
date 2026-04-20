@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_DIM, C_CYAN, C_YELLOW, C_GREEN, C_RED, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_CYAN, C_YELLOW, C_GREEN, C_RED, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -18,7 +18,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     if app.workspace_view.workspaces.is_empty() {
         let block = Block::default()
             .title(Span::styled(" workspaces ", Style::default().fg(C_SUBTLE)))
-            .borders(Borders::ALL)
+            .borders(Borders::ALL).border_type(app.border_type())
             .border_style(Style::default().fg(C_BORDER));
         f.render_widget(
             Paragraph::new(Span::styled(
@@ -34,16 +34,17 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .split(chunks[0]);
 
         // Workspace list (left)
+        let bc = app.brand_color();
         let ws_items: Vec<ListItem> = app.workspace_view.workspaces.iter().enumerate().map(|(i, ws)| {
             let is_sel = i == app.workspace_view.ws_idx;
             let style = if is_sel {
-                Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
             let prefix = if is_sel { "█ " } else { "  " };
             let line = Line::from(vec![
-                Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
+                Span::styled(prefix, Style::default().fg(bc)),
                 Span::styled(&ws.name, Style::default().fg(if is_sel { C_WHITE } else { C_SUBTLE })),
                 Span::styled(
                     format!(" ({})", ws.repos.len()),
@@ -58,7 +59,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let ws_block = Block::default()
             .title(Span::styled(" workspaces ", Style::default().fg(C_SUBTLE)))
-            .borders(Borders::ALL)
+            .borders(Borders::ALL).border_type(app.border_type())
             .border_style(Style::default().fg(C_BORDER));
         f.render_stateful_widget(List::new(ws_items).block(ws_block), cols[0], &mut ws_state);
 
@@ -95,7 +96,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let repos_block = Block::default()
             .title(Span::styled(" repos ", Style::default().fg(C_SUBTLE)))
-            .borders(Borders::ALL)
+            .borders(Borders::ALL).border_type(app.border_type())
             .border_style(Style::default().fg(C_BORDER));
         f.render_widget(List::new(repo_items).block(repos_block), cols[1]);
     }
@@ -104,7 +105,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let status_color = if app.workspace_view.status.is_some() { C_GREEN } else { C_DIM };
     let status_block = Block::default()
         .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(C_BORDER));
     f.render_widget(
         Paragraph::new(Line::from(vec![

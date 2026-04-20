@@ -42,6 +42,8 @@ const TABS: &[Tab] = &[
     Tab { key: "r", label: "remote",    view: View::Remote     },
     Tab { key: "m", label: "mirror",    view: View::Mirror     },
     Tab { key: "w", label: "workspace", view: View::Workspace  },
+    Tab { key: "g", label: "config",    view: View::Config     },
+    Tab { key: "x", label: "settings",  view: View::Settings   },
 ];
 
 pub fn render(f: &mut Frame, app: &App) {
@@ -56,14 +58,21 @@ pub fn render(f: &mut Frame, app: &App) {
 
     let area = f.area();
 
-    // Global layout: sidebar | content / hint
+    // Outer border around the entire UI
+    let outer = Block::default()
+        .borders(Borders::ALL).border_type(app.border_type())
+        .border_style(Style::default().fg(C_BORDER));
+    let inner = outer.inner(area);
+    f.render_widget(outer, area);
+
+    // Global layout: sidebar | content
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(SIDEBAR_WIDTH),
             Constraint::Min(1),
         ])
-        .split(area);
+        .split(inner);
 
     // Content area: main view + 1 line hint at bottom
     let content_rows = Layout::default()
@@ -76,26 +85,20 @@ pub fn render(f: &mut Frame, app: &App) {
 
     render_sidebar(f, app, cols[0]);
 
-    // Content border — red when content has focus, dim when sidebar does
-    let content_border_color = if app.sidebar_focused { C_BORDER } else { BRAND_COLOR };
-    let content_outer = Block::default()
-        .borders(Borders::LEFT)
-        .border_style(Style::default().fg(content_border_color));
-    let content_inner = content_outer.inner(content_rows[0]);
-    f.render_widget(content_outer, content_rows[0]);
-
     match app.view {
-        View::Dashboard => views::dashboard::render(f, app, content_inner),
-        View::Commit    => views::commit::render(f, app, content_inner),
-        View::Sync      => views::sync::render(f, app, content_inner),
-        View::Snapshot  => views::snapshot::render(f, app, content_inner),
-        View::Log       => views::log::render(f, app, content_inner),
-        View::Branch    => views::branch::render(f, app, content_inner),
-        View::Tag       => views::tag::render(f, app, content_inner),
-        View::History   => views::history::render(f, app, content_inner),
-        View::Remote    => views::remote::render(f, app, content_inner),
-        View::Mirror    => views::mirror::render(f, app, content_inner),
-        View::Workspace => views::workspace::render(f, app, content_inner),
+        View::Dashboard => views::dashboard::render(f, app, content_rows[0]),
+        View::Commit    => views::commit::render(f, app, content_rows[0]),
+        View::Sync      => views::sync::render(f, app, content_rows[0]),
+        View::Snapshot  => views::snapshot::render(f, app, content_rows[0]),
+        View::Log       => views::log::render(f, app, content_rows[0]),
+        View::Branch    => views::branch::render(f, app, content_rows[0]),
+        View::Tag       => views::tag::render(f, app, content_rows[0]),
+        View::History   => views::history::render(f, app, content_rows[0]),
+        View::Remote    => views::remote::render(f, app, content_rows[0]),
+        View::Mirror    => views::mirror::render(f, app, content_rows[0]),
+        View::Workspace => views::workspace::render(f, app, content_rows[0]),
+        View::Config    => views::config::render(f, app, content_rows[0]),
+        View::Settings  => views::settings::render(f, app, content_rows[0]),
         View::Diff | View::Help => {}
     }
 
@@ -103,14 +106,15 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
+    let bc = app.brand_color();
     if app.sidebar_focused {
         let line = Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" open  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
         ]);
         f.render_widget(Paragraph::new(line), area);
@@ -122,107 +126,125 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             match app.dashboard.selected_panel {
                 Panel::Staged => Line::from(vec![
                     Span::raw(" "),
-                    Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[space]", Style::default().fg(bc)),
                     Span::styled(" unstage  ", Style::default().fg(C_SUBTLE)),
-                    Span::styled("[d]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[d]", Style::default().fg(bc)),
                     Span::styled(" diff", Style::default().fg(C_SUBTLE)),
                 ]),
                 Panel::Unstaged => Line::from(vec![
                     Span::raw(" "),
-                    Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[space]", Style::default().fg(bc)),
                     Span::styled(" stage  ", Style::default().fg(C_SUBTLE)),
-                    Span::styled("[d]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[d]", Style::default().fg(bc)),
                     Span::styled(" diff", Style::default().fg(C_SUBTLE)),
                 ]),
                 Panel::Untracked => Line::from(vec![
                     Span::raw(" "),
-                    Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[space]", Style::default().fg(bc)),
                     Span::styled(" stage", Style::default().fg(C_SUBTLE)),
                 ]),
                 Panel::Log => Line::from(vec![
                     Span::raw(" "),
-                    Span::styled("[d]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[d]", Style::default().fg(bc)),
                     Span::styled(" diff  ", Style::default().fg(C_SUBTLE)),
-                    Span::styled("[l]", Style::default().fg(BRAND_COLOR)),
+                    Span::styled("[l]", Style::default().fg(bc)),
                     Span::styled(" expand", Style::default().fg(C_SUBTLE)),
                 ]),
             }
         }
         View::Commit => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" save  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[←→]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[←→]", Style::default().fg(bc)),
             Span::styled(" cursor  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
         ]),
         View::Sync => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
         ]),
         View::Log => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[d]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[d]", Style::default().fg(bc)),
             Span::styled(" diff", Style::default().fg(C_SUBTLE)),
         ]),
         View::Branch => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" checkout", Style::default().fg(C_SUBTLE)),
         ]),
         View::Snapshot => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" restore", Style::default().fg(C_SUBTLE)),
         ]),
         View::Tag => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" push  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[d]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[d]", Style::default().fg(bc)),
             Span::styled(" delete", Style::default().fg(C_SUBTLE)),
         ]),
         View::History => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" cherry-pick", Style::default().fg(C_SUBTLE)),
         ]),
         View::Remote => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" info", Style::default().fg(C_SUBTLE)),
         ]),
         View::Mirror => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" sync", Style::default().fg(C_SUBTLE)),
         ]),
         View::Workspace => Line::from(vec![
             Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" sync all", Style::default().fg(C_SUBTLE)),
+        ]),
+        View::Config => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
+            Span::styled(" edit  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Tab]", Style::default().fg(bc)),
+            Span::styled(" toggle scope", Style::default().fg(C_SUBTLE)),
+        ]),
+        View::Settings => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Enter]", Style::default().fg(bc)),
+            Span::styled(" toggle/edit  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[s]", Style::default().fg(bc)),
+            Span::styled(" save", Style::default().fg(C_SUBTLE)),
         ]),
         _ => Line::from(""),
     };
@@ -230,14 +252,15 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let border_color = if app.sidebar_focused { BRAND_COLOR } else { C_BORDER };
+    let border_color = if app.sidebar_focused { app.brand_color() } else { C_BORDER };
 
-    // Single right border for the whole sidebar column
+    // Right border as divider between sidebar and content
     let outer = Block::default()
         .borders(Borders::RIGHT)
         .border_style(Style::default().fg(border_color));
     let inner_area = outer.inner(area);
     f.render_widget(outer, area);
+
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -260,7 +283,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     };
 
     let brand = Paragraph::new(vec![
-        Line::from(Span::styled("⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("⛩  gitorii", Style::default().fg(app.brand_color()).add_modifier(Modifier::BOLD))),
         Line::from(vec![
             Span::styled("branch: ", Style::default().fg(C_SUBTLE)),
             Span::styled(&app.branch, Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)),
@@ -280,17 +303,19 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let tab_items: Vec<ListItem> = TABS.iter().enumerate().map(|(i, tab)| {
         let is_current_view = app.view == tab.view;
         let is_sidebar_sel  = app.sidebar_focused && i == app.sidebar_idx;
+        let sel_bg = app.selected_bg();
+        let brand  = app.brand_color();
 
         let (prefix, label_style, bg) = if is_current_view {
-            ("█ ", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD), Some(SELECTED_BG))
+            ("█ ", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD), Some(sel_bg))
         } else if is_sidebar_sel {
-            ("▶ ", Style::default().fg(C_WHITE), Some(SELECTED_BG))
+            ("▶ ", Style::default().fg(C_WHITE), Some(sel_bg))
         } else {
             ("  ", Style::default().fg(C_SUBTLE), None)
         };
 
         let mut item = ListItem::new(Line::from(vec![
-            Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
+            Span::styled(prefix, Style::default().fg(brand)),
             Span::styled(tab.label, label_style),
         ]));
         if let Some(color) = bg {

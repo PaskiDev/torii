@@ -10,7 +10,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{App, View, SyncOp, SyncStatus};
+use app::{App, View, SyncOp, SyncStatus, ConfigScope, BorderStyle};
 use events::{Action, EventHandler};
 
 pub fn run() -> crate::error::Result<()> {
@@ -161,6 +161,66 @@ fn run_loop(
                         _ => "mirror sync failed".to_string(),
                     });
                 }
+
+                Action::ConfigEdit => {} // editing already started in handle_config
+
+                Action::ConfigSave => {
+                    let idx = app.config_view.idx;
+                    if let Some(entry) = app.config_view.entries.get(idx) {
+                        let key = entry.key.clone();
+                        let val = app.config_view.edit_buf.clone();
+                        let scope_flag = if app.config_view.scope == app::ConfigScope::Local {
+                            "--local"
+                        } else {
+                            "--global"
+                        };
+                        let status = std::process::Command::new("torii")
+                            .args(["config", "set", &key, &val, scope_flag])
+                            .status();
+                        app.config_view.editing = false;
+                        app.config_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("saved: {} = {}", key, val),
+                            _ => format!("failed to save: {}", key),
+                        });
+                        app.go_to(View::Config);
+                    }
+                }
+
+                Action::ConfigToggleScope => {
+                    app.config_view.scope = if app.config_view.scope == app::ConfigScope::Global {
+                        app::ConfigScope::Local
+                    } else {
+                        app::ConfigScope::Global
+                    };
+                    app.go_to(View::Config);
+                }
+
+                Action::SettingsToggle => {
+                    let idx = app.settings_view.idx;
+                    match idx {
+                        0 => {
+                            app.settings.border_style = if app.settings.border_style == app::BorderStyle::Rounded {
+                                app::BorderStyle::Sharp
+                            } else {
+                                app::BorderStyle::Rounded
+                            };
+                        }
+                        3 => app.settings.show_history_view   = !app.settings.show_history_view,
+                        4 => app.settings.show_remote_view    = !app.settings.show_remote_view,
+                        5 => app.settings.show_mirror_view    = !app.settings.show_mirror_view,
+                        6 => app.settings.show_workspace_view = !app.settings.show_workspace_view,
+                        7 => app.settings.show_help_view      = !app.settings.show_help_view,
+                        8..=19 => { app.settings_view.editing_keybind = Some(idx); }
+                        _ => {}
+                    }
+                }
+
+                Action::SettingsSave => {
+                    app.settings.save();
+                    app.settings_view.status = Some("settings saved".to_string());
+                }
+
+                Action::SettingsEditKeybind => {}
 
                 Action::WorkspaceSync => {
                     if let Some(ws) = app.workspace_view.workspaces.get(app.workspace_view.ws_idx) {

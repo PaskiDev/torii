@@ -7,26 +7,27 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let bc = app.brand_color();
     let items: Vec<ListItem> = app.branch_view.branches.iter().enumerate().map(|(i, b)| {
         let is_sel = i == app.branch_view.idx;
         let style = if is_sel {
-            Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+            Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
         let prefix = if is_sel { "█ " } else { "  " };
         let current_marker = if b.is_current { "* " } else { "  " };
-        let name_color = if b.is_current { BRAND_COLOR } else { C_WHITE };
+        let name_color = if b.is_current { bc } else { C_WHITE };
         let remote_tag = if b.is_remote {
             Span::styled("  remote", Style::default().fg(C_DIM))
         } else {
             Span::raw("")
         };
         let line = Line::from(vec![
-            Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
+            Span::styled(prefix, Style::default().fg(bc)),
             Span::styled(current_marker, Style::default().fg(C_GREEN)),
             Span::styled(&b.name, Style::default().fg(name_color)),
             remote_tag,
@@ -42,7 +43,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             format!(" branches ({}) ", app.branch_view.branches.len()),
             Style::default().fg(C_SUBTLE),
         ))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(C_BORDER));
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }

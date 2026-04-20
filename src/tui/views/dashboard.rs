@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, Panel};
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -47,25 +47,26 @@ fn render_file_list(
     title: &str,
 ) {
     let is_active = !app.sidebar_focused && app.dashboard.selected_panel == panel;
+    let bc = app.brand_color();
     let border_style = if is_active {
-        Style::default().fg(BRAND_COLOR)
+        Style::default().fg(bc)
     } else {
         Style::default().fg(C_BORDER)
     };
     let title_style = if is_active {
-        Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
+        Style::default().fg(bc).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(C_SUBTLE)
     };
 
     let block = Block::default()
         .title(Span::styled(format!(" {} ({}) ", title, files.len()), title_style))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(border_style);
 
     let items: Vec<ListItem> = files.iter().enumerate().map(|(i, entry)| {
         let style = if is_active && i == selected {
-            Style::default().bg(SELECTED_BG).fg(C_WHITE).add_modifier(Modifier::BOLD)
+            Style::default().bg(app.selected_bg()).fg(C_WHITE).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(C_SUBTLE)
         };
@@ -83,20 +84,21 @@ fn render_file_list(
 
 fn render_log(f: &mut Frame, app: &App, area: Rect) {
     let is_active = !app.sidebar_focused && app.dashboard.selected_panel == Panel::Log;
+    let bc = app.brand_color();
     let border_style = if is_active {
-        Style::default().fg(BRAND_COLOR)
+        Style::default().fg(bc)
     } else {
         Style::default().fg(C_BORDER)
     };
     let title_style = if is_active {
-        Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
+        Style::default().fg(bc).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(C_SUBTLE)
     };
 
     let block = Block::default()
         .title(Span::styled(" Log ", title_style))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(border_style);
 
     let inner_width = area.width.saturating_sub(4) as usize;
@@ -105,7 +107,7 @@ fn render_log(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app.commits.iter().enumerate().map(|(i, c)| {
         let is_sel = is_active && i == app.dashboard.log_idx;
         let style = if is_sel {
-            Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+            Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };

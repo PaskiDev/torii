@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = if app.snapshot_view.snapshots.is_empty() {
@@ -19,13 +19,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.snapshot_view.snapshots.iter().enumerate().map(|(i, s)| {
             let is_sel = i == app.snapshot_view.idx;
             let style = if is_sel {
-                Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
             let prefix = if is_sel { "█ " } else { "  " };
             let line = Line::from(vec![
-                Span::styled(prefix, Style::default().fg(BRAND_COLOR)),
+                Span::styled(prefix, Style::default().fg(app.brand_color())),
                 Span::styled(&s.name, Style::default().fg(C_WHITE)),
                 Span::raw("  "),
                 Span::styled(&s.id, Style::default().fg(C_YELLOW)),
@@ -44,7 +44,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             format!(" snapshots ({}) ", app.snapshot_view.snapshots.len()),
             Style::default().fg(C_SUBTLE),
         ))
-        .borders(Borders::ALL)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(C_BORDER));
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }

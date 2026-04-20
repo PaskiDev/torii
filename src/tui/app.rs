@@ -15,6 +15,8 @@ pub enum View {
     Remote,
     Mirror,
     Workspace,
+    Config,
+    Settings,
     Help,
 }
 
@@ -298,6 +300,181 @@ impl Default for WorkspaceState {
     fn default() -> Self { Self { workspaces: vec![], ws_idx: 0, repo_idx: 0, status: None } }
 }
 
+// ── Config state ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigScope { Global, Local }
+
+pub struct ConfigEntry {
+    pub key: String,
+    pub value: String,
+    pub scope: ConfigScope,
+    pub section: String,
+}
+
+pub struct ConfigState {
+    pub entries: Vec<ConfigEntry>,
+    pub idx: usize,
+    pub editing: bool,
+    pub edit_buf: String,
+    pub edit_cursor: usize,
+    pub scope: ConfigScope,
+    pub status: Option<String>,
+}
+
+impl Default for ConfigState {
+    fn default() -> Self {
+        Self {
+            entries: vec![],
+            idx: 0,
+            editing: false,
+            edit_buf: String::new(),
+            edit_cursor: 0,
+            scope: ConfigScope::Global,
+            status: None,
+        }
+    }
+}
+
+// ── Settings state ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BorderStyle { Rounded, Sharp }
+
+#[derive(Debug, Clone)]
+pub struct TuiSettings {
+    pub border_style: BorderStyle,
+    pub show_help_view: bool,
+    pub show_history_view: bool,
+    pub show_mirror_view: bool,
+    pub show_workspace_view: bool,
+    pub show_remote_view: bool,
+    pub keybind_files: char,
+    pub keybind_save: char,
+    pub keybind_sync: char,
+    pub keybind_snapshot: char,
+    pub keybind_log: char,
+    pub keybind_branch: char,
+    pub keybind_tag: char,
+    pub keybind_history: char,
+    pub keybind_remote: char,
+    pub keybind_mirror: char,
+    pub keybind_workspace: char,
+    pub keybind_config: char,
+    pub brand_color: (u8, u8, u8),
+    pub selected_bg: (u8, u8, u8),
+}
+
+impl Default for TuiSettings {
+    fn default() -> Self {
+        Self {
+            border_style: BorderStyle::Rounded,
+            show_help_view: true,
+            show_history_view: true,
+            show_mirror_view: true,
+            show_workspace_view: true,
+            show_remote_view: true,
+            keybind_files: 'f',
+            keybind_save: 'c',
+            keybind_sync: 's',
+            keybind_snapshot: 'p',
+            keybind_log: 'l',
+            keybind_branch: 'b',
+            keybind_tag: 't',
+            keybind_history: 'h',
+            keybind_remote: 'r',
+            keybind_mirror: 'm',
+            keybind_workspace: 'w',
+            keybind_config: 'g',
+            brand_color: (255, 76, 76),
+            selected_bg: (40, 40, 60),
+        }
+    }
+}
+
+impl TuiSettings {
+    pub fn load() -> Self {
+        let path = dirs::home_dir()
+            .map(|h| h.join(".torii/tui-settings.toml"))
+            .unwrap_or_default();
+        if !path.exists() { return Self::default(); }
+        let Ok(content) = std::fs::read_to_string(&path) else { return Self::default(); };
+        let mut s = Self::default();
+        for line in content.lines() {
+            let line = line.trim();
+            let mut parts = line.splitn(2, '=');
+            let key = parts.next().unwrap_or("").trim();
+            let val = parts.next().unwrap_or("").trim().trim_matches('"');
+            match key {
+                "border_style"       => s.border_style = if val == "sharp" { BorderStyle::Sharp } else { BorderStyle::Rounded },
+                "show_help_view"     => s.show_help_view = val != "false",
+                "show_history_view"  => s.show_history_view = val != "false",
+                "show_mirror_view"   => s.show_mirror_view = val != "false",
+                "show_workspace_view"=> s.show_workspace_view = val != "false",
+                "show_remote_view"   => s.show_remote_view = val != "false",
+                "keybind_files"      => if let Some(c) = val.chars().next() { s.keybind_files = c; }
+                "keybind_save"       => if let Some(c) = val.chars().next() { s.keybind_save = c; }
+                "keybind_sync"       => if let Some(c) = val.chars().next() { s.keybind_sync = c; }
+                "keybind_snapshot"   => if let Some(c) = val.chars().next() { s.keybind_snapshot = c; }
+                "keybind_log"        => if let Some(c) = val.chars().next() { s.keybind_log = c; }
+                "keybind_branch"     => if let Some(c) = val.chars().next() { s.keybind_branch = c; }
+                "keybind_tag"        => if let Some(c) = val.chars().next() { s.keybind_tag = c; }
+                "keybind_history"    => if let Some(c) = val.chars().next() { s.keybind_history = c; }
+                "keybind_remote"     => if let Some(c) = val.chars().next() { s.keybind_remote = c; }
+                "keybind_mirror"     => if let Some(c) = val.chars().next() { s.keybind_mirror = c; }
+                "keybind_workspace"  => if let Some(c) = val.chars().next() { s.keybind_workspace = c; }
+                "keybind_config"     => if let Some(c) = val.chars().next() { s.keybind_config = c; }
+                "brand_color"        => { if let Some(rgb) = parse_rgb(val) { s.brand_color = rgb; } }
+                "selected_bg"        => { if let Some(rgb) = parse_rgb(val) { s.selected_bg = rgb; } }
+                _ => {}
+            }
+        }
+        s
+    }
+
+    pub fn save(&self) {
+        let path = dirs::home_dir()
+            .map(|h| h.join(".torii/tui-settings.toml"))
+            .unwrap_or_default();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let content = format!(
+            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nkeybind_files = \"{}\"\nkeybind_save = \"{}\"\nkeybind_sync = \"{}\"\nkeybind_snapshot = \"{}\"\nkeybind_log = \"{}\"\nkeybind_branch = \"{}\"\nkeybind_tag = \"{}\"\nkeybind_history = \"{}\"\nkeybind_remote = \"{}\"\nkeybind_mirror = \"{}\"\nkeybind_workspace = \"{}\"\nkeybind_config = \"{}\"\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\n",
+            if self.border_style == BorderStyle::Rounded { "rounded" } else { "sharp" },
+            self.show_help_view, self.show_history_view, self.show_mirror_view,
+            self.show_workspace_view, self.show_remote_view,
+            self.keybind_files, self.keybind_save, self.keybind_sync,
+            self.keybind_snapshot, self.keybind_log, self.keybind_branch,
+            self.keybind_tag, self.keybind_history, self.keybind_remote,
+            self.keybind_mirror, self.keybind_workspace, self.keybind_config,
+            self.brand_color.0, self.brand_color.1, self.brand_color.2,
+            self.selected_bg.0, self.selected_bg.1, self.selected_bg.2,
+        );
+        let _ = std::fs::write(path, content);
+    }
+}
+
+fn parse_rgb(s: &str) -> Option<(u8, u8, u8)> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 3 { return None; }
+    Some((
+        parts[0].trim().parse().ok()?,
+        parts[1].trim().parse().ok()?,
+        parts[2].trim().parse().ok()?,
+    ))
+}
+
+pub struct SettingsState {
+    pub idx: usize,
+    pub editing_keybind: Option<usize>,
+    pub status: Option<String>,
+}
+
+impl Default for SettingsState {
+    fn default() -> Self { Self { idx: 0, editing_keybind: None, status: None } }
+}
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 
 pub struct App {
@@ -332,6 +509,9 @@ pub struct App {
     pub remote_view: RemoteState,
     pub mirror_view: MirrorState,
     pub workspace_view: WorkspaceState,
+    pub config_view: ConfigState,
+    pub settings_view: SettingsState,
+    pub settings: TuiSettings,
 }
 
 impl App {
@@ -362,6 +542,9 @@ impl App {
             remote_view: RemoteState::default(),
             mirror_view: MirrorState::default(),
             workspace_view: WorkspaceState::default(),
+            config_view: ConfigState::default(),
+            settings_view: SettingsState::default(),
+            settings: TuiSettings::load(),
         };
         app.refresh()?;
         Ok(app)
@@ -372,7 +555,7 @@ impl App {
     }
 
     pub fn sidebar_down(&mut self) {
-        if self.sidebar_idx < 10 { self.sidebar_idx += 1; }
+        if self.sidebar_idx < 12 { self.sidebar_idx += 1; }
     }
 
     pub fn sidebar_enter(&mut self) {
@@ -388,6 +571,8 @@ impl App {
             8  => View::Remote,
             9  => View::Mirror,
             10 => View::Workspace,
+            11 => View::Config,
+            12 => View::Settings,
             _  => View::Dashboard,
         };
         self.go_to(view);
@@ -411,6 +596,7 @@ impl App {
             View::Remote    => self.load_remotes(),
             View::Mirror    => self.load_mirrors(),
             View::Workspace => self.load_workspaces(),
+            View::Config    => self.load_config(),
             _ => {}
         }
         self.sidebar_idx = match &view {
@@ -425,6 +611,8 @@ impl App {
             View::Remote    => 8,
             View::Mirror    => 9,
             View::Workspace => 10,
+            View::Config    => 11,
+            View::Settings  => 12,
             _               => self.sidebar_idx,
         };
         self.view = view;
@@ -436,6 +624,24 @@ impl App {
         self.sidebar_idx = 0;
         self.sidebar_focused = true;
         self.status_msg = None;
+    }
+
+    pub fn border_type(&self) -> ratatui::widgets::BorderType {
+        if self.settings.border_style == BorderStyle::Rounded {
+            ratatui::widgets::BorderType::Rounded
+        } else {
+            ratatui::widgets::BorderType::Plain
+        }
+    }
+
+    pub fn brand_color(&self) -> ratatui::style::Color {
+        let (r, g, b) = self.settings.brand_color;
+        ratatui::style::Color::Rgb(r, g, b)
+    }
+
+    pub fn selected_bg(&self) -> ratatui::style::Color {
+        let (r, g, b) = self.settings.selected_bg;
+        ratatui::style::Color::Rgb(r, g, b)
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
@@ -889,6 +1095,87 @@ impl App {
             self.workspace_view.ws_idx += 1;
         }
         self.workspace_view.repo_idx = 0;
+    }
+
+    // ── Config helpers ───────────────────────────────────────────────────────
+
+    fn load_config(&mut self) {
+        self.config_view.entries.clear();
+        let scope_flag = if self.config_view.scope == ConfigScope::Local { "--local" } else { "--global" };
+        let out = std::process::Command::new("torii")
+            .args(["config", "list", scope_flag])
+            .output();
+        let Ok(out) = out else { return };
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut current_section = String::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('⚙') || line.starts_with("Global") || line.starts_with("Local") { continue; }
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim().to_string();
+                let value = value.trim().to_string();
+                let section = key.split('.').next().unwrap_or("").to_string();
+                if section != current_section { current_section = section.clone(); }
+                self.config_view.entries.push(ConfigEntry {
+                    key,
+                    value,
+                    scope: self.config_view.scope.clone(),
+                    section,
+                });
+            }
+        }
+        self.config_view.idx = 0;
+    }
+
+    pub fn config_move_up(&mut self) {
+        if self.config_view.idx > 0 { self.config_view.idx -= 1; }
+    }
+
+    pub fn config_move_down(&mut self) {
+        if self.config_view.idx + 1 < self.config_view.entries.len() {
+            self.config_view.idx += 1;
+        }
+    }
+
+    pub fn config_start_edit(&mut self) {
+        if let Some(entry) = self.config_view.entries.get(self.config_view.idx) {
+            self.config_view.edit_buf = entry.value.clone();
+            self.config_view.edit_cursor = entry.value.len();
+            self.config_view.editing = true;
+        }
+    }
+
+    pub fn config_type_char(&mut self, c: char) {
+        let cur = self.config_view.edit_cursor;
+        self.config_view.edit_buf.insert(cur, c);
+        self.config_view.edit_cursor += 1;
+    }
+
+    pub fn config_backspace(&mut self) {
+        let cur = self.config_view.edit_cursor;
+        if cur > 0 {
+            self.config_view.edit_buf.remove(cur - 1);
+            self.config_view.edit_cursor -= 1;
+        }
+    }
+
+    pub fn config_cursor_left(&mut self) {
+        if self.config_view.edit_cursor > 0 { self.config_view.edit_cursor -= 1; }
+    }
+
+    pub fn config_cursor_right(&mut self) {
+        let len = self.config_view.edit_buf.len();
+        if self.config_view.edit_cursor < len { self.config_view.edit_cursor += 1; }
+    }
+
+    // ── Settings helpers ─────────────────────────────────────────────────────
+
+    pub fn settings_move_up(&mut self) {
+        if self.settings_view.idx > 0 { self.settings_view.idx -= 1; }
+    }
+
+    pub fn settings_move_down(&mut self) {
+        if self.settings_view.idx < 19 { self.settings_view.idx += 1; }
     }
 }
 

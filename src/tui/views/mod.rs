@@ -10,4 +10,6 @@ pub mod history;
 pub mod remote;
 pub mod mirror;
 pub mod workspace;
+pub mod config;
+pub mod settings;
 pub mod help;

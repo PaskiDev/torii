@@ -8,7 +8,7 @@ use ratatui::{
 
 
 use crate::tui::app::{App, CommitFocus};
-use super::super::ui::{BRAND_COLOR, SELECTED_BG, C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -35,14 +35,15 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         }).collect()
     };
 
+    let bc = app.brand_color();
     let staged_block = Block::default()
         .title(Span::styled(
             format!(" staged ({}) ", app.staged.len()),
-            if in_list { Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD) }
+            if in_list { Style::default().fg(bc).add_modifier(Modifier::BOLD) }
             else       { Style::default().fg(C_SUBTLE) },
         ))
-        .borders(Borders::ALL)
-        .border_style(if in_list { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_BORDER) });
+        .borders(Borders::ALL).border_type(app.border_type())
+        .border_style(if in_list { Style::default().fg(bc) } else { Style::default().fg(C_BORDER) });
     f.render_widget(List::new(staged_items).block(staged_block), chunks[0]);
 
     let msg = &app.commit_view.message;
@@ -60,7 +61,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::raw(" "),
             Span::styled(before, Style::default().fg(C_WHITE)),
-            Span::styled(cursor_char.to_string(), Style::default().bg(SELECTED_BG).fg(C_WHITE).add_modifier(Modifier::BOLD)),
+            Span::styled(cursor_char.to_string(), Style::default().bg(app.selected_bg()).fg(C_WHITE).add_modifier(Modifier::BOLD)),
             Span::styled(after_cursor, Style::default().fg(C_WHITE)),
         ])
     };
@@ -69,9 +70,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .title(Span::styled(
             " message ",
             if in_list { Style::default().fg(C_SUBTLE) }
-            else       { Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD) },
+            else       { Style::default().fg(bc).add_modifier(Modifier::BOLD) },
         ))
-        .borders(Borders::ALL)
-        .border_style(if in_list { Style::default().fg(C_BORDER) } else { Style::default().fg(BRAND_COLOR) });
+        .borders(Borders::ALL).border_type(app.border_type())
+        .border_style(if in_list { Style::default().fg(C_BORDER) } else { Style::default().fg(bc) });
     f.render_widget(Paragraph::new(input_line).block(msg_block), chunks[1]);
 }
