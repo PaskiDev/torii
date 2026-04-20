@@ -486,6 +486,11 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
         #[command(subcommand)]
         action: WorkspaceCommands,
     },
+
+    /// Open the interactive TUI dashboard
+    #[command(after_help = "Examples:
+  torii tui   Open dashboard (status, log, file navigation)")]
+    Tui,
 }
 
 #[derive(Subcommand)]
@@ -1805,6 +1810,10 @@ impl Cli {
                         WorkspaceManager::sync(workspace, *force)?;
                     }
                 }
+            }
+
+            Commands::Tui => {
+                crate::tui::run()?;
             }
         }
 

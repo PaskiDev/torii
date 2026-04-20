@@ -18,6 +18,7 @@ mod ssh;
 mod tag;
 mod toriignore;
 mod versioning;
+mod tui;
 mod workspace;
 
 use anyhow::Result;
