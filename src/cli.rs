@@ -474,6 +474,67 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
         #[arg(long)]
         owner: Option<String>,
     },
+
+    /// Manage multi-repo workspaces
+    #[command(after_help = "Examples:
+  torii workspace add work ~/repos/api   Add repo to workspace
+  torii workspace list                   List all workspaces
+  torii workspace status work            Show status of all repos
+  torii workspace save work -m \"wip\"    Commit across all repos
+  torii workspace sync work              Pull+push all repos")]
+    Workspace {
+        #[command(subcommand)]
+        action: WorkspaceCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkspaceCommands {
+    /// Add a repository to a workspace
+    Add {
+        /// Workspace name
+        workspace: String,
+        /// Repository path
+        path: String,
+    },
+    /// Remove a repository from a workspace
+    Remove {
+        /// Workspace name
+        workspace: String,
+        /// Repository path
+        path: String,
+    },
+    /// Delete a workspace entirely
+    Delete {
+        /// Workspace name
+        workspace: String,
+    },
+    /// List all workspaces and their repos
+    List,
+    /// Show git status across all repos in a workspace
+    Status {
+        /// Workspace name
+        workspace: String,
+    },
+    /// Commit changes across all repos in a workspace
+    Save {
+        /// Workspace name
+        workspace: String,
+        /// Commit message
+        #[arg(short, long)]
+        message: String,
+        /// Stage all changes before committing
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Pull and push all repos in a workspace
+    Sync {
+        /// Workspace name
+        workspace: String,
+        /// Force push
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1718,8 +1779,35 @@ impl Cli {
                     }
                 }
             }
+
+            Commands::Workspace { action } => {
+                use crate::workspace::WorkspaceManager;
+                match action {
+                    WorkspaceCommands::Add { workspace, path } => {
+                        WorkspaceManager::add(workspace, path)?;
+                    }
+                    WorkspaceCommands::Remove { workspace, path } => {
+                        WorkspaceManager::remove(workspace, path)?;
+                    }
+                    WorkspaceCommands::Delete { workspace } => {
+                        WorkspaceManager::delete(workspace)?;
+                    }
+                    WorkspaceCommands::List => {
+                        WorkspaceManager::list()?;
+                    }
+                    WorkspaceCommands::Status { workspace } => {
+                        WorkspaceManager::status(workspace)?;
+                    }
+                    WorkspaceCommands::Save { workspace, message, all } => {
+                        WorkspaceManager::save(workspace, message, *all)?;
+                    }
+                    WorkspaceCommands::Sync { workspace, force } => {
+                        WorkspaceManager::sync(workspace, *force)?;
+                    }
+                }
+            }
         }
-        
+
         Ok(())
     }
 }

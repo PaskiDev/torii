@@ -2,7 +2,7 @@
 use git2::BranchType;
 use crate::error::Result;
 use crate::core::GitRepo;
-use chrono::{DateTime, NaiveDateTime};
+use chrono::NaiveDateTime;
 
 impl GitRepo {
     /// Show commit history
@@ -205,57 +205,72 @@ impl GitRepo {
 
     /// Continue an in-progress rebase
     pub fn rebase_continue(&self) -> Result<()> {
-        // git2 doesn't expose a rebase-continue API; delegate to git when available
-        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
-        if let Ok(status) = std::process::Command::new("git")
-            .args(["rebase", "--continue"])
-            .current_dir(&repo_path)
-            .status()
-        {
-            if status.success() {
-                println!("✅ Rebase continued");
-            }
-        } else {
-            return Err(crate::error::ToriiError::InvalidConfig(
-                "Could not continue rebase: git binary not found.".to_string()
-            ));
+        let mut rebase = self.repo.open_rebase(None)
+            .map_err(|_| crate::error::ToriiError::InvalidConfig(
+                "No rebase in progress".to_string()
+            ))?;
+
+        let sig = self.repo.signature()
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        // Commit the currently resolved step
+        rebase.commit(None, &sig, None)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        // Apply remaining steps
+        while let Some(op) = rebase.next() {
+            let _op = op.map_err(|e| crate::error::ToriiError::Git(e))?;
+            rebase.commit(None, &sig, None)
+                .map_err(|e| crate::error::ToriiError::Git(e))?;
         }
+
+        rebase.finish(Some(&sig))
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        println!("✅ Rebase continued");
         Ok(())
     }
 
     /// Abort the current rebase
     pub fn rebase_abort(&self) -> Result<()> {
-        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
-        if std::process::Command::new("git")
-            .args(["rebase", "--abort"])
-            .current_dir(&repo_path)
-            .status()
-            .is_ok()
-        {
-            println!("✅ Rebase aborted");
-        } else {
-            return Err(crate::error::ToriiError::InvalidConfig(
-                "Could not abort rebase: git binary not found.".to_string()
-            ));
-        }
+        let mut rebase = self.repo.open_rebase(None)
+            .map_err(|_| crate::error::ToriiError::InvalidConfig(
+                "No rebase in progress".to_string()
+            ))?;
+
+        rebase.abort()
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        println!("✅ Rebase aborted");
         Ok(())
     }
 
     /// Skip current patch in rebase
     pub fn rebase_skip(&self) -> Result<()> {
-        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
-        if std::process::Command::new("git")
-            .args(["rebase", "--skip"])
-            .current_dir(&repo_path)
-            .status()
-            .is_ok()
-        {
-            println!("✅ Patch skipped");
-        } else {
-            return Err(crate::error::ToriiError::InvalidConfig(
-                "Could not skip patch: git binary not found.".to_string()
-            ));
+        let mut rebase = self.repo.open_rebase(None)
+            .map_err(|_| crate::error::ToriiError::InvalidConfig(
+                "No rebase in progress".to_string()
+            ))?;
+
+        let sig = self.repo.signature()
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        // Advance past current step without committing
+        rebase.next()
+            .ok_or_else(|| crate::error::ToriiError::InvalidConfig("No current step to skip".to_string()))?
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        // Continue remaining steps
+        while let Some(op) = rebase.next() {
+            let _op = op.map_err(|e| crate::error::ToriiError::Git(e))?;
+            rebase.commit(None, &sig, None)
+                .map_err(|e| crate::error::ToriiError::Git(e))?;
         }
+
+        rebase.finish(Some(&sig))
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        println!("✅ Patch skipped");
         Ok(())
     }
 
@@ -435,125 +450,176 @@ impl GitRepo {
 
     /// Rewrite commit history with new dates
     pub fn rewrite_history(&self, start_date: &str, end_date: &str) -> Result<()> {
-        #[cfg(unix)]
-        {
-            println!("🔄 Rewriting commit history...");
+        println!("🔄 Rewriting commit history...");
 
-            let start = NaiveDateTime::parse_from_str(&format!("{} +0200", start_date), "%Y-%m-%d %H:%M %z")
-                .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("Invalid start date: {}", e)))?;
-            let end = NaiveDateTime::parse_from_str(&format!("{} +0200", end_date), "%Y-%m-%d %H:%M %z")
-                .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("Invalid end date: {}", e)))?;
+        let start_ts = NaiveDateTime::parse_from_str(&format!("{} 00:00", start_date), "%Y-%m-%d %H:%M")
+            .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("Invalid start date: {}", e)))?
+            .and_utc().timestamp();
+        let end_ts = NaiveDateTime::parse_from_str(&format!("{} 23:59", end_date), "%Y-%m-%d %H:%M")
+            .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("Invalid end date: {}", e)))?
+            .and_utc().timestamp();
 
-            let mut revwalk = self.repo.revwalk()
+        let mut revwalk = self.repo.revwalk()
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        revwalk.push_head().map_err(|e| crate::error::ToriiError::Git(e))?;
+        revwalk.set_sorting(git2::Sort::REVERSE | git2::Sort::TIME)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        let oids: Vec<git2::Oid> = revwalk
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let total = oids.len();
+        if total == 0 { return Ok(()); }
+
+        let interval = (end_ts - start_ts) / (total as i64 - 1).max(1);
+
+        // Walk oldest→newest, rewrite each commit with new timestamp
+        let mut old_to_new: std::collections::HashMap<git2::Oid, git2::Oid> = std::collections::HashMap::new();
+
+        for (i, oid) in oids.iter().enumerate() {
+            let commit = self.repo.find_commit(*oid)
                 .map_err(|e| crate::error::ToriiError::Git(e))?;
-            revwalk.push_head().map_err(|e| crate::error::ToriiError::Git(e))?;
-            revwalk.set_sorting(git2::Sort::REVERSE | git2::Sort::TIME)
-                .map_err(|e| crate::error::ToriiError::Git(e))?;
-            let commits: Vec<String> = revwalk
-                .filter_map(|r| r.ok())
-                .map(|oid| oid.to_string())
+
+            let new_ts = start_ts + (i as i64 * interval);
+            let new_time = git2::Time::new(new_ts, 0);
+
+            let author = commit.author();
+            let committer = commit.committer();
+            let new_author = git2::Signature::new(
+                author.name().unwrap_or(""),
+                author.email().unwrap_or(""),
+                &new_time,
+            ).map_err(|e| crate::error::ToriiError::Git(e))?;
+            let new_committer = git2::Signature::new(
+                committer.name().unwrap_or(""),
+                committer.email().unwrap_or(""),
+                &new_time,
+            ).map_err(|e| crate::error::ToriiError::Git(e))?;
+
+            let tree = commit.tree().map_err(|e| crate::error::ToriiError::Git(e))?;
+            let parents: Vec<git2::Commit> = commit.parent_ids()
+                .filter_map(|pid| old_to_new.get(&pid).and_then(|new_pid| self.repo.find_commit(*new_pid).ok())
+                    .or_else(|| self.repo.find_commit(pid).ok()))
                 .collect();
+            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
 
-            let total_commits = commits.len();
-            if total_commits == 0 { return Ok(()); }
+            let new_oid = self.repo.commit(
+                None,
+                &new_author,
+                &new_committer,
+                commit.message().unwrap_or(""),
+                &tree,
+                &parent_refs,
+            ).map_err(|e| crate::error::ToriiError::Git(e))?;
 
-            let interval_seconds = (end.and_utc().timestamp() - start.and_utc().timestamp())
-                / (total_commits as i64 - 1).max(1);
-
-            let mut filter_script = String::new();
-            for (i, commit_hash) in commits.iter().enumerate() {
-                let new_timestamp = start.and_utc().timestamp() + (i as i64 * interval_seconds);
-                let new_date = DateTime::from_timestamp(new_timestamp, 0)
-                    .unwrap()
-                    .format("%Y-%m-%d %H:%M:%S +0200");
-                filter_script.push_str(&format!(
-                    "if [ \"$GIT_COMMIT\" = \"{}\" ]; then\n    export GIT_AUTHOR_DATE=\"{}\"\n    export GIT_COMMITTER_DATE=\"{}\"\nfi\n",
-                    commit_hash, new_date, new_date
-                ));
-            }
-
-            let tmp = std::env::temp_dir().join("torii_filter.sh");
-            std::fs::write(&tmp, &filter_script)?;
-
-            let cmd = format!(
-                "FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --env-filter \"$(cat {})\" -- --all",
-                tmp.display()
-            );
-            let output = std::process::Command::new("bash")
-                .args(["-c", &cmd])
-                .current_dir(self.repo.path().parent().unwrap())
-                .output()?;
-
-            if !output.status.success() {
-                let error = String::from_utf8_lossy(&output.stderr);
-                return Err(crate::error::ToriiError::InvalidConfig(
-                    format!("Failed to rewrite history: {}", error)
-                ));
-            }
-
-            println!("✅ Rewrote {} commits", total_commits);
+            old_to_new.insert(*oid, new_oid);
         }
-        #[cfg(not(unix))]
-        {
-            let _ = (start_date, end_date);
-            return Err(crate::error::ToriiError::InvalidConfig(
-                "History rewrite requires a Unix shell (bash + git filter-branch). Not supported on this platform.".to_string()
-            ));
+
+        // Update HEAD to point to the new tip
+        if let Some(new_tip) = oids.last().and_then(|oid| old_to_new.get(oid)) {
+            let head = self.repo.head().map_err(|e| crate::error::ToriiError::Git(e))?;
+            if let Some(branch_name) = head.shorthand() {
+                let refname = format!("refs/heads/{}", branch_name);
+                self.repo.reference(&refname, *new_tip, true, "history rewrite")
+                    .map_err(|e| crate::error::ToriiError::Git(e))?;
+            }
         }
+
+        println!("✅ Rewrote {} commits", total);
+        println!("💡 Run 'torii sync --force' to update remote");
         Ok(())
     }
 
     /// Remove a file from the entire git history
     pub fn remove_file_from_history(&self, file_path: &str) -> Result<()> {
-        #[cfg(unix)]
-        {
-            let repo_path = self.repo.path().parent().unwrap();
-            println!("🗑️  Removing '{}' from entire history...", file_path);
-            let cmd = format!(
-                "FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --index-filter \
-                'git rm -r --cached --ignore-unmatch {}' --tag-name-filter cat -- --all",
-                file_path
-            );
-            let output = std::process::Command::new("bash")
-                .args(["-c", &cmd])
-                .current_dir(repo_path)
-                .output()?;
-            if !output.status.success() {
-                let error = String::from_utf8_lossy(&output.stderr);
-                return Err(crate::error::ToriiError::InvalidConfig(
-                    format!("Failed to remove file from history: {}", error)
-                ));
+        println!("🗑️  Removing '{}' from entire history...", file_path);
+
+        let mut revwalk = self.repo.revwalk()
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        revwalk.push_glob("refs/heads/*")
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        revwalk.set_sorting(git2::Sort::REVERSE | git2::Sort::TOPOLOGICAL)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        let oids: Vec<git2::Oid> = revwalk.filter_map(|r| r.ok()).collect();
+        let mut old_to_new: std::collections::HashMap<git2::Oid, git2::Oid> = std::collections::HashMap::new();
+        let mut modified = 0usize;
+
+        for oid in &oids {
+            let commit = self.repo.find_commit(*oid)
+                .map_err(|e| crate::error::ToriiError::Git(e))?;
+            let tree = commit.tree().map_err(|e| crate::error::ToriiError::Git(e))?;
+
+            // Build new tree without the target file
+            let new_tree_oid = remove_path_from_tree(&self.repo, &tree, file_path)?;
+
+            let parents: Vec<git2::Commit> = commit.parent_ids()
+                .filter_map(|pid| {
+                    old_to_new.get(&pid)
+                        .and_then(|new_pid| self.repo.find_commit(*new_pid).ok())
+                        .or_else(|| self.repo.find_commit(pid).ok())
+                })
+                .collect();
+            let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+
+            let new_tree = self.repo.find_tree(new_tree_oid)
+                .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+            if new_tree_oid != tree.id() {
+                modified += 1;
             }
-            println!("✅ '{}' removed from all commits", file_path);
-            println!("💡 Run 'torii history clean' then 'torii sync --force' to update remote");
+
+            let new_oid = self.repo.commit(
+                None,
+                &commit.author(),
+                &commit.committer(),
+                commit.message().unwrap_or(""),
+                &new_tree,
+                &parent_refs,
+            ).map_err(|e| crate::error::ToriiError::Git(e))?;
+
+            old_to_new.insert(*oid, new_oid);
         }
-        #[cfg(not(unix))]
-        {
-            let _ = file_path;
-            return Err(crate::error::ToriiError::InvalidConfig(
-                "Removing files from history requires a Unix shell. Not supported on this platform.".to_string()
-            ));
+
+        // Update all branch refs
+        let branches: Vec<(String, git2::Oid)> = self.repo.branches(Some(git2::BranchType::Local))
+            .map_err(|e| crate::error::ToriiError::Git(e))?
+            .filter_map(|b| b.ok())
+            .filter_map(|(branch, _)| {
+                let name = branch.name().ok()??.to_string();
+                let oid = branch.get().target()?;
+                Some((name, oid))
+            })
+            .collect();
+
+        for (name, old_oid) in branches {
+            if let Some(new_oid) = old_to_new.get(&old_oid) {
+                let refname = format!("refs/heads/{}", name);
+                let _ = self.repo.reference(&refname, *new_oid, true, "remove file from history");
+            }
         }
+
+        println!("✅ '{}' removed from {} commits", file_path, modified);
+        println!("💡 Run 'torii history clean' then 'torii sync --force' to update remote");
         Ok(())
     }
 
-    /// Clean up repository (gc, reflog expire)
+    /// Clean up repository (expire reflogs, remove stale backup refs)
     pub fn clean_history(&self) -> Result<()> {
         println!("🧹 Cleaning repository...");
 
-        // Remove filter-branch backup refs if they exist (cross-platform)
+        // Remove filter-branch backup refs
         let orig_refs = self.repo.path().join("refs").join("original");
         if orig_refs.exists() {
             let _ = std::fs::remove_dir_all(&orig_refs);
         }
 
-        // git2 doesn't expose reflog expire or gc directly
-        // Try git subprocess but don't fail if git binary is not present
-        let repo_path = self.repo.path().parent().unwrap();
-        let _ = std::process::Command::new("git")
-            .args(["gc", "--prune=now", "--quiet"])
-            .current_dir(repo_path)
-            .output();
+        // Expire reflogs by deleting reflog files (git2 has no expire API)
+        let logs_dir = self.repo.path().join("logs");
+        if logs_dir.exists() {
+            let _ = remove_dir_contents(&logs_dir);
+        }
 
         println!("✅ Repository cleaned");
         Ok(())
@@ -870,4 +936,47 @@ impl GitRepo {
 
         Ok(())
     }
+}
+
+fn remove_path_from_tree(repo: &git2::Repository, tree: &git2::Tree, path: &str) -> crate::error::Result<git2::Oid> {
+    let mut builder = repo.treebuilder(Some(tree))
+        .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+    let parts: Vec<&str> = path.splitn(2, '/').collect();
+    if parts.len() == 1 {
+        // Leaf — just remove it
+        let _ = builder.remove(parts[0]);
+    } else {
+        let dir = parts[0];
+        let rest = parts[1];
+        if let Ok(entry) = tree.get_name(dir).ok_or(git2::Error::from_str("not found")) {
+            if let Ok(sub_tree) = repo.find_tree(entry.id()) {
+                let new_sub_oid = remove_path_from_tree(repo, &sub_tree, rest)?;
+                let new_sub = repo.find_tree(new_sub_oid)
+                    .map_err(|e| crate::error::ToriiError::Git(e))?;
+                if new_sub.is_empty() {
+                    let _ = builder.remove(dir);
+                } else {
+                    builder.insert(dir, new_sub_oid, 0o040000)
+                        .map_err(|e| crate::error::ToriiError::Git(e))?;
+                }
+            }
+        }
+    }
+
+    builder.write().map_err(|e| crate::error::ToriiError::Git(e))
+}
+
+fn remove_dir_contents(dir: &std::path::Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            remove_dir_contents(&path)?;
+            let _ = std::fs::remove_dir(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    Ok(())
 }

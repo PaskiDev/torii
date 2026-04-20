@@ -119,12 +119,19 @@ torii diff --last     # Changes in last commit
 Manage branches.
 
 ```bash
-torii branch                      # List local branches
-torii branch --all                # List local + remote branches
-torii branch feature/auth -c      # Create and switch to branch
-torii branch main                 # Switch to existing branch
-torii branch -d feature/auth      # Delete branch
-torii branch --rename new-name    # Rename current branch
+torii branch                          # List local branches
+torii branch --all                    # List local + remote branches
+torii branch <name> -c                # Create and switch to branch
+torii branch <name>                   # Switch to existing branch
+torii branch -d <name>                # Delete branch
+torii branch --rename <new-name>      # Rename current branch
+```
+
+**Examples:**
+```bash
+torii branch feature/login -c
+torii branch fix/null-pointer -c
+torii branch develop
 ```
 
 ---
@@ -134,12 +141,18 @@ torii branch --rename new-name    # Rename current branch
 Clone a repository. Supports platform shorthands and full URLs.
 
 ```bash
-torii clone github user/repo                    # Auto SSH/HTTPS
-torii clone gitlab user/repo                    # GitLab
-torii clone github user/repo --protocol https   # Force HTTPS
-torii clone github user/repo -d my-dir          # Custom directory
-torii clone https://github.com/user/repo.git    # Full URL
-torii clone git@github.com:user/repo.git        # SSH URL
+torii clone <platform> <user>/<repo>                      # Auto SSH/HTTPS
+torii clone <platform> <user>/<repo> --protocol https     # Force HTTPS
+torii clone <platform> <user>/<repo> -d <directory>       # Custom directory
+torii clone https://github.com/<user>/<repo>.git          # Full URL
+torii clone git@github.com:<user>/<repo>.git              # SSH URL
+```
+
+**Examples:**
+```bash
+torii clone github torvalds/linux
+torii clone gitlab paskidev/gitorii-api --protocol https
+torii clone github torvalds/linux -d my-linux
 ```
 
 **Platforms:** `github`, `gitlab`, `codeberg`, `bitbucket`, `gitea`, `forgejo`
@@ -154,12 +167,12 @@ Override: `torii config set mirror.default_protocol https`
 Manage tags and releases.
 
 ```bash
-torii tag list                           # List all tags
-torii tag create v1.2.0 -m "Release"    # Create annotated tag
-torii tag delete v1.0.0                 # Delete tag
-torii tag push v1.2.0                   # Push specific tag
-torii tag push                          # Push all tags
-torii tag show v1.2.0                   # Show tag details
+torii tag list                               # List all tags
+torii tag create <version> -m "<message>"    # Create annotated tag
+torii tag delete <version>                   # Delete tag
+torii tag push <version>                     # Push specific tag
+torii tag push                               # Push all tags
+torii tag show <version>                     # Show tag details
 
 # Auto-release from conventional commits
 torii tag release                        # Auto-bump version
@@ -208,8 +221,8 @@ Mirror your repo across multiple platforms simultaneously.
 
 ```bash
 # Setup
-torii mirror add-primary gitlab user paskidev myrepo   # Set primary (source of truth)
-torii mirror add-replica github user paskidev myrepo   # Add replica mirror
+torii mirror add-primary <platform> user <username> <repo>   # Set primary (source of truth)
+torii mirror add-replica <platform> user <username> <repo>   # Add replica mirror
 
 # Sync
 torii mirror sync                   # Push to all replicas
@@ -246,11 +259,11 @@ torii ls src/      # Files under src/
 Show details of a commit, tag, or file.
 
 ```bash
-torii show                        # HEAD commit with diff
-torii show abc1234                # Specific commit
-torii show v1.0.0                 # Tag details
-torii show src/main.rs --blame    # Line-by-line change history
-torii show src/main.rs --blame -L 10,20   # Blame specific range
+torii show                          # HEAD commit with diff
+torii show <hash>                   # Specific commit
+torii show <tag>                    # Tag details
+torii show <file> --blame           # Line-by-line change history
+torii show <file> --blame -L 10,20  # Blame specific range
 ```
 
 ---
@@ -278,19 +291,19 @@ torii history rebase --abort           # Abort rebase
 torii history rebase --skip            # Skip current patch
 
 # Cherry-pick
-torii history cherry-pick abc1234      # Apply commit to current branch
+torii history cherry-pick <hash>       # Apply commit to current branch
 
 # Blame
-torii history blame src/main.rs        # Line-by-line change history
-torii history blame src/main.rs -L 10,20  # Specific line range
+torii history blame <file>             # Line-by-line change history
+torii history blame <file> -L 10,20   # Specific line range
 
 # Secret scanning
 torii history scan                     # Scan staged files for secrets
 torii history scan --history           # Scan entire git history
 
 # History rewrite
-torii history rewrite "2024-01-01 00:00" "2024-12-31 23:59"  # Rewrite commit dates
-torii history remove-file secrets.txt  # Purge file from all commits
+torii history rewrite "<start-date>" "<end-date>"  # Rewrite commit dates
+torii history remove-file <file>                   # Purge file from all commits
 torii history clean                    # GC + expire reflog
 
 # Other
@@ -359,15 +372,15 @@ torii config reset                              # Reset to defaults
 Create and manage remote repositories via platform APIs (requires auth token configured).
 
 ```bash
-torii remote create github myrepo --public           # Create public repo
-torii remote create gitlab myrepo --private          # Create private repo
-torii remote create github myrepo --private --push   # Create + push current branch
-torii remote delete github owner myrepo --yes        # Delete repo
-torii remote visibility github owner myrepo --public # Make public
-torii remote visibility github owner myrepo --private # Make private
-torii remote configure github owner myrepo --default-branch main
-torii remote info github owner myrepo                # Show repo details
-torii remote list github                             # List your repos
+torii remote create <platform> <repo> --public            # Create public repo
+torii remote create <platform> <repo> --private           # Create private repo
+torii remote create <platform> <repo> --private --push    # Create + push current branch
+torii remote delete <platform> <owner> <repo> --yes       # Delete repo
+torii remote visibility <platform> <owner> <repo> --public
+torii remote visibility <platform> <owner> <repo> --private
+torii remote configure <platform> <owner> <repo> --default-branch main
+torii remote info <platform> <owner> <repo>               # Show repo details
+torii remote list <platform>                               # List your repos
 ```
 
 ---
@@ -377,9 +390,9 @@ torii remote list github                             # List your repos
 Batch create/delete repos across multiple platforms at once.
 
 ```bash
-torii repo myrepo --platforms github,gitlab,codeberg --create --private
-torii repo myrepo --platforms github,gitlab --delete --yes
-torii repo myrepo --platforms github,gitlab --create --public --push
+torii repo <name> --platforms github,gitlab,codeberg --create --private
+torii repo <name> --platforms github,gitlab --delete --yes
+torii repo <name> --platforms github,gitlab --create --public --push
 ```
 
 ---
