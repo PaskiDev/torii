@@ -1,61 +1,41 @@
-# Torii ⛩️
+# Gitorii ⛩️
 
 A human-first Git client. Simpler commands, built-in safety nets, and multi-platform support — designed for developers who want to focus on code, not version control syntax.
 
-> Git was designed for Linus, by Linus. Torii is designed for everyone — including AI.
+> Git was designed for Linus, by Linus. Gitorii is designed for everyone — including AI.
 
 ## Install
+
+**Linux / macOS — one line:**
+
+```bash
+curl -fsSL https://gitorii.com/install.sh | sh
+```
+
+**Windows — download from [gitorii.com/releases](https://gitorii.com/releases)**
+
+**Via cargo (builds from source):**
 
 ```bash
 cargo install gitorii
 ```
 
-> **⚠️ Important:** `cargo install` compiles from source and requires system dependencies. Install them first:
+> **⚠️ Building from source requires system dependencies:**
 >
-> **Linux (Debian/Ubuntu)**
-> ```bash
-> sudo apt install perl libssl-dev pkg-config
-> ```
-> **Linux (Fedora/RHEL)**
-> ```bash
-> sudo dnf install perl openssl-devel pkg-config
-> ```
-> **macOS**
-> ```bash
-> brew install openssl
-> ```
-
-Or build from source:
-
-```bash
-git clone https://gitlab.com/paskidev/torii.git
-cd torii
-cargo install --path .
-```
+> | Platform | Command |
+> |----------|---------|
+> | Ubuntu/Debian | `sudo apt install perl libssl-dev pkg-config` |
+> | Fedora/RHEL | `sudo dnf install perl openssl-devel pkg-config` |
+> | macOS | `brew install openssl` |
+> | Arch | `sudo pacman -S perl openssl pkgconf` |
 
 ## Quick start
 
 ```bash
-# Initialize
-torii init
-
-# Daily workflow
+torii init                            # initialize repo
 torii status                          # see what changed
-torii save -m "feat: add user auth"   # stage all + commit
+torii save -am "feat: add user auth"  # stage all + commit
 torii sync                            # pull + push
-
-# Specific files only
-torii save src/auth.rs -m "fix: null check"
-
-# Branches
-torii branch feature/login -c        # create and switch
-torii sync main                      # merge main into current branch
-torii branch -d feature/login        # delete when done
-
-# Undo things
-torii snapshot stash                  # stash work in progress
-torii save --revert abc1234           # revert a commit
-torii save --reset HEAD~1 --reset-mode soft  # undo last commit, keep changes
 ```
 
 ## Command reference
@@ -70,7 +50,8 @@ torii save --reset HEAD~1 --reset-mode soft  # undo last commit, keep changes
 | `torii save <files> -m "msg"` | Stage specific files and commit |
 | `torii save --amend -m "msg"` | Amend last commit |
 | `torii save --revert <hash> -m "msg"` | Revert a commit |
-| `torii save --reset <hash> --reset-mode soft` | Reset to commit |
+| `torii save --reset HEAD~1 --reset-mode soft` | Undo last commit, keep changes |
+| `torii save --reset HEAD~1 --reset-mode hard` | Undo last commit, discard changes |
 | `torii sync` | Pull and push |
 | `torii sync --push` | Push only |
 | `torii sync --pull` | Pull only |
@@ -85,75 +66,96 @@ torii save --reset HEAD~1 --reset-mode soft  # undo last commit, keep changes
 | `torii diff --staged` | Show staged changes |
 | `torii diff --last` | Show last commit diff |
 
+### Workspaces
+
+Run commands across multiple repos at once.
+
+```bash
+torii workspace add <name> ~/repos/api      # add repo to workspace
+torii workspace add <name> ~/repos/frontend
+torii workspace list                        # list all workspaces
+torii workspace status <name>              # git status across all repos
+torii workspace save <name> -m "wip" --all # commit all repos with changes
+torii workspace sync <name>                # pull + push all repos
+torii workspace remove <name> ~/repos/api  # remove a repo
+torii workspace delete <name>              # delete workspace
+```
+
 ### Branches
 
 ```bash
 torii branch                  # list local branches
 torii branch --all            # list local and remote branches
-torii branch feature -c       # create and switch
-torii branch main             # switch to branch
-torii branch -d old-branch    # delete branch
-torii branch --rename new-name
+torii branch <name> -c        # create and switch
+torii branch <name>           # switch to branch
+torii branch -d <name>        # delete branch
+torii branch --rename <name>  # rename current branch
 ```
 
 ### Tracked files
 
 ```bash
-torii ls                      # list all tracked files
-torii ls src/                 # filter by path prefix
+torii ls              # list all tracked files
+torii ls src/         # filter by path prefix
 ```
 
 ### Inspect
 
 ```bash
-torii show                    # show HEAD commit with diff
-torii show <hash>             # show specific commit
-torii show <tag>              # show tag details
-torii show <file> --blame     # line-by-line change history
-torii show <file> --blame -L 10,20  # specific line range
+torii show                         # show HEAD commit with diff
+torii show <hash>                  # show specific commit
+torii show <tag>                   # show tag details
+torii show <file> --blame          # line-by-line change history
+torii show <file> --blame -L 10,20 # specific line range
 ```
 
 ### History
 
 ```bash
-torii log                          # last 10 commits
-torii log -n 50                    # last 50 commits
-torii log --oneline                # compact view
-torii log --graph                  # branch graph
-torii log --author "Pasqual"       # filter by author
-torii log --since 2026-01-01       # filter by date
-torii log --grep "feat"            # filter by message
-torii log --stat                   # show file change stats
+torii log                           # last 10 commits
+torii log -n 50                     # last 50 commits
+torii log --oneline                 # compact view
+torii log --graph                   # branch graph
+torii log --author "Alice"          # filter by author
+torii log --since 2026-01-01        # filter by date
+torii log --grep "feat"             # filter by message
+torii log --stat                    # show file change stats
 
-torii history reflog               # HEAD movement history
-torii history rewrite "start" "end"  # rewrite commit dates
-torii history clean                # gc + reflog expire
-torii history verify-remote        # verify remote state
-torii history remove-file <path>   # purge file from all commits
+torii history reflog                # HEAD movement history
+torii history rewrite "2026-01-01" "2026-03-01"  # rewrite commit dates
+torii history clean                 # expire reflogs + remove backup refs
+torii history verify-remote         # verify remote state
+torii history remove-file <path>    # purge file from entire history
 
-torii history rebase main                  # rebase onto branch
-torii history rebase -i HEAD~5             # interactive rebase
+torii history rebase main           # rebase onto branch
+torii history rebase HEAD~5 -i      # interactive rebase (opens editor)
 torii history rebase HEAD~5 --todo-file plan.txt
 torii history rebase --continue
 torii history rebase --abort
 torii history rebase --skip
 
-torii history cherry-pick <hash>   # apply commit to current branch
+torii history cherry-pick <hash>    # apply commit to current branch
 torii history cherry-pick --continue
 torii history cherry-pick --abort
 
-torii history blame <file>         # line-by-line change history
+torii history blame <file>          # line-by-line change history
 torii history blame <file> -L 10,20
 ```
 
 ### Security scanner
 
 ```bash
-torii history scan                 # scan staged files before committing
-torii history scan --history       # scan entire git history
+torii history scan            # scan staged files for secrets
+torii history scan --history  # scan entire git history
 ```
 
-Runs automatically before every `torii save`. Detects JWT tokens, AWS keys, GitHub/GitLab tokens, Stripe keys, PEM private keys, database connection strings with credentials, and generic API keys. Files named `*.example`, `*.sample`, or `*.template` are always allowed.
+Runs automatically before every `torii save`. Detects:
+- JWT tokens, AWS keys (AKIA/ASIA), GitHub/GitLab tokens
+- Stripe live keys, Twilio/SendGrid/Brevo keys
+- PEM private keys, database connection strings with credentials
+- Generic API keys and passwords
+
+Files named `*.example`, `*.sample`, or `*.template` are always skipped.
 
 ### Snapshots
 
@@ -164,7 +166,7 @@ torii snapshot create -n "before-refactor"
 torii snapshot list
 torii snapshot restore <id>
 torii snapshot delete <id>
-torii snapshot stash              # stash current work
+torii snapshot stash              # quick stash
 torii snapshot stash -u           # include untracked files
 torii snapshot unstash
 torii snapshot unstash <id> --keep
@@ -180,12 +182,12 @@ torii tag delete v1.0.0
 torii tag push v1.0.0
 torii tag push                    # push all tags
 torii tag show v1.0.0
-torii tag release                 # auto-bump from commits since last tag
+torii tag release                 # auto-bump from conventional commits
 torii tag release --bump minor    # force bump type
 torii tag release --dry-run       # preview without creating
 ```
 
-`torii tag release` reads your commits since the last tag and bumps the version following [Conventional Commits](https://www.conventionalcommits.org/):
+`torii tag release` reads commits since the last tag and bumps following [Conventional Commits](https://www.conventionalcommits.org/):
 - `feat:` → minor bump
 - `fix:` / `perf:` → patch bump
 - `feat!:` / breaking → major bump
@@ -195,9 +197,9 @@ torii tag release --dry-run       # preview without creating
 Mirror your repository across multiple platforms simultaneously.
 
 ```bash
-torii mirror add-primary gitlab user myrepo user
-torii mirror add-replica github user myrepo user
-torii mirror add-replica codeberg user myrepo user
+torii mirror add-primary gitlab user <username> <repo>
+torii mirror add-replica github user <username> <repo>
+torii mirror add-replica codeberg user <username> <repo>
 torii mirror sync
 torii mirror sync --force
 torii mirror list
@@ -208,31 +210,31 @@ torii mirror autofetch --disable
 torii mirror autofetch --status
 ```
 
-Supported platforms: GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo, SourceHut, SourceForge, and any custom Git server.
+Supported platforms: GitHub, GitLab, Codeberg, Bitbucket, Gitea, Forgejo.
 
 ### Remote repository management
 
-Create and manage repositories directly from the CLI:
+Create and manage repositories directly from the CLI (requires auth token in config):
 
 ```bash
-torii remote create github myrepo --public
-torii remote create github myrepo --private --description "My repo"
-torii remote delete github owner myrepo --yes
-torii remote visibility github owner myrepo --public
-torii remote configure github owner myrepo --default-branch main
-torii remote info github owner myrepo
+torii remote create github <repo> --public
+torii remote create github <repo> --private --description "My repo"
+torii remote delete github <owner> <repo> --yes
+torii remote visibility github <owner> <repo> --public
+torii remote configure github <owner> <repo> --default-branch main
+torii remote info github <owner> <repo>
 torii remote list github
 
-# Batch operations across platforms
-torii repo myrepo --platforms github,gitlab --create --public
-torii repo myrepo --platforms github,gitlab --delete --yes
+# Batch across platforms
+torii repo <name> --platforms github,gitlab --create --public
+torii repo <name> --platforms github,gitlab --delete --yes
 ```
 
 ### Config
 
 ```bash
-torii config set user.name "Pasqual"    # set global config
-torii config set user.name "Pasqual" --local  # set local config
+torii config set user.name "Alice"
+torii config set user.name "Alice" --local
 torii config get user.name
 torii config list
 torii config list --local
@@ -240,24 +242,26 @@ torii config edit
 torii config reset
 ```
 
+Available keys: `user.name`, `user.email`, `user.editor`, `auth.github_token`, `auth.gitlab_token`, `git.default_branch`, `git.sign_commits`, `git.pull_rebase`, `mirror.default_protocol`, `snapshot.auto_enabled`, `ui.colors`, `ui.emoji`, `ui.verbose`.
+
 ### Other
 
 ```bash
-torii clone github user/repo      # clone with platform shorthand
-torii clone https://...           # clone with full URL
-torii clone github user/repo -d my-dir
-torii ssh-check                   # verify SSH setup
+torii clone github <user>/<repo>        # clone with platform shorthand
+torii clone https://...                 # clone with full URL
+torii clone github <user>/<repo> -d dir # clone into specific directory
+torii ssh-check                         # verify SSH key setup
 ```
 
-## Why Torii?
+## Why Gitorii?
 
-| Git | Torii |
-|-----|-------|
+| Git | Gitorii |
+|-----|---------|
 | `git add . && git commit -m "msg"` | `torii save -am "msg"` |
 | `git pull && git push` | `torii sync` |
-| `git switch -c branch` | `torii branch branch -c` |
+| `git switch -c branch` | `torii branch <name> -c` |
 | `git fetch` | `torii sync --fetch` |
-| `git reset --soft HEAD~1` | `torii save --reset HEAD~1 --reset-mode soft -m "msg"` |
+| `git reset --soft HEAD~1` | `torii save --reset HEAD~1 --reset-mode soft` |
 | `git rebase -i HEAD~3` | `torii history rebase HEAD~3 -i` |
 | `git stash push -u` | `torii snapshot stash -u` |
 | `git log --oneline --author X` | `torii log --oneline --author X` |
@@ -266,9 +270,28 @@ torii ssh-check                   # verify SSH setup
 | `git blame src/main.rs` | `torii show src/main.rs --blame` |
 | Push to 3 platforms | `torii mirror sync` |
 | Hunt for exposed secrets | `torii history scan --history` |
+| Run status across 5 repos | `torii workspace status <name>` |
+| Commit all dirty repos at once | `torii workspace save <name> -am "wip"` |
+
+## System dependencies
+
+Required to build from source. Pre-built binaries have no dependencies.
+
+| Platform | Command |
+|----------|---------|
+| Ubuntu/Debian | `sudo apt install perl libssl-dev pkg-config` |
+| Fedora/RHEL | `sudo dnf install perl openssl-devel pkg-config` |
+| macOS | `brew install openssl` |
+| Arch | `sudo pacman -S perl openssl pkgconf` |
 
 ## Links
 
 - [Website](https://gitorii.com)
+- [Releases](https://gitorii.com/releases)
+- [Docs](https://gitorii.com/docs)
 - [Issues](https://gitlab.com/paskidev/torii/-/issues)
-- [License](LICENSE)
+- [crates.io](https://crates.io/crates/gitorii)
+
+## License
+
+TSAL-1.0 — Free for personal and non-production use. Commercial use requires a license. Converts to Apache 2.0 after 10 years. See [LICENSE](LICENSE) for details.
