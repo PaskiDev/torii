@@ -100,7 +100,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(1),
+                    Constraint::Length(3),
                     Constraint::Length(3),
                     Constraint::Min(1),
                     Constraint::Length(1),
@@ -108,14 +108,29 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                 .split(area);
 
             // ── Header ──────────────────────────────────────────────────────────
-            f.render_widget(
-                Paragraph::new(Line::from(vec![
+            {
+                let inner_w = chunks[0].width.saturating_sub(2) as usize;
+                let left_str = "⛩  gitorii";
+                let right_str = "— select repositories";
+                let left_len = left_str.chars().count() + 1;
+                let right_len = right_str.chars().count() + 1;
+                let pad = inner_w.saturating_sub(left_len + right_len);
+                let line = Line::from(vec![
                     Span::raw(" "),
-                    Span::styled("⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
-                    Span::styled("  — select repositories", Style::default().fg(C_SUBTLE)),
-                ])),
-                chunks[0],
-            );
+                    Span::styled(left_str, Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled(right_str, Style::default().fg(C_SUBTLE)),
+                    Span::raw(" "),
+                ]);
+                f.render_widget(
+                    Paragraph::new(line)
+                        .block(Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_style(Style::default().fg(BRAND_COLOR))),
+                    chunks[0],
+                );
+            }
 
             // ── Tabs ────────────────────────────────────────────────────────────
             let tab_repos_active = tab == PickerTab::Repos;

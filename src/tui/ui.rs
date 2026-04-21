@@ -58,15 +58,27 @@ pub fn render(f: &mut Frame, app: &App) {
 
     let area = f.area();
 
-    // Global layout: sidebar | content
+    // Global layout: header (3 lines) | body
+    let global_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(area);
+
+    render_header(f, app, global_rows[0]);
+
+    let body = global_rows[1];
+
+    // Body: sidebar | content
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(SIDEBAR_WIDTH),
             Constraint::Min(1),
         ])
-        .split(area);
-    let inner = area;
+        .split(body);
 
     // Content area: main view + 1 line hint at bottom
     let content_rows = Layout::default()
@@ -102,6 +114,50 @@ pub fn render(f: &mut Frame, app: &App) {
     if app.show_event_log {
         render_event_log(f, app, area);
     }
+}
+
+fn render_header(f: &mut Frame, app: &App, area: Rect) {
+    let bc = app.brand_color();
+
+    let (status_label, status_color) = if app.ahead > 0 && app.behind > 0 {
+        (format!("↑{} ↓{}", app.ahead, app.behind), C_YELLOW)
+    } else if app.ahead > 0 {
+        (format!("↑{} ahead", app.ahead), C_CYAN)
+    } else if app.behind > 0 {
+        (format!("↓{} behind", app.behind), C_RED)
+    } else {
+        ("synced".to_string(), C_GREEN)
+    };
+
+    // Inner width = area.width - 2 borders
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let left_spans: Vec<Span> = vec![
+        Span::styled("⛩  gitorii", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+    ];
+    let right_spans: Vec<Span> = vec![
+        Span::styled("branch: ", Style::default().fg(C_SUBTLE)),
+        Span::styled(&app.branch, Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)),
+        Span::styled("  status: ", Style::default().fg(C_SUBTLE)),
+        Span::styled(status_label, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+    ];
+    let left_len: usize = left_spans.iter().map(|s| s.content.chars().count()).sum::<usize>() + 1;
+    let right_len: usize = right_spans.iter().map(|s| s.content.chars().count()).sum::<usize>() + 1;
+    let pad = inner_w.saturating_sub(left_len + right_len);
+
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(left_spans);
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.extend(right_spans);
+    spans.push(Span::raw(" "));
+
+    f.render_widget(
+        Paragraph::new(Line::from(spans))
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(bc))),
+        area,
+    );
 }
 
 fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
@@ -336,39 +392,10 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),  // brand: name + branch + status
             Constraint::Min(1),     // tabs
             Constraint::Length(2),  // help + quit
         ])
         .split(inner_area);
-
-    // Brand
-    let (status_label, status_color) = if app.ahead > 0 && app.behind > 0 {
-        (format!("↑{} ↓{}", app.ahead, app.behind), C_YELLOW)
-    } else if app.ahead > 0 {
-        (format!("↑{} ahead", app.ahead), C_CYAN)
-    } else if app.behind > 0 {
-        (format!("↓{} behind", app.behind), C_RED)
-    } else {
-        ("synced".to_string(), C_GREEN)
-    };
-
-    let brand = Paragraph::new(vec![
-        Line::from(Span::styled("⛩  gitorii", Style::default().fg(app.brand_color()).add_modifier(Modifier::BOLD))),
-        Line::from(vec![
-            Span::styled("branch: ", Style::default().fg(C_SUBTLE)),
-            Span::styled(&app.branch, Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
-            Span::styled("status: ", Style::default().fg(C_SUBTLE)),
-            Span::styled(status_label, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-        ]),
-    ])
-    .block(Block::default()
-        .borders(Borders::BOTTOM)
-        .border_style(Style::default().fg(border_color))
-        .padding(Padding::new(1, 1, 0, 0)));
-    f.render_widget(brand, rows[0]);
 
     // Tabs
     let tab_items: Vec<ListItem> = TABS.iter().enumerate().map(|(i, tab)| {
@@ -401,7 +428,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                 .borders(Borders::BOTTOM)
                 .border_style(Style::default().fg(border_color))
                 .padding(Padding::new(1, 1, 0, 0))),
-        rows[1],
+        rows[0],
     );
 
     // Help + quit — aligned with hint row at bottom
@@ -419,6 +446,6 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     ]);
     f.render_widget(
         bottom.block(Block::default().borders(Borders::NONE)),
-        rows[2],
+        rows[1],
     );
 }
