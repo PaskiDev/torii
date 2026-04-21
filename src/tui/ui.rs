@@ -230,11 +230,18 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" open  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Esc]", Style::default().fg(bc)),
-            Span::styled(" cancel  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[e]", Style::default().fg(bc)),
-            Span::styled(if app.show_event_log { " events ✓" } else { " events" }, Style::default().fg(C_SUBTLE)),
+            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
         ]);
-        f.render_widget(Paragraph::new(line), area);
+        let events_label = if app.show_event_log { " events ✓" } else { " events" };
+        let right_str = format!("[e]{} ", events_label);
+        let left_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
+        let pad = (area.width as usize).saturating_sub(left_len + right_str.len());
+        let mut spans = line.spans;
+        spans.push(Span::raw(" ".repeat(pad)));
+        spans.push(Span::styled("[e]", Style::default().fg(bc)));
+        spans.push(Span::styled(events_label, Style::default().fg(C_SUBTLE)));
+        spans.push(Span::raw(" "));
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
         return;
     }
     let line = match app.view {
@@ -366,11 +373,17 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         _ => Line::from(""),
     };
 
-    // Append [e] events hint to every line
-    let mut spans = line.spans;
+    // Push [e] events to the right edge
     let events_label = if app.show_event_log { " events ✓" } else { " events" };
-    spans.push(Span::styled("  [e]", Style::default().fg(bc)));
+    let right_str = format!("[e]{} ", events_label);
+    let left_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
+    let pad = (area.width as usize).saturating_sub(left_len + right_str.len());
+
+    let mut spans = line.spans;
+    spans.push(Span::raw(" ".repeat(pad)));
+    spans.push(Span::styled("[e]", Style::default().fg(bc)));
     spans.push(Span::styled(events_label, Style::default().fg(C_SUBTLE)));
+    spans.push(Span::raw(" "));
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
