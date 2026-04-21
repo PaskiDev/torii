@@ -57,6 +57,11 @@ impl EventHandler {
                     app.tab_cycle();
                     return Ok(None);
                 }
+                // e toggles event log from anywhere
+                if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE {
+                    app.show_event_log = !app.show_event_log;
+                    return Ok(None);
+                }
                 // Sidebar navigation takes priority when focused
                 if app.sidebar_focused {
                     return Ok(handle_sidebar(key, app));
@@ -142,8 +147,6 @@ fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('w')) => app.go_to(View::Workspace),
         (_, KeyCode::Char('g')) => app.go_to(View::Config),
         (_, KeyCode::Char('x')) => app.go_to(View::Settings),
-        (_, KeyCode::Char('e')) => { app.show_event_log = !app.show_event_log; }
-
         _ => return None,
     }
     None
