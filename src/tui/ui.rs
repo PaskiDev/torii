@@ -104,30 +104,60 @@ pub fn render(f: &mut Frame, app: &App) {
 
     render_hint(f, app, content_rows[1]);
 
-    // Intersecciones sidebar ↔ borde exterior — se ponen al final para no ser sobreescritas
-    // div_x: columna del divisor RIGHT de la sidebar = inner.x + SIDEBAR_WIDTH - 1
+    // Intersecciones sidebar ↔ borde exterior
     let div_x = inner.x + SIDEBAR_WIDTH - 1;
     if div_x < area.x + area.width {
-        let border_color = if app.sidebar_focused { C_WHITE } else { app.brand_color() };
+        let bc = app.brand_color();
         let buf = f.buffer_mut();
-        let outer_color = app.brand_color();
-        buf.cell_mut((div_x, area.y))
-            .map(|c| c.set_symbol("┬").set_fg(outer_color));
-        buf.cell_mut((div_x, area.y + area.height - 1))
-            .map(|c| c.set_symbol("┴").set_fg(outer_color));
-        // Intersecciones internas: donde brand y tabs BOTTOM tocan ambos bordes
-        let brand_bottom_y = inner.y + 3;
-        let tabs_bottom_y  = inner.y + inner.height - 3;
-        // Lado derecho (divisor): ┤
-        buf.cell_mut((div_x, brand_bottom_y))
-            .map(|c| c.set_symbol("┤").set_fg(border_color));
-        buf.cell_mut((div_x, tabs_bottom_y))
-            .map(|c| c.set_symbol("┤").set_fg(border_color));
-        // Lado izquierdo (borde outer): ├
-        buf.cell_mut((area.x, brand_bottom_y))
-            .map(|c| c.set_symbol("├").set_fg(outer_color));
-        buf.cell_mut((area.x, tabs_bottom_y))
-            .map(|c| c.set_symbol("├").set_fg(outer_color));
+
+        if app.sidebar_focused {
+            // Sidebar focused: esquinas redondeadas blancas formando su propio recuadro
+            let w = C_WHITE;
+            // Esquinas del recuadro sidebar
+            buf.cell_mut((area.x, area.y))
+                .map(|c| c.set_symbol("╭").set_fg(w));
+            buf.cell_mut((div_x, area.y))
+                .map(|c| c.set_symbol("╮").set_fg(w));
+            buf.cell_mut((area.x, area.y + area.height - 1))
+                .map(|c| c.set_symbol("╰").set_fg(w));
+            buf.cell_mut((div_x, area.y + area.height - 1))
+                .map(|c| c.set_symbol("╯").set_fg(w));
+            // Borde top y bottom del sidebar en blanco
+            for x in (area.x + 1)..div_x {
+                buf.cell_mut((x, area.y))
+                    .map(|c| c.set_symbol("─").set_fg(w));
+                buf.cell_mut((x, area.y + area.height - 1))
+                    .map(|c| c.set_symbol("─").set_fg(w));
+            }
+            // Divisor derecho del sidebar en blanco (ya renderizado por render_sidebar)
+            // Intersecciones internas con brand/tabs borders
+            let brand_bottom_y = inner.y + 3;
+            let tabs_bottom_y  = inner.y + inner.height - 3;
+            buf.cell_mut((div_x, brand_bottom_y))
+                .map(|c| c.set_symbol("┤").set_fg(w));
+            buf.cell_mut((div_x, tabs_bottom_y))
+                .map(|c| c.set_symbol("┤").set_fg(w));
+            buf.cell_mut((area.x, brand_bottom_y))
+                .map(|c| c.set_symbol("├").set_fg(w));
+            buf.cell_mut((area.x, tabs_bottom_y))
+                .map(|c| c.set_symbol("├").set_fg(w));
+        } else {
+            // Sin foco: intersecciones normales con el borde exterior
+            buf.cell_mut((div_x, area.y))
+                .map(|c| c.set_symbol("┬").set_fg(bc));
+            buf.cell_mut((div_x, area.y + area.height - 1))
+                .map(|c| c.set_symbol("┴").set_fg(bc));
+            let brand_bottom_y = inner.y + 3;
+            let tabs_bottom_y  = inner.y + inner.height - 3;
+            buf.cell_mut((div_x, brand_bottom_y))
+                .map(|c| c.set_symbol("┤").set_fg(bc));
+            buf.cell_mut((div_x, tabs_bottom_y))
+                .map(|c| c.set_symbol("┤").set_fg(bc));
+            buf.cell_mut((area.x, brand_bottom_y))
+                .map(|c| c.set_symbol("├").set_fg(bc));
+            buf.cell_mut((area.x, tabs_bottom_y))
+                .map(|c| c.set_symbol("├").set_fg(bc));
+        }
     }
 
     if app.show_event_log {
