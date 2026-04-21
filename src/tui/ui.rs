@@ -129,7 +129,11 @@ pub fn render(f: &mut Frame, app: &App) {
                 buf.cell_mut((x, area.y + area.height - 1))
                     .map(|c| c.set_symbol("─").set_fg(w));
             }
-            // Divisor derecho del sidebar en blanco (ya renderizado por render_sidebar)
+            // Borde izquierdo del sidebar en blanco
+            for y in (area.y + 1)..(area.y + area.height - 1) {
+                buf.cell_mut((area.x, y))
+                    .map(|c| c.set_symbol("│").set_fg(w));
+            }
             // Intersecciones internas con brand/tabs borders
             let brand_bottom_y = inner.y + 3;
             let tabs_bottom_y  = inner.y + inner.height - 3;
