@@ -325,9 +325,9 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     let border_color = if app.sidebar_focused { C_WHITE } else { app.brand_color() };
 
-    // Right border as divider between sidebar and content
     let outer = Block::default()
-        .borders(Borders::RIGHT)
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
     let inner_area = outer.inner(area);
     f.render_widget(outer, area);
