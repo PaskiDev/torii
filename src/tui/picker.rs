@@ -96,6 +96,15 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
     let result = loop {
         terminal.draw(|f| {
             let area = f.area();
+
+            // Outer border
+            let outer = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(BRAND_COLOR));
+            let inner = outer.inner(area);
+            f.render_widget(outer, area);
+
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -104,7 +113,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                     Constraint::Min(1),
                     Constraint::Length(1),
                 ])
-                .split(area);
+                .split(inner);
 
             // ── Header ──────────────────────────────────────────────────────────
             f.render_widget(
