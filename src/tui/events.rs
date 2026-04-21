@@ -45,6 +45,13 @@ impl EventHandler {
 
         match event::read()? {
             Event::Key(key) => {
+                // Clear event log when panel is open
+                if app.show_event_log {
+                    if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::NONE {
+                        app.event_log.clear();
+                        return Ok(None);
+                    }
+                }
                 // Sidebar navigation takes priority when focused
                 if app.sidebar_focused {
                     return Ok(handle_sidebar(key, app));

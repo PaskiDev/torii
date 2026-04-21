@@ -143,11 +143,18 @@ fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
     let panel_area = Rect::new(x, y, panel_w, panel_h);
 
     let bc = app.brand_color();
+    let hint = Line::from(vec![
+        Span::styled(" [e]", Style::default().fg(bc)),
+        Span::styled(" close  ", Style::default().fg(C_SUBTLE)),
+        Span::styled("[c]", Style::default().fg(bc)),
+        Span::styled(" clear ", Style::default().fg(C_SUBTLE)),
+    ]);
     let block = Block::default()
         .title(Span::styled(
-            format!(" events [{}]  [e] close ", app.event_log.len()),
+            format!(" events ({}) ", app.event_log.len()),
             Style::default().fg(bc).add_modifier(Modifier::BOLD),
         ))
+        .title_bottom(hint)
         .borders(Borders::ALL)
         .border_type(app.border_type())
         .border_style(Style::default().fg(bc));
