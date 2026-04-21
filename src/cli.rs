@@ -1813,6 +1813,11 @@ impl Cli {
             }
 
             Commands::Tui => {
+                if git2::Repository::discover(".").is_err() {
+                    eprintln!("error: no git repository found in current directory");
+                    eprintln!("hint: run `torii init` or navigate to a repository first");
+                    std::process::exit(1);
+                }
                 crate::tui::run()?;
             }
         }
