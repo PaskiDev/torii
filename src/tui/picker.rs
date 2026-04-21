@@ -108,7 +108,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),
+                    Constraint::Length(1),
                     Constraint::Length(3),
                     Constraint::Min(1),
                     Constraint::Length(1),
@@ -118,12 +118,10 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             // ── Header ──────────────────────────────────────────────────────────
             f.render_widget(
                 Paragraph::new(Line::from(vec![
+                    Span::raw(" "),
                     Span::styled("⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
                     Span::styled("  — select repositories", Style::default().fg(C_SUBTLE)),
-                ]))
-                .block(Block::default().borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(BRAND_COLOR))),
+                ])),
                 chunks[0],
             );
 
