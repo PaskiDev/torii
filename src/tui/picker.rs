@@ -119,35 +119,27 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             );
 
             // ── Tabs ────────────────────────────────────────────────────────────
-            let tab_repos_style = if tab == PickerTab::Repos {
-                Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(C_SUBTLE)
-            };
-            let tab_ws_style = if tab == PickerTab::Workspaces {
-                Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(C_SUBTLE)
-            };
+            let tab_repos_active = tab == PickerTab::Repos;
+            let tab_ws_active    = tab == PickerTab::Workspaces;
             let tab_line = Line::from(vec![
                 Span::raw(" "),
-                Span::styled("[1] ", tab_repos_style),
+                Span::styled("[1] ", Style::default().fg(if tab_repos_active { C_WHITE } else { BRAND_COLOR }).add_modifier(if tab_repos_active { Modifier::BOLD } else { Modifier::empty() })),
                 Span::styled(
                     format!("repos ({})", repos.len()),
-                    if tab == PickerTab::Repos { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_DIM) },
+                    Style::default().fg(if tab_repos_active { C_WHITE } else { BRAND_COLOR }),
                 ),
                 Span::raw("   "),
-                Span::styled("[2] ", tab_ws_style),
+                Span::styled("[2] ", Style::default().fg(if tab_ws_active { C_WHITE } else { BRAND_COLOR }).add_modifier(if tab_ws_active { Modifier::BOLD } else { Modifier::empty() })),
                 Span::styled(
                     format!("recent workspaces ({})", saved_ws.len()),
-                    if tab == PickerTab::Workspaces { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_DIM) },
+                    Style::default().fg(if tab_ws_active { C_WHITE } else { BRAND_COLOR }),
                 ),
             ]);
             f.render_widget(
                 Paragraph::new(tab_line).block(
                     Block::default().borders(Borders::ALL)
                         .border_type(ratatui::widgets::BorderType::Rounded)
-                        .border_style(Style::default().fg(C_BORDER))
+                        .border_style(Style::default().fg(BRAND_COLOR))
                 ),
                 chunks[1],
             );
@@ -188,10 +180,10 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                     list_state.select(Some(idx));
                     f.render_stateful_widget(
                         List::new(items).block(Block::default()
-                            .title(Span::styled(list_title, Style::default().fg(C_SUBTLE)))
+                            .title(Span::styled(list_title, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)))
                             .borders(Borders::ALL)
                             .border_type(ratatui::widgets::BorderType::Rounded)
-                            .border_style(Style::default().fg(C_BORDER))),
+                            .border_style(Style::default().fg(C_WHITE))),
                         sub[0],
                         &mut list_state,
                     );
@@ -199,13 +191,13 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                     let (ws_label, ws_style, ws_border) = match mode {
                         PickerMode::NamingWorkspace => (
                             " workspace name ",
-                            Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD),
-                            Style::default().fg(BRAND_COLOR),
+                            Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD),
+                            Style::default().fg(C_WHITE),
                         ),
                         PickerMode::Selecting => (
                             " workspace name (auto) ",
-                            Style::default().fg(C_DIM),
-                            Style::default().fg(C_BORDER),
+                            Style::default().fg(BRAND_COLOR),
+                            Style::default().fg(BRAND_COLOR),
                         ),
                     };
                     let name_content = match mode {
@@ -245,7 +237,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                                 Style::default().fg(C_DIM),
                             )).block(Block::default().borders(Borders::ALL)
                                 .border_type(ratatui::widgets::BorderType::Rounded)
-                                .border_style(Style::default().fg(C_BORDER))),
+                                .border_style(Style::default().fg(BRAND_COLOR))),
                             chunks[2],
                         );
                     } else {
@@ -267,12 +259,12 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                             ])).style(style)
                         }).collect();
 
-                        let left_border = if !ws_panel_right { BRAND_COLOR } else { C_BORDER };
+                        let left_border = if !ws_panel_right { C_WHITE } else { BRAND_COLOR };
                         let mut left_state = ListState::default();
                         left_state.select(Some(ws_idx));
                         f.render_stateful_widget(
                             List::new(ws_list_items).block(Block::default()
-                                .title(Span::styled(" workspaces ", Style::default().fg(if !ws_panel_right { BRAND_COLOR } else { C_SUBTLE })))
+                                .title(Span::styled(" workspaces ", Style::default().fg(left_border)))
                                 .borders(Borders::ALL)
                                 .border_type(ratatui::widgets::BorderType::Rounded)
                                 .border_style(Style::default().fg(left_border))),
@@ -298,10 +290,10 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                         let ws_title = saved_ws.get(ws_idx)
                             .map(|ws| format!(" {} — repos ", ws.name))
                             .unwrap_or_else(|| " repos ".to_string());
-                        let right_border = if ws_panel_right { BRAND_COLOR } else { C_BORDER };
+                        let right_border = if ws_panel_right { C_WHITE } else { BRAND_COLOR };
                         f.render_widget(
                             List::new(repo_items).block(Block::default()
-                                .title(Span::styled(ws_title, Style::default().fg(if ws_panel_right { BRAND_COLOR } else { C_SUBTLE })))
+                                .title(Span::styled(ws_title, Style::default().fg(right_border)))
                                 .borders(Borders::ALL)
                                 .border_type(ratatui::widgets::BorderType::Rounded)
                                 .border_style(Style::default().fg(right_border))),
