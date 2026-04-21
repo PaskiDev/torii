@@ -1828,9 +1828,32 @@ impl Cli {
                         }
                         PickerResult::Workspace { name, repos } => {
                             save_workspace(&name, &repos)?;
-                            // Abre TUI en el primer repo del workspace, vista Workspace
                             if let Some(first) = repos.first() {
                                 std::env::set_current_dir(first)?;
+                            }
+                            crate::tui::run_with_view(crate::tui::app::View::Workspace)?;
+                        }
+                        PickerResult::OpenWorkspace(name) => {
+                            // Abre TUI en el primer repo del workspace guardado
+                            let ws_path = dirs::home_dir()
+                                .map(|h| h.join(".torii/workspaces.toml"))
+                                .unwrap_or_default();
+                            if let Ok(content) = std::fs::read_to_string(&ws_path) {
+                                let mut in_ws = false;
+                                let mut first_path: Option<std::path::PathBuf> = None;
+                                for line in content.lines() {
+                                    let line = line.trim();
+                                    if line == format!("[{}]", name) { in_ws = true; continue; }
+                                    if line.starts_with('[') { in_ws = false; }
+                                    if in_ws && line.starts_with("path") {
+                                        let p = line.split('=').nth(1).unwrap_or("").trim().trim_matches('"');
+                                        first_path = Some(std::path::PathBuf::from(p));
+                                        break;
+                                    }
+                                }
+                                if let Some(p) = first_path {
+                                    std::env::set_current_dir(&p)?;
+                                }
                             }
                             crate::tui::run_with_view(crate::tui::app::View::Workspace)?;
                         }

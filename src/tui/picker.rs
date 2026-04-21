@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Terminal,
 };
 
@@ -26,17 +26,52 @@ const C_BORDER: Color    = Color::Rgb(60, 60, 80);
 pub enum PickerResult {
     SingleRepo(PathBuf),
     Workspace { name: String, repos: Vec<PathBuf> },
+    OpenWorkspace(String),
     Cancelled,
 }
+
+#[derive(PartialEq)]
+enum PickerTab { Repos, Workspaces }
 
 enum PickerMode {
     Selecting,
     NamingWorkspace,
 }
 
+struct SavedWorkspace {
+    name: String,
+    repos: Vec<String>,
+}
+
+fn load_saved_workspaces() -> Vec<SavedWorkspace> {
+    let path = dirs::home_dir()
+        .map(|h| h.join(".torii/workspaces.toml"))
+        .unwrap_or_default();
+    let Ok(content) = std::fs::read_to_string(&path) else { return vec![] };
+    let mut out = Vec::new();
+    let mut current: Option<SavedWorkspace> = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            if let Some(ws) = current.take() { out.push(ws); }
+            let name = line.trim_matches(|c| c == '[' || c == ']').to_string();
+            current = Some(SavedWorkspace { name, repos: vec![] });
+        } else if line.starts_with("path") {
+            if let Some(ws) = current.as_mut() {
+                let p = line.split('=').nth(1).unwrap_or("").trim().trim_matches('"').to_string();
+                ws.repos.push(p);
+            }
+        }
+    }
+    if let Some(ws) = current { out.push(ws); }
+    out
+}
+
 pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
     let repos = find_git_repos(start_dir, 3);
-    if repos.is_empty() {
+    let saved_ws = load_saved_workspaces();
+
+    if repos.is_empty() && saved_ws.is_empty() {
         return Ok(PickerResult::Cancelled);
     }
 
@@ -46,11 +81,17 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Estado pestaña repos
     let mut idx = 0usize;
     let mut selected: Vec<bool> = vec![false; repos.len()];
     let mut mode = PickerMode::Selecting;
     let mut ws_name = default_ws_name(start_dir);
     let mut ws_cursor = ws_name.len();
+
+    // Estado pestaña workspaces
+    let mut tab = if repos.is_empty() { PickerTab::Workspaces } else { PickerTab::Repos };
+    let mut ws_idx = 0usize;   // workspace seleccionado en lista izquierda
+    let mut ws_panel_right = false; // foco en lista de repos del workspace
 
     let result = loop {
         terminal.draw(|f| {
@@ -59,13 +100,13 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),
-                    Constraint::Min(1),
                     Constraint::Length(3),
+                    Constraint::Min(1),
                     Constraint::Length(1),
                 ])
                 .split(area);
 
-            // Header
+            // ── Header ──────────────────────────────────────────────────────────
             f.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::styled("⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
@@ -77,128 +118,241 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                 chunks[0],
             );
 
-            // Repo list
-            let n_sel = selected.iter().filter(|&&s| s).count();
-            let items: Vec<ListItem> = repos.iter().enumerate().map(|(i, p)| {
-                let is_cur = i == idx;
-                let is_sel = selected[i];
-                let style = if is_cur {
-                    Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                let check = if is_sel { "◆ " } else { "◇ " };
-                let name = p.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| p.to_string_lossy().to_string());
-                let path_str = p.to_string_lossy().to_string();
-                ListItem::new(Line::from(vec![
-                    Span::styled(if is_cur { "▶ " } else { "  " }, Style::default().fg(BRAND_COLOR)),
-                    Span::styled(check, Style::default().fg(if is_sel { C_GREEN } else { C_DIM })),
-                    Span::styled(format!("{:<24}", name), Style::default().fg(if is_cur { C_WHITE } else { C_SUBTLE })),
-                    Span::styled(path_str, Style::default().fg(C_DIM)),
-                ])).style(style)
-            }).collect();
-
-            let list_title = format!(" repositorios ({} encontrados, {} seleccionados) ", repos.len(), n_sel);
+            // ── Tabs ────────────────────────────────────────────────────────────
+            let tab_repos_style = if tab == PickerTab::Repos {
+                Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_SUBTLE)
+            };
+            let tab_ws_style = if tab == PickerTab::Workspaces {
+                Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_SUBTLE)
+            };
+            let tab_line = Line::from(vec![
+                Span::raw(" "),
+                Span::styled("[1] ", tab_repos_style),
+                Span::styled(
+                    format!("repos ({})", repos.len()),
+                    if tab == PickerTab::Repos { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_DIM) },
+                ),
+                Span::raw("   "),
+                Span::styled("[2] ", tab_ws_style),
+                Span::styled(
+                    format!("workspaces recientes ({})", saved_ws.len()),
+                    if tab == PickerTab::Workspaces { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_DIM) },
+                ),
+            ]);
             f.render_widget(
-                List::new(items).block(Block::default()
-                    .title(Span::styled(list_title, Style::default().fg(C_SUBTLE)))
-                    .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(C_BORDER))),
+                Paragraph::new(tab_line).block(
+                    Block::default().borders(Borders::ALL)
+                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .border_style(Style::default().fg(C_BORDER))
+                ),
                 chunks[1],
             );
 
-            // Workspace name input (always visible, editable when naming)
-            let (ws_label, ws_style, ws_border) = match mode {
-                PickerMode::NamingWorkspace => (
-                    " nombre del workspace ",
-                    Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD),
-                    Style::default().fg(BRAND_COLOR),
-                ),
-                PickerMode::Selecting => (
-                    " nombre del workspace (auto) ",
-                    Style::default().fg(C_DIM),
-                    Style::default().fg(C_BORDER),
-                ),
-            };
+            // ── Contenido ───────────────────────────────────────────────────────
+            match tab {
+                PickerTab::Repos => {
+                    // Sub-layout vertical: lista + nombre ws + (si nombrando)
+                    let sub = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Min(1), Constraint::Length(3)])
+                        .split(chunks[2]);
 
-            let name_content = match mode {
-                PickerMode::NamingWorkspace => {
-                    let before = &ws_name[..ws_cursor.min(ws_name.len())];
-                    let cur_char = ws_name[ws_cursor.min(ws_name.len())..].chars().next().unwrap_or(' ');
-                    let after = if ws_cursor >= ws_name.len() { "" } else {
-                        &ws_name[ws_cursor + cur_char.len_utf8()..]
+                    let n_sel = selected.iter().filter(|&&s| s).count();
+                    let items: Vec<ListItem> = repos.iter().enumerate().map(|(i, p)| {
+                        let is_cur = i == idx;
+                        let is_sel = selected[i];
+                        let style = if is_cur {
+                            Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        };
+                        let check = if is_sel { "◆ " } else { "◇ " };
+                        let name = p.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| p.to_string_lossy().to_string());
+                        let path_str = p.to_string_lossy().to_string();
+                        ListItem::new(Line::from(vec![
+                            Span::styled(if is_cur { "▶ " } else { "  " }, Style::default().fg(BRAND_COLOR)),
+                            Span::styled(check, Style::default().fg(if is_sel { C_GREEN } else { C_DIM })),
+                            Span::styled(format!("{:<24}", name), Style::default().fg(if is_cur { C_WHITE } else { C_SUBTLE })),
+                            Span::styled(path_str, Style::default().fg(C_DIM)),
+                        ])).style(style)
+                    }).collect();
+
+                    let list_title = format!(" repos ({} encontrados, {} seleccionados) ", repos.len(), n_sel);
+                    let mut list_state = ListState::default();
+                    list_state.select(Some(idx));
+                    f.render_stateful_widget(
+                        List::new(items).block(Block::default()
+                            .title(Span::styled(list_title, Style::default().fg(C_SUBTLE)))
+                            .borders(Borders::ALL)
+                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_style(Style::default().fg(C_BORDER))),
+                        sub[0],
+                        &mut list_state,
+                    );
+
+                    let (ws_label, ws_style, ws_border) = match mode {
+                        PickerMode::NamingWorkspace => (
+                            " nombre del workspace ",
+                            Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD),
+                            Style::default().fg(BRAND_COLOR),
+                        ),
+                        PickerMode::Selecting => (
+                            " nombre del workspace (auto) ",
+                            Style::default().fg(C_DIM),
+                            Style::default().fg(C_BORDER),
+                        ),
                     };
-                    Line::from(vec![
-                        Span::raw(" "),
-                        Span::styled(before, Style::default().fg(C_WHITE)),
-                        Span::styled(cur_char.to_string(), Style::default().bg(BRAND_COLOR).fg(C_WHITE)),
-                        Span::styled(after, Style::default().fg(C_WHITE)),
-                    ])
+                    let name_content = match mode {
+                        PickerMode::NamingWorkspace => {
+                            let before = &ws_name[..ws_cursor.min(ws_name.len())];
+                            let cur_char = ws_name[ws_cursor.min(ws_name.len())..].chars().next().unwrap_or(' ');
+                            let after = if ws_cursor >= ws_name.len() { "" } else {
+                                &ws_name[ws_cursor + cur_char.len_utf8()..]
+                            };
+                            Line::from(vec![
+                                Span::raw(" "),
+                                Span::styled(before, Style::default().fg(C_WHITE)),
+                                Span::styled(cur_char.to_string(), Style::default().bg(BRAND_COLOR).fg(C_WHITE)),
+                                Span::styled(after, Style::default().fg(C_WHITE)),
+                            ])
+                        }
+                        PickerMode::Selecting => Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled(&ws_name, Style::default().fg(C_DIM)),
+                        ]),
+                    };
+                    f.render_widget(
+                        Paragraph::new(name_content).block(Block::default()
+                            .title(Span::styled(ws_label, ws_style))
+                            .borders(Borders::ALL)
+                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_style(ws_border)),
+                        sub[1],
+                    );
                 }
-                PickerMode::Selecting => Line::from(vec![
-                    Span::raw(" "),
-                    Span::styled(&ws_name, Style::default().fg(C_DIM)),
-                ]),
-            };
 
-            f.render_widget(
-                Paragraph::new(name_content).block(Block::default()
-                    .title(Span::styled(ws_label, ws_style))
-                    .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(ws_border)),
-                chunks[2],
-            );
-
-            // Hint
-            let hint = match mode {
-                PickerMode::Selecting => {
-                    let n = selected.iter().filter(|&&s| s).count();
-                    if n == 1 {
-                        Line::from(vec![
-                            Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" marcar  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[a]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" todos  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" abrir repo  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[q]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" salir", Style::default().fg(C_SUBTLE)),
-                        ])
-                    } else if n > 1 {
-                        Line::from(vec![
-                            Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" marcar  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[a]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" todos  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[A]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" ninguno  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" crear workspace  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[q]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" salir", Style::default().fg(C_SUBTLE)),
-                        ])
+                PickerTab::Workspaces => {
+                    if saved_ws.is_empty() {
+                        f.render_widget(
+                            Paragraph::new(Span::styled(
+                                "  no hay workspaces guardados",
+                                Style::default().fg(C_DIM),
+                            )).block(Block::default().borders(Borders::ALL)
+                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_style(Style::default().fg(C_BORDER))),
+                            chunks[2],
+                        );
                     } else {
-                        Line::from(vec![
-                            Span::styled("[↑↓/jk]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" navegar  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[space]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" marcar  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[a]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" todos  ", Style::default().fg(C_SUBTLE)),
-                            Span::styled("[q]", Style::default().fg(BRAND_COLOR)),
-                            Span::styled(" salir", Style::default().fg(C_SUBTLE)),
-                        ])
+                        let cols = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints([Constraint::Length(28), Constraint::Min(1)])
+                            .split(chunks[2]);
+
+                        // Lista workspaces izquierda
+                        let ws_list_items: Vec<ListItem> = saved_ws.iter().enumerate().map(|(i, ws)| {
+                            let is_cur = i == ws_idx;
+                            let style = if is_cur {
+                                Style::default().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+                            } else { Style::default() };
+                            ListItem::new(Line::from(vec![
+                                Span::styled(if is_cur && !ws_panel_right { "▶ " } else { "  " }, Style::default().fg(BRAND_COLOR)),
+                                Span::styled(format!("{:<20}", ws.name), Style::default().fg(if is_cur { C_WHITE } else { C_SUBTLE })),
+                                Span::styled(format!(" {}", ws.repos.len()), Style::default().fg(C_DIM)),
+                            ])).style(style)
+                        }).collect();
+
+                        let left_border = if !ws_panel_right { BRAND_COLOR } else { C_BORDER };
+                        let mut left_state = ListState::default();
+                        left_state.select(Some(ws_idx));
+                        f.render_stateful_widget(
+                            List::new(ws_list_items).block(Block::default()
+                                .title(Span::styled(" workspaces ", Style::default().fg(if !ws_panel_right { BRAND_COLOR } else { C_SUBTLE })))
+                                .borders(Borders::ALL)
+                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_style(Style::default().fg(left_border))),
+                            cols[0],
+                            &mut left_state,
+                        );
+
+                        // Lista repos del workspace seleccionado (derecha)
+                        let repo_items: Vec<ListItem> = saved_ws.get(ws_idx)
+                            .map(|ws| ws.repos.iter().map(|p| {
+                                let name = std::path::Path::new(p)
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| p.clone());
+                                ListItem::new(Line::from(vec![
+                                    Span::styled("  ", Style::default()),
+                                    Span::styled(format!("{:<22}", name), Style::default().fg(C_SUBTLE)),
+                                    Span::styled(p.as_str(), Style::default().fg(C_DIM)),
+                                ]))
+                            }).collect())
+                            .unwrap_or_default();
+
+                        let ws_title = saved_ws.get(ws_idx)
+                            .map(|ws| format!(" {} — repos ", ws.name))
+                            .unwrap_or_else(|| " repos ".to_string());
+                        let right_border = if ws_panel_right { BRAND_COLOR } else { C_BORDER };
+                        f.render_widget(
+                            List::new(repo_items).block(Block::default()
+                                .title(Span::styled(ws_title, Style::default().fg(if ws_panel_right { BRAND_COLOR } else { C_SUBTLE })))
+                                .borders(Borders::ALL)
+                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_style(Style::default().fg(right_border))),
+                            cols[1],
+                        );
                     }
                 }
-                PickerMode::NamingWorkspace => Line::from(vec![
-                    Span::styled("[Enter]", Style::default().fg(BRAND_COLOR)),
-                    Span::styled(" confirmar  ", Style::default().fg(C_SUBTLE)),
-                    Span::styled("[Esc]", Style::default().fg(BRAND_COLOR)),
-                    Span::styled(" cancelar", Style::default().fg(C_SUBTLE)),
+            }
+
+            // ── Hint ────────────────────────────────────────────────────────────
+            let hint = match tab {
+                PickerTab::Repos => match mode {
+                    PickerMode::Selecting => {
+                        let n = selected.iter().filter(|&&s| s).count();
+                        if n == 1 {
+                            Line::from(vec![
+                                hint_key("[↑↓]"), hint_txt(" nav  "),
+                                hint_key("[space]"), hint_txt(" marcar  "),
+                                hint_key("[Enter]"), hint_txt(" abrir repo  "),
+                                hint_key("[2]"), hint_txt(" workspaces  "),
+                                hint_key("[q]"), hint_txt(" salir"),
+                            ])
+                        } else if n > 1 {
+                            Line::from(vec![
+                                hint_key("[space]"), hint_txt(" marcar  "),
+                                hint_key("[a]"), hint_txt(" todos  "),
+                                hint_key("[A]"), hint_txt(" ninguno  "),
+                                hint_key("[Enter]"), hint_txt(" crear workspace  "),
+                                hint_key("[q]"), hint_txt(" salir"),
+                            ])
+                        } else {
+                            Line::from(vec![
+                                hint_key("[↑↓/jk]"), hint_txt(" nav  "),
+                                hint_key("[space]"), hint_txt(" marcar  "),
+                                hint_key("[a]"), hint_txt(" todos  "),
+                                hint_key("[2]"), hint_txt(" workspaces  "),
+                                hint_key("[q]"), hint_txt(" salir"),
+                            ])
+                        }
+                    }
+                    PickerMode::NamingWorkspace => Line::from(vec![
+                        hint_key("[Enter]"), hint_txt(" confirmar  "),
+                        hint_key("[Esc]"), hint_txt(" cancelar"),
+                    ]),
+                },
+                PickerTab::Workspaces => Line::from(vec![
+                    hint_key("[↑↓/jk]"), hint_txt(" nav  "),
+                    hint_key("[→/←]"), hint_txt(" foco  "),
+                    hint_key("[Enter]"), hint_txt(" abrir workspace  "),
+                    hint_key("[1]"), hint_txt(" repos  "),
+                    hint_key("[q]"), hint_txt(" salir"),
                 ]),
             };
             f.render_widget(Paragraph::new(hint), chunks[3]);
@@ -206,79 +360,91 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
 
         if !event::poll(std::time::Duration::from_millis(200))? { continue; }
         if let Event::Key(key) = event::read()? {
-            match mode {
-                PickerMode::Selecting => match (key.modifiers, key.code) {
+            // Cambio de tab global
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('1')) => { tab = PickerTab::Repos; continue; }
+                (_, KeyCode::Char('2')) => { tab = PickerTab::Workspaces; continue; }
+                _ => {}
+            }
+
+            match tab {
+                PickerTab::Repos => match mode {
+                    PickerMode::Selecting => match (key.modifiers, key.code) {
+                        (_, KeyCode::Char('q')) |
+                        (KeyModifiers::CONTROL, KeyCode::Char('c')) => break PickerResult::Cancelled,
+                        (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                            if idx > 0 { idx -= 1; }
+                        }
+                        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                            if idx + 1 < repos.len() { idx += 1; }
+                        }
+                        (_, KeyCode::Char(' ')) => { selected[idx] = !selected[idx]; }
+                        (_, KeyCode::Char('a')) => {
+                            let all = selected.iter().all(|&s| s);
+                            selected.iter_mut().for_each(|s| *s = !all);
+                        }
+                        (KeyModifiers::SHIFT, KeyCode::Char('A')) |
+                        (_, KeyCode::Char('A')) => {
+                            selected.iter_mut().for_each(|s| *s = false);
+                        }
+                        (_, KeyCode::Enter) => {
+                            let sel_repos: Vec<PathBuf> = repos.iter().enumerate()
+                                .filter(|(i, _)| selected[*i])
+                                .map(|(_, p)| p.clone())
+                                .collect();
+                            if sel_repos.len() == 1 {
+                                break PickerResult::SingleRepo(sel_repos.into_iter().next().unwrap());
+                            } else if sel_repos.len() > 1 {
+                                mode = PickerMode::NamingWorkspace;
+                                ws_cursor = ws_name.len();
+                            }
+                        }
+                        _ => {}
+                    },
+                    PickerMode::NamingWorkspace => match (key.modifiers, key.code) {
+                        (_, KeyCode::Esc) => { mode = PickerMode::Selecting; }
+                        (_, KeyCode::Enter) => {
+                            let name = if ws_name.trim().is_empty() {
+                                default_ws_name(start_dir)
+                            } else {
+                                ws_name.trim().to_string()
+                            };
+                            let sel_repos: Vec<PathBuf> = repos.iter().enumerate()
+                                .filter(|(i, _)| selected[*i])
+                                .map(|(_, p)| p.clone())
+                                .collect();
+                            break PickerResult::Workspace { name, repos: sel_repos };
+                        }
+                        (_, KeyCode::Backspace) => {
+                            if ws_cursor > 0 { ws_name.remove(ws_cursor - 1); ws_cursor -= 1; }
+                        }
+                        (_, KeyCode::Left)  => { if ws_cursor > 0 { ws_cursor -= 1; } }
+                        (_, KeyCode::Right) => { if ws_cursor < ws_name.len() { ws_cursor += 1; } }
+                        (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                              || key.modifiers == KeyModifiers::SHIFT => {
+                            ws_name.insert(ws_cursor, c);
+                            ws_cursor += 1;
+                        }
+                        (KeyModifiers::CONTROL, KeyCode::Char('c')) => break PickerResult::Cancelled,
+                        _ => {}
+                    },
+                },
+
+                PickerTab::Workspaces => match (key.modifiers, key.code) {
                     (_, KeyCode::Char('q')) |
-                    (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                        break PickerResult::Cancelled;
-                    }
-                    (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
-                        if idx > 0 { idx -= 1; }
+                    (KeyModifiers::CONTROL, KeyCode::Char('c')) => break PickerResult::Cancelled,
+                    (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => {
+                        if !ws_panel_right && ws_idx > 0 { ws_idx -= 1; }
                     }
                     (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                        if idx + 1 < repos.len() { idx += 1; }
+                        if !ws_panel_right && ws_idx + 1 < saved_ws.len() { ws_idx += 1; }
                     }
-                    (_, KeyCode::Char(' ')) => {
-                        selected[idx] = !selected[idx];
-                    }
-                    (_, KeyCode::Char('a')) => {
-                        let all = selected.iter().all(|&s| s);
-                        selected.iter_mut().for_each(|s| *s = !all);
-                    }
-                    (KeyModifiers::SHIFT, KeyCode::Char('A')) |
-                    (_, KeyCode::Char('A')) => {
-                        selected.iter_mut().for_each(|s| *s = false);
-                    }
+                    (_, KeyCode::Right) | (_, KeyCode::Char('l')) => { ws_panel_right = true; }
+                    (_, KeyCode::Left)  | (_, KeyCode::Char('h')) => { ws_panel_right = false; }
                     (_, KeyCode::Enter) => {
-                        let sel_repos: Vec<PathBuf> = repos.iter().enumerate()
-                            .filter(|(i, _)| selected[*i])
-                            .map(|(_, p)| p.clone())
-                            .collect();
-                        if sel_repos.len() == 1 {
-                            break PickerResult::SingleRepo(sel_repos.into_iter().next().unwrap());
-                        } else if sel_repos.len() > 1 {
-                            mode = PickerMode::NamingWorkspace;
-                            ws_cursor = ws_name.len();
+                        if let Some(ws) = saved_ws.get(ws_idx) {
+                            break PickerResult::OpenWorkspace(ws.name.clone());
                         }
-                        // 0 seleccionados: no hace nada
-                    }
-                    _ => {}
-                },
-                PickerMode::NamingWorkspace => match (key.modifiers, key.code) {
-                    (_, KeyCode::Esc) => {
-                        mode = PickerMode::Selecting;
-                    }
-                    (_, KeyCode::Enter) => {
-                        let name = if ws_name.trim().is_empty() {
-                            default_ws_name(start_dir)
-                        } else {
-                            ws_name.trim().to_string()
-                        };
-                        let sel_repos: Vec<PathBuf> = repos.iter().enumerate()
-                            .filter(|(i, _)| selected[*i])
-                            .map(|(_, p)| p.clone())
-                            .collect();
-                        break PickerResult::Workspace { name, repos: sel_repos };
-                    }
-                    (_, KeyCode::Backspace) => {
-                        if ws_cursor > 0 {
-                            ws_name.remove(ws_cursor - 1);
-                            ws_cursor -= 1;
-                        }
-                    }
-                    (_, KeyCode::Left) => {
-                        if ws_cursor > 0 { ws_cursor -= 1; }
-                    }
-                    (_, KeyCode::Right) => {
-                        if ws_cursor < ws_name.len() { ws_cursor += 1; }
-                    }
-                    (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
-                                          || key.modifiers == KeyModifiers::SHIFT => {
-                        ws_name.insert(ws_cursor, c);
-                        ws_cursor += 1;
-                    }
-                    (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                        break PickerResult::Cancelled;
                     }
                     _ => {}
                 },
@@ -291,6 +457,13 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
     terminal.show_cursor()?;
 
     Ok(result)
+}
+
+fn hint_key(s: &'static str) -> Span<'static> {
+    Span::styled(s, Style::default().fg(BRAND_COLOR))
+}
+fn hint_txt(s: &'static str) -> Span<'static> {
+    Span::styled(s, Style::default().fg(C_SUBTLE))
 }
 
 fn find_git_repos(base: &Path, max_depth: usize) -> Vec<PathBuf> {
