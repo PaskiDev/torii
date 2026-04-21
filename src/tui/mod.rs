@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{App, View, SyncOp, SyncStatus, ConfigScope, BorderStyle};
+use app::{App, View, SyncOp, SyncStatus, EventKind};
 use events::{Action, EventHandler};
 
 pub fn run() -> crate::error::Result<()> {
@@ -60,6 +60,7 @@ fn run_loop(
                 Action::Refresh => {
                     app.refresh()?;
                     app.set_status("refreshed");
+                    app.log_event("repo refreshed", EventKind::Info);
                 }
 
                 Action::StageFile => {
@@ -80,7 +81,9 @@ fn run_loop(
                         app.commit_view.cursor = 0;
                         app.go_back();
                         app.refresh()?;
-                        app.set_status(format!("committed: {}", truncate_msg(&msg, 40)));
+                        let short = truncate_msg(&msg, 40);
+                        app.log_event(format!("commit: {}", short), EventKind::Success);
+                        app.set_status(format!("committed: {}", short));
                     }
                 }
 
@@ -88,6 +91,9 @@ fn run_loop(
                     checkout_selected(app)?;
                     app.go_back();
                     app.refresh()?;
+                    if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
+                        app.log_event(format!("checkout: {}", b.name), EventKind::Success);
+                    }
                 }
 
                 Action::SnapshotRestore => {
@@ -105,6 +111,12 @@ fn run_loop(
                 Action::SyncRun => {
                     run_sync(app);
                     app.refresh()?;
+                    let (msg, kind) = match &app.sync_view.status {
+                        SyncStatus::Done(m) => (m.clone(), EventKind::Success),
+                        SyncStatus::Error(e) => (e.clone(), EventKind::Error),
+                        _ => ("sync completed".to_string(), EventKind::Info),
+                    };
+                    app.log_event(msg, kind);
                 }
 
                 Action::TagPush => {
@@ -114,10 +126,13 @@ fn run_loop(
                             .args(["push", "origin", &name])
                             .current_dir(&app.repo_path)
                             .status();
-                        app.tag_view.status = Some(match status {
+                        let msg = match status {
                             Ok(s) if s.success() => format!("pushed tag: {}", name),
                             _ => format!("failed to push tag: {}", name),
-                        });
+                        };
+                        let kind = if msg.starts_with("pushed") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.tag_view.status = Some(msg);
                     }
                 }
 
@@ -128,10 +143,13 @@ fn run_loop(
                             .args(["tag", "-d", &name])
                             .current_dir(&app.repo_path)
                             .status();
-                        app.tag_view.status = Some(match status {
+                        let msg = match status {
                             Ok(s) if s.success() => format!("deleted tag: {}", name),
                             _ => format!("failed to delete tag: {}", name),
-                        });
+                        };
+                        let kind = if msg.starts_with("deleted") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.tag_view.status = Some(msg);
                         app.go_to(View::Tag);
                     }
                 }
@@ -234,10 +252,13 @@ fn run_loop(
                         let status = std::process::Command::new("torii")
                             .args(["workspace", "sync", &name])
                             .status();
-                        app.workspace_view.status = Some(match status {
+                        let msg = match status {
                             Ok(s) if s.success() => format!("synced workspace: {}", name),
                             _ => format!("sync failed for: {}", name),
-                        });
+                        };
+                        let kind = if msg.starts_with("synced") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.workspace_view.status = Some(msg);
                         app.go_to(View::Workspace);
                     }
                 }
@@ -252,10 +273,13 @@ fn run_loop(
                             .args(["sync"])
                             .current_dir(&path)
                             .status();
-                        app.workspace_view.status = Some(match status {
+                        let msg = match status {
                             Ok(s) if s.success() => format!("synced: {}", path),
                             _ => format!("sync failed: {}", path),
-                        });
+                        };
+                        let kind = if msg.starts_with("synced") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.workspace_view.status = Some(msg);
                         app.refresh().ok();
                     }
                 }
@@ -266,6 +290,7 @@ fn run_loop(
                         .and_then(|ws| ws.repos.get(app.workspace_view.repo_idx))
                         .map(|r| r.path.clone());
                     if let Some(path) = repo_path {
+                        app.log_event(format!("abierto: {}", path), EventKind::Info);
                         app.repo_path = path;
                         app.refresh().ok();
                         app.go_to(View::Dashboard);

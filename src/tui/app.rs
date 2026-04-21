@@ -369,6 +369,7 @@ pub struct TuiSettings {
     pub keybind_config: char,
     pub brand_color: (u8, u8, u8),
     pub selected_bg: (u8, u8, u8),
+    pub event_log_max: usize,
 }
 
 impl Default for TuiSettings {
@@ -394,6 +395,7 @@ impl Default for TuiSettings {
             keybind_config: 'g',
             brand_color: (255, 76, 76),
             selected_bg: (40, 40, 60),
+            event_log_max: 50,
         }
     }
 }
@@ -432,6 +434,7 @@ impl TuiSettings {
                 "keybind_config"     => if let Some(c) = val.chars().next() { s.keybind_config = c; }
                 "brand_color"        => { if let Some(rgb) = parse_rgb(val) { s.brand_color = rgb; } }
                 "selected_bg"        => { if let Some(rgb) = parse_rgb(val) { s.selected_bg = rgb; } }
+                "event_log_max"      => { if let Ok(n) = val.parse::<usize>() { s.event_log_max = n; } }
                 _ => {}
             }
         }
@@ -446,7 +449,7 @@ impl TuiSettings {
             let _ = std::fs::create_dir_all(parent);
         }
         let content = format!(
-            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nkeybind_files = \"{}\"\nkeybind_save = \"{}\"\nkeybind_sync = \"{}\"\nkeybind_snapshot = \"{}\"\nkeybind_log = \"{}\"\nkeybind_branch = \"{}\"\nkeybind_tag = \"{}\"\nkeybind_history = \"{}\"\nkeybind_remote = \"{}\"\nkeybind_mirror = \"{}\"\nkeybind_workspace = \"{}\"\nkeybind_config = \"{}\"\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\n",
+            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nkeybind_files = \"{}\"\nkeybind_save = \"{}\"\nkeybind_sync = \"{}\"\nkeybind_snapshot = \"{}\"\nkeybind_log = \"{}\"\nkeybind_branch = \"{}\"\nkeybind_tag = \"{}\"\nkeybind_history = \"{}\"\nkeybind_remote = \"{}\"\nkeybind_mirror = \"{}\"\nkeybind_workspace = \"{}\"\nkeybind_config = \"{}\"\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
             if self.border_style == BorderStyle::Rounded { "rounded" } else { "sharp" },
             self.show_help_view, self.show_history_view, self.show_mirror_view,
             self.show_workspace_view, self.show_remote_view,
@@ -456,6 +459,7 @@ impl TuiSettings {
             self.keybind_mirror, self.keybind_workspace, self.keybind_config,
             self.brand_color.0, self.brand_color.1, self.brand_color.2,
             self.selected_bg.0, self.selected_bg.1, self.selected_bg.2,
+            self.event_log_max,
         );
         let _ = std::fs::write(path, content);
     }
@@ -479,6 +483,16 @@ pub struct SettingsState {
 
 impl Default for SettingsState {
     fn default() -> Self { Self { idx: 0, editing_keybind: None, status: None } }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum EventKind { Error, Success, Info }
+
+#[derive(Clone)]
+pub struct EventEntry {
+    pub timestamp: String,
+    pub message: String,
+    pub kind: EventKind,
 }
 
 // ── Main App ─────────────────────────────────────────────────────────────────
@@ -518,6 +532,9 @@ pub struct App {
     pub config_view: ConfigState,
     pub settings_view: SettingsState,
     pub settings: TuiSettings,
+
+    pub event_log: Vec<EventEntry>,
+    pub show_event_log: bool,
 }
 
 impl App {
@@ -551,6 +568,8 @@ impl App {
             config_view: ConfigState::default(),
             settings_view: SettingsState::default(),
             settings: TuiSettings::load(),
+            event_log: vec![],
+            show_event_log: false,
         };
         app.refresh()?;
         Ok(app)
@@ -652,6 +671,23 @@ impl App {
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
         self.status_msg = Some(msg.into());
+    }
+
+    pub fn log_event(&mut self, msg: impl Into<String>, kind: EventKind) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let hh = (secs % 86400) / 3600;
+        let mm = (secs % 3600) / 60;
+        let ss = secs % 60;
+        self.event_log.insert(0, EventEntry {
+            timestamp: format!("{:02}:{:02}:{:02}", hh, mm, ss),
+            message: msg.into(),
+            kind,
+        });
+        let max = self.settings.event_log_max;
+        if self.event_log.len() > max {
+            self.event_log.truncate(max);
+        }
     }
 
     pub fn refresh(&mut self) -> Result<()> {

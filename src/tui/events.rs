@@ -132,6 +132,7 @@ fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('w')) => app.go_to(View::Workspace),
         (_, KeyCode::Char('g')) => app.go_to(View::Config),
         (_, KeyCode::Char('x')) => app.go_to(View::Settings),
+        (_, KeyCode::Char('e')) => { app.show_event_log = !app.show_event_log; }
 
         _ => return None,
     }

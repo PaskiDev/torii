@@ -1,12 +1,12 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Padding, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph},
 };
 
-use super::app::{App, View};
+use super::app::{App, EventKind, View};
 use super::views;
 
 pub const BRAND_COLOR: Color = Color::Rgb(255, 76, 76);
@@ -129,6 +129,53 @@ pub fn render(f: &mut Frame, app: &App) {
         buf.cell_mut((area.x, tabs_bottom_y))
             .map(|c| c.set_symbol("├").set_fg(outer_color));
     }
+
+    if app.show_event_log {
+        render_event_log(f, app, area);
+    }
+}
+
+fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
+    let panel_w = (area.width / 3).max(30).min(60);
+    let panel_h = (area.height * 2 / 3).max(8).min(30);
+    let x = area.x + area.width.saturating_sub(panel_w + 2);
+    let y = area.y + area.height.saturating_sub(panel_h + 2);
+    let panel_area = Rect::new(x, y, panel_w, panel_h);
+
+    let bc = app.brand_color();
+    let block = Block::default()
+        .title(Span::styled(
+            format!(" eventos [{}]  [e] cerrar ", app.event_log.len()),
+            Style::default().fg(bc).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_type(app.border_type())
+        .border_style(Style::default().fg(bc));
+
+    let inner = block.inner(panel_area);
+    f.render_widget(Clear, panel_area);
+    f.render_widget(block, panel_area);
+
+    let items: Vec<ListItem> = app.event_log.iter().map(|e| {
+        let kind_color = match e.kind {
+            EventKind::Error   => C_RED,
+            EventKind::Success => C_GREEN,
+            EventKind::Info    => C_CYAN,
+        };
+        let kind_sym = match e.kind {
+            EventKind::Error   => "✗",
+            EventKind::Success => "✓",
+            EventKind::Info    => "·",
+        };
+        ListItem::new(Line::from(vec![
+            Span::styled(format!(" {} ", e.timestamp), Style::default().fg(C_DIM)),
+            Span::styled(kind_sym, Style::default().fg(kind_color)),
+            Span::raw(" "),
+            Span::styled(&e.message, Style::default().fg(C_WHITE)),
+        ]))
+    }).collect();
+
+    f.render_widget(List::new(items), inner);
 }
 
 fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
