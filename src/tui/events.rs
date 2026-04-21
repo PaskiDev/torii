@@ -52,6 +52,11 @@ impl EventHandler {
                         return Ok(None);
                     }
                 }
+                // Tab cycles focus: sidebar → view panels → sidebar
+                if key.code == KeyCode::Tab && key.modifiers == KeyModifiers::NONE {
+                    app.tab_cycle();
+                    return Ok(None);
+                }
                 // Sidebar navigation takes priority when focused
                 if app.sidebar_focused {
                     return Ok(handle_sidebar(key, app));
@@ -112,8 +117,6 @@ fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     match (key.modifiers, key.code) {
         (_, KeyCode::Char('q')) |
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
-
-        (_, KeyCode::Tab) => { app.sidebar_focused = true; return None; }
 
         (_, KeyCode::Char('?')) => app.go_to(View::Help),
 
@@ -233,6 +236,7 @@ fn handle_sidebar(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => return Some(Action::SidebarDown),
         (_, KeyCode::Enter)                           => return Some(Action::SidebarEnter),
         (_, KeyCode::Esc)                             => { app.sidebar_focused = false; }
+        // Tab handled globally before reaching here — this branch unreachable but harmless
         (_, KeyCode::Char('?'))                       => { app.sidebar_focused = false; app.go_to(View::Help); }
         (_, KeyCode::Char('q')) |
         (KeyModifiers::CONTROL, KeyCode::Char('c'))   => return Some(Action::Quit),

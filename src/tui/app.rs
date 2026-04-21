@@ -749,6 +749,47 @@ impl App {
 
     // ── Dashboard helpers ────────────────────────────────────────────────────
 
+    // Tab cycle: sidebar → view panels → sidebar
+    // Returns true if we wrapped back to sidebar
+    pub fn tab_cycle(&mut self) -> bool {
+        if self.sidebar_focused {
+            self.sidebar_focused = false;
+            // Enter first panel of current view
+            match self.view {
+                View::Dashboard => self.dashboard.selected_panel = Panel::Unstaged,
+                View::Workspace => self.workspace_view.focus = WorkspaceFocus::Workspaces,
+                View::Commit    => self.commit_view.focus = CommitFocus::List,
+                _ => {}
+            }
+            return false;
+        }
+        // Cycle within view, wrap to sidebar when exhausted
+        match self.view {
+            View::Dashboard => {
+                self.dashboard.selected_panel = match self.dashboard.selected_panel {
+                    Panel::Unstaged  => Panel::Untracked,
+                    Panel::Untracked => Panel::Staged,
+                    Panel::Staged    => Panel::Log,
+                    Panel::Log       => { self.sidebar_focused = true; return true; }
+                };
+            }
+            View::Workspace => {
+                match self.workspace_view.focus {
+                    WorkspaceFocus::Workspaces => self.workspace_view.focus = WorkspaceFocus::Repos,
+                    WorkspaceFocus::Repos      => { self.sidebar_focused = true; return true; }
+                }
+            }
+            View::Commit => {
+                match self.commit_view.focus {
+                    CommitFocus::List  => self.commit_view.focus = CommitFocus::Input,
+                    CommitFocus::Input => { self.sidebar_focused = true; return true; }
+                }
+            }
+            _ => { self.sidebar_focused = true; return true; }
+        }
+        false
+    }
+
     pub fn next_panel(&mut self) {
         self.dashboard.selected_panel = match self.dashboard.selected_panel {
             Panel::Staged    => Panel::Unstaged,
