@@ -300,24 +300,62 @@ fn find_git_repos(base: &Path, max_depth: usize) -> Vec<PathBuf> {
     repos
 }
 
+const SKIP_DIRS: &[&str] = &[
+    "node_modules", "target", ".venv", "venv", "dist", "build", ".next",
+    "__pycache__", ".cache", ".parcel-cache",
+];
+
+fn load_ignore_patterns(dir: &Path) -> Vec<String> {
+    let names = [".toriignore", ".gitignore"];
+    for name in &names {
+        let p = dir.join(name);
+        if let Ok(content) = std::fs::read_to_string(&p) {
+            return content
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect();
+        }
+    }
+    vec![]
+}
+
+fn is_ignored(name: &str, patterns: &[String]) -> bool {
+    for pat in patterns {
+        let pat = pat.trim_end_matches('/');
+        if pat == name { return true; }
+        if pat.starts_with('!') { continue; }
+        // simple glob: *.ext
+        if let Some(ext) = pat.strip_prefix("*.") {
+            if name.ends_with(&format!(".{}", ext)) { return true; }
+        }
+    }
+    false
+}
+
+fn has_git(dir: &Path) -> bool {
+    // .git puede ser carpeta (repo normal) o archivo (submodule/worktree gitfile)
+    dir.join(".git").exists()
+}
+
 fn scan_dir(base: &Path, dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<PathBuf>) {
     if depth > max_depth { return; }
-    let git_dir = dir.join(".git");
-    if git_dir.exists() {
-        // Es un repo — añadirlo pero no escanear dentro
+    if has_git(dir) {
         if dir != base {
             out.push(dir.to_path_buf());
         }
         return;
     }
+    let ignore = load_ignore_patterns(dir);
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if name.starts_with('.') || name == "node_modules" || name == "target" { continue; }
-            scan_dir(base, &path, depth + 1, max_depth, out);
-        }
+        if !path.is_dir() { continue; }
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        if name.starts_with('.') { continue; }
+        if SKIP_DIRS.contains(&name.as_str()) { continue; }
+        if is_ignored(&name, &ignore) { continue; }
+        scan_dir(base, &path, depth + 1, max_depth, out);
     }
 }
 
