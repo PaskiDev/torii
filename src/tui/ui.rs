@@ -171,10 +171,9 @@ pub fn render(f: &mut Frame, app: &App) {
 
 fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
     let panel_w = (area.width / 3).max(28).min(55);
-    let panel_h = (area.height * 2 / 3).max(6).min(28);
-    // Anchor to right edge, leaving 1 cell gap from outer border
+    let panel_h = (area.height / 2).max(6).min(24);
     let x = (area.x + area.width).saturating_sub(panel_w + 1);
-    let y = area.y + 1;
+    let y = (area.y + area.height).saturating_sub(panel_h + 1);
     let panel_area = Rect::new(x, y, panel_w, panel_h);
 
     let bc = app.brand_color();
