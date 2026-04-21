@@ -110,7 +110,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             f.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::styled("⛩  gitorii", Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD)),
-                    Span::styled("  — selecciona repositorios", Style::default().fg(C_SUBTLE)),
+                    Span::styled("  — select repositories", Style::default().fg(C_SUBTLE)),
                 ]))
                 .block(Block::default().borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
@@ -139,7 +139,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                 Span::raw("   "),
                 Span::styled("[2] ", tab_ws_style),
                 Span::styled(
-                    format!("workspaces recientes ({})", saved_ws.len()),
+                    format!("recent workspaces ({})", saved_ws.len()),
                     if tab == PickerTab::Workspaces { Style::default().fg(BRAND_COLOR) } else { Style::default().fg(C_DIM) },
                 ),
             ]);
@@ -183,7 +183,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                         ])).style(style)
                     }).collect();
 
-                    let list_title = format!(" repos ({} encontrados, {} seleccionados) ", repos.len(), n_sel);
+                    let list_title = format!(" repos ({} found, {} selected) ", repos.len(), n_sel);
                     let mut list_state = ListState::default();
                     list_state.select(Some(idx));
                     f.render_stateful_widget(
@@ -198,12 +198,12 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
 
                     let (ws_label, ws_style, ws_border) = match mode {
                         PickerMode::NamingWorkspace => (
-                            " nombre del workspace ",
+                            " workspace name ",
                             Style::default().fg(BRAND_COLOR).add_modifier(Modifier::BOLD),
                             Style::default().fg(BRAND_COLOR),
                         ),
                         PickerMode::Selecting => (
-                            " nombre del workspace (auto) ",
+                            " workspace name (auto) ",
                             Style::default().fg(C_DIM),
                             Style::default().fg(C_BORDER),
                         ),
@@ -241,7 +241,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                     if saved_ws.is_empty() {
                         f.render_widget(
                             Paragraph::new(Span::styled(
-                                "  no hay workspaces guardados",
+                                "  no saved workspaces",
                                 Style::default().fg(C_DIM),
                             )).block(Block::default().borders(Borders::ALL)
                                 .border_type(ratatui::widgets::BorderType::Rounded)
@@ -319,40 +319,40 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                         if n == 1 {
                             Line::from(vec![
                                 hint_key("[↑↓]"), hint_txt(" nav  "),
-                                hint_key("[space]"), hint_txt(" marcar  "),
-                                hint_key("[Enter]"), hint_txt(" abrir repo  "),
+                                hint_key("[space]"), hint_txt(" mark  "),
+                                hint_key("[Enter]"), hint_txt(" open repo  "),
                                 hint_key("[2]"), hint_txt(" workspaces  "),
-                                hint_key("[q]"), hint_txt(" salir"),
+                                hint_key("[q]"), hint_txt(" quit"),
                             ])
                         } else if n > 1 {
                             Line::from(vec![
-                                hint_key("[space]"), hint_txt(" marcar  "),
-                                hint_key("[a]"), hint_txt(" todos  "),
-                                hint_key("[A]"), hint_txt(" ninguno  "),
-                                hint_key("[Enter]"), hint_txt(" crear workspace  "),
-                                hint_key("[q]"), hint_txt(" salir"),
+                                hint_key("[space]"), hint_txt(" mark  "),
+                                hint_key("[a]"), hint_txt(" all  "),
+                                hint_key("[A]"), hint_txt(" none  "),
+                                hint_key("[Enter]"), hint_txt(" create workspace  "),
+                                hint_key("[q]"), hint_txt(" quit"),
                             ])
                         } else {
                             Line::from(vec![
                                 hint_key("[↑↓/jk]"), hint_txt(" nav  "),
-                                hint_key("[space]"), hint_txt(" marcar  "),
-                                hint_key("[a]"), hint_txt(" todos  "),
+                                hint_key("[space]"), hint_txt(" mark  "),
+                                hint_key("[a]"), hint_txt(" all  "),
                                 hint_key("[2]"), hint_txt(" workspaces  "),
-                                hint_key("[q]"), hint_txt(" salir"),
+                                hint_key("[q]"), hint_txt(" quit"),
                             ])
                         }
                     }
                     PickerMode::NamingWorkspace => Line::from(vec![
-                        hint_key("[Enter]"), hint_txt(" confirmar  "),
-                        hint_key("[Esc]"), hint_txt(" cancelar"),
+                        hint_key("[Enter]"), hint_txt(" confirm  "),
+                        hint_key("[Esc]"), hint_txt(" cancel"),
                     ]),
                 },
                 PickerTab::Workspaces => Line::from(vec![
                     hint_key("[↑↓/jk]"), hint_txt(" nav  "),
                     hint_key("[→/←]"), hint_txt(" foco  "),
-                    hint_key("[Enter]"), hint_txt(" abrir workspace  "),
+                    hint_key("[Enter]"), hint_txt(" open workspace  "),
                     hint_key("[1]"), hint_txt(" repos  "),
-                    hint_key("[q]"), hint_txt(" salir"),
+                    hint_key("[q]"), hint_txt(" quit"),
                 ]),
             };
             f.render_widget(Paragraph::new(hint), chunks[3]);

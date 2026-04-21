@@ -22,7 +22,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(C_BORDER));
         f.render_widget(
             Paragraph::new(Span::styled(
-                "  no hay workspaces — usa `torii tui` fuera de un repo para crear uno",
+                "  no workspaces — run `torii tui` outside a repo to create one",
                 Style::default().fg(C_DIM),
             )).block(block),
             chunks[0],
@@ -153,7 +153,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         Some(msg) => (msg.as_str(), C_GREEN),
         None => match app.workspace_view.focus {
             WorkspaceFocus::Workspaces => ("  [→/l] repos  [Enter] sync workspace", C_DIM),
-            WorkspaceFocus::Repos      => ("  [Enter] abrir repo  [s] sync repo  [S] sync workspace  [←/h] workspaces", C_DIM),
+            WorkspaceFocus::Repos      => ("  [Enter] open repo  [s] sync repo  [S] sync workspace  [←/h] workspaces", C_DIM),
         },
     };
 

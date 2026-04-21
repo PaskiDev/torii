@@ -145,7 +145,7 @@ fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
     let block = Block::default()
         .title(Span::styled(
-            format!(" eventos [{}]  [e] cerrar ", app.event_log.len()),
+            format!(" events [{}]  [e] close ", app.event_log.len()),
             Style::default().fg(bc).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)

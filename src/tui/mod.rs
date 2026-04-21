@@ -290,7 +290,7 @@ fn run_loop(
                         .and_then(|ws| ws.repos.get(app.workspace_view.repo_idx))
                         .map(|r| r.path.clone());
                     if let Some(path) = repo_path {
-                        app.log_event(format!("abierto: {}", path), EventKind::Info);
+                        app.log_event(format!("opened: {}", path), EventKind::Info);
                         app.repo_path = path;
                         app.refresh().ok();
                         app.go_to(View::Dashboard);
