@@ -230,7 +230,9 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             Span::styled("[Enter]", Style::default().fg(bc)),
             Span::styled(" open  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Esc]", Style::default().fg(bc)),
-            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+            Span::styled(" cancel  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[e]", Style::default().fg(bc)),
+            Span::styled(if app.show_event_log { " events ✓" } else { " events" }, Style::default().fg(C_SUBTLE)),
         ]);
         f.render_widget(Paragraph::new(line), area);
         return;
@@ -363,7 +365,14 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         ]),
         _ => Line::from(""),
     };
-    f.render_widget(Paragraph::new(line), area);
+
+    // Append [e] events hint to every line
+    let mut spans = line.spans;
+    let events_label = if app.show_event_log { " events ✓" } else { " events" };
+    spans.push(Span::styled("  [e]", Style::default().fg(bc)));
+    spans.push(Span::styled(events_label, Style::default().fg(C_SUBTLE)));
+
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
