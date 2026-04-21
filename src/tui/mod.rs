@@ -2,6 +2,7 @@ pub mod app;
 pub mod events;
 pub mod ui;
 pub mod views;
+pub mod picker;
 
 use std::io;
 use crossterm::{
@@ -14,6 +15,10 @@ use app::{App, View, SyncOp, SyncStatus, ConfigScope, BorderStyle};
 use events::{Action, EventHandler};
 
 pub fn run() -> crate::error::Result<()> {
+    run_with_view(app::View::Dashboard)
+}
+
+pub fn run_with_view(initial_view: app::View) -> crate::error::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -21,6 +26,7 @@ pub fn run() -> crate::error::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new()?;
+    app.go_to(initial_view);
     let mut events = EventHandler::new();
 
     let result = run_loop(&mut terminal, &mut app, &mut events);

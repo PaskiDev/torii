@@ -1813,12 +1813,29 @@ impl Cli {
             }
 
             Commands::Tui => {
-                if git2::Repository::discover(".").is_err() {
-                    eprintln!("error: no git repository found in current directory");
-                    eprintln!("hint: run `torii init` or navigate to a repository first");
-                    std::process::exit(1);
+                let current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                if git2::Repository::discover(&current).is_ok() {
+                    // Estamos dentro de un repo — abre directamente
+                    crate::tui::run()?;
+                } else {
+                    // No hay repo — lanza el picker
+                    use crate::tui::picker::{run_picker, save_workspace, PickerResult};
+                    match run_picker(&current)? {
+                        PickerResult::Cancelled => {}
+                        PickerResult::SingleRepo(path) => {
+                            std::env::set_current_dir(&path)?;
+                            crate::tui::run()?;
+                        }
+                        PickerResult::Workspace { name, repos } => {
+                            save_workspace(&name, &repos)?;
+                            // Abre TUI en el primer repo del workspace, vista Workspace
+                            if let Some(first) = repos.first() {
+                                std::env::set_current_dir(first)?;
+                            }
+                            crate::tui::run_with_view(crate::tui::app::View::Workspace)?;
+                        }
+                    }
                 }
-                crate::tui::run()?;
             }
         }
 
