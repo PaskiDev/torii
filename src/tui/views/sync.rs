@@ -57,26 +57,47 @@ fn render_ops(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(List::new(items).block(block), area);
 }
 
+fn progress_bar(tick: usize) -> String {
+    const TOTAL: usize = 10;
+    const CYCLE: usize = (TOTAL - 1) * 2;
+    let pos = tick % CYCLE;
+    let ball = if pos < TOTAL { pos } else { CYCLE - pos };
+    (0..TOTAL).map(|i| if i == ball { '▰' } else { '▱' }).collect()
+}
+
 fn render_status(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
-    let (text, color) = match &app.sync_view.status {
-        SyncStatus::Idle       => ("ready".to_string(),        C_DIM),
-        SyncStatus::Running    => ("syncing...".to_string(),   C_YELLOW),
-        SyncStatus::Done(msg)  => (format!("✓  {}", msg),     C_GREEN),
-        SyncStatus::Error(msg) => (format!("✗  {}", msg),     C_RED),
+
+    let line = match &app.sync_view.status {
+        SyncStatus::Idle => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("ready", Style::default().fg(C_DIM)),
+        ]),
+        SyncStatus::Running => {
+            let bar = progress_bar(app.tick / 2);
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(bar, Style::default().fg(C_YELLOW)),
+                Span::styled("  syncing...", Style::default().fg(C_YELLOW)),
+            ])
+        }
+        SyncStatus::Done(msg) => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("▰▰▰▰▰▰▰▰▰▰", Style::default().fg(C_GREEN)),
+            Span::styled(format!("  ✓  {}", msg.lines().next().unwrap_or("")), Style::default().fg(C_GREEN)),
+        ]),
+        SyncStatus::Error(msg) => Line::from(vec![
+            Span::raw(" "),
+            Span::styled("▰▰▰▰▰▰▰▰▰▰", Style::default().fg(C_RED)),
+            Span::styled(format!("  ✗  {}", msg.lines().next().unwrap_or("")), Style::default().fg(C_RED)),
+        ]),
     };
 
     let block = Block::default()
         .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(text, Style::default().fg(color)),
-        ])).block(block),
-        area,
-    );
+    f.render_widget(Paragraph::new(line).block(block), area);
 }
 
 fn op_label(op: &SyncOp) -> (&'static str, &'static str) {

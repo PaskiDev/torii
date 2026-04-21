@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, LogConfirm};
 
 
 pub enum Action {
@@ -15,7 +15,12 @@ pub enum Action {
     CommitConfirm,
     BranchCheckout,
     SnapshotRestore,
+    SnapshotCreate,
+    SnapshotDelete,
+    SnapshotSaveInterval,
     OpenDiffFromLog,
+    LogResetSoft,
+    LogNewBranch,
     SyncRun,
     TagPush,
     TagDelete,
@@ -57,14 +62,59 @@ impl EventHandler {
                     app.tab_cycle();
                     return Ok(None);
                 }
-                // e toggles event log from anywhere
-                if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE {
+                // e toggles event log from anywhere — except when typing in a text input
+                let typing = match app.view {
+                    View::Commit    => app.commit_view.focus == CommitFocus::Input,
+                    View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create,
+                    View::Log       => app.log.confirm == LogConfirm::NewBranch,
+                    _               => false,
+                };
+                if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
                     app.show_event_log = !app.show_event_log;
                     return Ok(None);
                 }
                 // Sidebar navigation takes priority when focused
+                // but pass Enter and action keys to the current view too
                 if app.sidebar_focused {
+                    let is_nav = matches!(key.code,
+                        KeyCode::Up | KeyCode::Down |
+                        KeyCode::Char('j') | KeyCode::Char('k')
+                    ) && key.modifiers == KeyModifiers::NONE;
+                    let is_quit = matches!(key.code, KeyCode::Char('q'))
+                        || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'));
+                    if is_nav || is_quit {
+                        return Ok(handle_sidebar(key, app));
+                    }
+                    // For action keys, delegate to view handler
+                    let view_result = match app.view {
+                        View::Log       => handle_log(key, app),
+                        View::Branch    => handle_branch(key, app),
+                        View::Tag       => handle_tag(key, app),
+                        View::History   => handle_history(key, app),
+                        View::Remote    => handle_remote(key, app),
+                        View::Mirror    => handle_mirror(key, app),
+                        View::Snapshot  => handle_snapshot(key, app),
+                        View::Workspace => handle_workspace(key, app),
+                        _ => None,
+                    };
+                    if view_result.is_some() {
+                        return Ok(view_result);
+                    }
                     return Ok(handle_sidebar(key, app));
+                }
+                // Esc always returns focus to sidebar unless the view handles it specially
+                if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
+                    let handled_by_view = match app.view {
+                        View::Diff      => { app.go_back(); true }
+                        View::Commit    => app.commit_view.focus == CommitFocus::Input,
+                        View::Config    => app.config_view.editing,
+                        View::Settings  => app.settings_view.editing_keybind.is_some(),
+                        _               => false,
+                    };
+                    if !handled_by_view {
+                        app.sidebar_focused = true;
+                    }
+                    return Ok(None);
                 }
                 return Ok(match app.view {
                     View::Dashboard => handle_dashboard(key, app),
@@ -164,11 +214,59 @@ fn handle_diff(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_log(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    match app.log.confirm.clone() {
+        LogConfirm::ResetSoft => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.log.confirm = LogConfirm::None;
+                    return Some(Action::LogResetSoft);
+                }
+                _ => {
+                    app.log.confirm = LogConfirm::None;
+                    app.log.status = Some("reset cancelled".to_string());
+                }
+            }
+            return None;
+        }
+        LogConfirm::NewBranch => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.log.confirm = LogConfirm::None;
+                    app.log.branch_input.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    app.log.confirm = LogConfirm::None;
+                    return Some(Action::LogNewBranch);
+                }
+                (_, KeyCode::Backspace) => { app.log.branch_input.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.log.branch_input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        LogConfirm::None => {}
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.log_move_up(),
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.log_move_down(),
-        (_, KeyCode::Char('d')) => return Some(Action::OpenDiffFromLog),
+        (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.log_move_up(),
+        (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.log_move_down(),
+        (_, KeyCode::Enter) | (_, KeyCode::Char('d')) => return Some(Action::OpenDiffFromLog),
+        (_, KeyCode::Char('r')) => {
+            if !app.commits.is_empty() {
+                app.log.confirm = LogConfirm::ResetSoft;
+                app.log.status = None;
+            }
+        }
+        (_, KeyCode::Char('b')) => {
+            if !app.commits.is_empty() {
+                app.log.branch_input.clear();
+                app.log.confirm = LogConfirm::NewBranch;
+                app.log.status = None;
+            }
+        }
         _ => {}
     }
     None
@@ -186,17 +284,48 @@ fn handle_branch(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_commit(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    const N_TYPES: usize = 8;
     match app.commit_view.focus {
         CommitFocus::List => {
             if let Some(a) = handle_global_nav(key, app) { return Some(a); }
             match (key.modifiers, key.code) {
-                (_, KeyCode::Enter) => app.commit_view.focus = CommitFocus::Input,
-                (_, KeyCode::Esc)                       => app.go_back(),
+                (_, KeyCode::Enter) => app.commit_view.focus = CommitFocus::TypeSelector,
+                (_, KeyCode::Char('i')) => {
+                    app.commit_view.focus = CommitFocus::Input;
+                }
+                _ => {}
+            }
+        }
+        CommitFocus::TypeSelector => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => {
+                    if app.commit_view.type_idx > 0 { app.commit_view.type_idx -= 1; }
+                }
+                (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                    if app.commit_view.type_idx < N_TYPES - 1 { app.commit_view.type_idx += 1; }
+                }
+                (_, KeyCode::Enter) => {
+                    let prefix = COMMIT_TYPES[app.commit_view.type_idx].0;
+                    let prefix_str = format!("{}: ", prefix);
+                    if !app.commit_view.message.starts_with(&prefix_str) {
+                        // Strip any existing type prefix first
+                        let base = if let Some(colon) = app.commit_view.message.find(": ") {
+                            app.commit_view.message[colon + 2..].to_string()
+                        } else {
+                            app.commit_view.message.clone()
+                        };
+                        app.commit_view.message = format!("{}{}", prefix_str, base);
+                        app.commit_view.cursor = app.commit_view.message.len();
+                    }
+                    app.commit_view.focus = CommitFocus::Input;
+                }
+                (_, KeyCode::Esc) => app.commit_view.focus = CommitFocus::List,
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
                 _ => {}
             }
         }
         CommitFocus::Input => match (key.modifiers, key.code) {
-            (_, KeyCode::Esc)                            => app.commit_view.focus = CommitFocus::List,
+            (_, KeyCode::Esc)                            => app.commit_view.focus = CommitFocus::TypeSelector,
             (_, KeyCode::Enter)                          => return Some(Action::CommitConfirm),
             (_, KeyCode::Backspace)                      => app.commit_backspace(),
             (_, KeyCode::Left)                           => app.commit_cursor_left(),
@@ -211,13 +340,76 @@ fn handle_commit(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     None
 }
 
+pub const COMMIT_TYPES: &[(&str, &str)] = &[
+    ("feat",     "new feature"),
+    ("fix",      "bug fix"),
+    ("chore",    "maintenance task"),
+    ("docs",     "documentation"),
+    ("refactor", "code restructure"),
+    ("test",     "tests"),
+    ("ci",       "CI/CD changes"),
+    ("perf",     "performance improvement"),
+];
+
 fn handle_snapshot(key: event::KeyEvent, app: &mut App) -> Option<Action> {
-    if let Some(a) = handle_global_nav(key, app) { return Some(a); }
-    match (key.modifiers, key.code) {
-        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.snapshot_move_up(),
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.snapshot_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::SnapshotRestore),
-        _ => {}
+    use crate::tui::app::{SnapshotFocus, AutoSnapshotInterval};
+    match app.snapshot_view.focus {
+        SnapshotFocus::List => {
+            if let Some(a) = handle_global_nav(key, app) { return Some(a); }
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.snapshot_move_up(),
+                (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.snapshot_move_down(),
+                (_, KeyCode::Enter)                           => return Some(Action::SnapshotRestore),
+                (_, KeyCode::Char('n'))                       => {
+                    app.snapshot_view.create_name.clear();
+                    app.snapshot_view.focus = SnapshotFocus::Create;
+                }
+                (_, KeyCode::Char('d'))                       => return Some(Action::SnapshotDelete),
+                (_, KeyCode::Char('a'))                       => {
+                    app.snapshot_view.auto_interval_idx = AutoSnapshotInterval::all()
+                        .iter().position(|i| i == &app.snapshot_view.auto_interval)
+                        .unwrap_or(0);
+                    app.snapshot_view.focus = SnapshotFocus::AutoConfig;
+                }
+                _ => {}
+            }
+        }
+        SnapshotFocus::Create => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc)       => app.snapshot_view.focus = SnapshotFocus::List,
+                (_, KeyCode::Enter)     => return Some(Action::SnapshotCreate),
+                (_, KeyCode::Backspace) => { app.snapshot_view.create_name.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.snapshot_view.create_name.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+        }
+        SnapshotFocus::AutoConfig => {
+            let n = AutoSnapshotInterval::all().len();
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => {
+                    if app.snapshot_view.auto_interval_idx > 0 {
+                        app.snapshot_view.auto_interval_idx -= 1;
+                    }
+                }
+                (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                    if app.snapshot_view.auto_interval_idx < n - 1 {
+                        app.snapshot_view.auto_interval_idx += 1;
+                    }
+                }
+                (_, KeyCode::Enter) => {
+                    app.snapshot_view.auto_interval =
+                        AutoSnapshotInterval::all()[app.snapshot_view.auto_interval_idx].clone();
+                    app.snapshot_view.focus = SnapshotFocus::List;
+                    return Some(Action::SnapshotSaveInterval);
+                }
+                (_, KeyCode::Esc) => app.snapshot_view.focus = SnapshotFocus::List,
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+        }
     }
     None
 }
@@ -238,9 +430,7 @@ fn handle_sidebar(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => return Some(Action::SidebarUp),
         (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => return Some(Action::SidebarDown),
         (_, KeyCode::Enter)                           => return Some(Action::SidebarEnter),
-        (_, KeyCode::Esc)                             => { app.sidebar_focused = false; }
-        // Tab handled globally before reaching here — this branch unreachable but harmless
-        (_, KeyCode::Char('?'))                       => { app.sidebar_focused = false; app.go_to(View::Help); }
+        (_, KeyCode::Char('?'))                       => { app.go_to(View::Help); }
         (_, KeyCode::Char('q')) |
         (KeyModifiers::CONTROL, KeyCode::Char('c'))   => return Some(Action::Quit),
         _ => {}

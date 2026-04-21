@@ -176,7 +176,7 @@ impl GitRepo {
         let analysis = self.repo.merge_analysis(&[&fetch_commit])?;
         
         if analysis.0.is_up_to_date() {
-            println!("Already up to date");
+            // nothing to do
         } else if analysis.0.is_fast_forward() {
             let refname = "refs/heads/main";
             let mut reference = self.repo.find_reference(refname)?;

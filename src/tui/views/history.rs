@@ -72,6 +72,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { return s.to_string(); }
-    format!("{}…", &s[..max.saturating_sub(1)])
+    if s.chars().count() <= max { return s.to_string(); }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut)
 }

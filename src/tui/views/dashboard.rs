@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, Panel};
-use super::super::ui::{C_WHITE, C_DIM, C_YELLOW};
+use super::super::ui::{C_WHITE, C_DIM, C_SUBTLE, C_YELLOW};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -32,9 +32,9 @@ fn render_files(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(area);
 
-    render_file_list(f, app, cols[0], Panel::Staged,    &app.staged,    app.dashboard.staged_idx,    "Staged");
-    render_file_list(f, app, cols[1], Panel::Unstaged,  &app.unstaged,  app.dashboard.unstaged_idx,  "Unstaged");
-    render_file_list(f, app, cols[2], Panel::Untracked, &app.untracked, app.dashboard.untracked_idx, "Untracked");
+    render_file_list(f, app, cols[0], Panel::Staged,    &app.staged,    app.dashboard.staged_idx,    "staged");
+    render_file_list(f, app, cols[1], Panel::Unstaged,  &app.unstaged,  app.dashboard.unstaged_idx,  "unstaged");
+    render_file_list(f, app, cols[2], Panel::Untracked, &app.untracked, app.dashboard.untracked_idx, "untracked");
 }
 
 fn render_file_list(
@@ -68,7 +68,7 @@ fn render_file_list(
         let style = if is_active && i == selected {
             Style::default().bg(app.selected_bg()).fg(C_WHITE).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(bc)
+            Style::default().fg(C_SUBTLE)
         };
         let prefix = if is_active && i == selected { "▶ " } else { "  " };
         ListItem::new(format!("{}{}", prefix, shorten_path(&entry.path, area.width as usize - 4)))
@@ -97,7 +97,7 @@ fn render_log(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(Span::styled(" Log ", title_style))
+        .title(Span::styled(" log ", title_style))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(border_style);
 
@@ -135,6 +135,7 @@ fn shorten_path(path: &str, max: usize) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { return s.to_string(); }
-    format!("{}…", &s[..max.saturating_sub(1)])
+    if s.chars().count() <= max { return s.to_string(); }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut)
 }

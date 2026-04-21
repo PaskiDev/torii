@@ -45,6 +45,7 @@ pub struct CommitEntry {
 pub struct DiffLine {
     pub kind: DiffLineKind,
     pub content: String,
+    pub line_no: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +54,7 @@ pub enum DiffLineKind {
     Removed,
     Context,
     Header,
+    HunkHeader,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,14 +103,30 @@ impl Default for DiffState {
 
 // ── Log state ────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogConfirm {
+    None,
+    ResetSoft,    // waiting for y/n confirmation
+    NewBranch,    // typing branch name
+}
+
 pub struct LogState {
     pub idx: usize,
     pub scroll: usize,
+    pub confirm: LogConfirm,
+    pub branch_input: String,
+    pub status: Option<String>,
 }
 
 impl Default for LogState {
     fn default() -> Self {
-        Self { idx: 0, scroll: 0 }
+        Self {
+            idx: 0,
+            scroll: 0,
+            confirm: LogConfirm::None,
+            branch_input: String::new(),
+            status: None,
+        }
     }
 }
 
@@ -136,6 +154,7 @@ impl Default for BranchState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommitFocus {
     List,
+    TypeSelector,
     Input,
 }
 
@@ -143,11 +162,12 @@ pub struct CommitState {
     pub message: String,
     pub cursor: usize,
     pub focus: CommitFocus,
+    pub type_idx: usize,
 }
 
 impl Default for CommitState {
     fn default() -> Self {
-        Self { message: String::new(), cursor: 0, focus: CommitFocus::List }
+        Self { message: String::new(), cursor: 0, focus: CommitFocus::List, type_idx: 0 }
     }
 }
 
@@ -159,14 +179,67 @@ pub struct SnapshotEntry {
     pub time: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SnapshotFocus {
+    List,
+    Create,
+    AutoConfig,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AutoSnapshotInterval {
+    Off,
+    Min5,
+    Min15,
+    Min30,
+    Hour1,
+}
+
+impl AutoSnapshotInterval {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Off   => "off",
+            Self::Min5  => "every 5 min",
+            Self::Min15 => "every 15 min",
+            Self::Min30 => "every 30 min",
+            Self::Hour1 => "every 1 hour",
+        }
+    }
+    pub fn secs(&self) -> Option<u64> {
+        match self {
+            Self::Off   => None,
+            Self::Min5  => Some(300),
+            Self::Min15 => Some(900),
+            Self::Min30 => Some(1800),
+            Self::Hour1 => Some(3600),
+        }
+    }
+    pub fn all() -> &'static [AutoSnapshotInterval] {
+        &[Self::Off, Self::Min5, Self::Min15, Self::Min30, Self::Hour1]
+    }
+}
+
 pub struct SnapshotState {
     pub snapshots: Vec<SnapshotEntry>,
     pub idx: usize,
+    pub focus: SnapshotFocus,
+    pub create_name: String,
+    pub auto_interval: AutoSnapshotInterval,
+    pub auto_interval_idx: usize,
+    pub last_auto_snapshot: u64,
 }
 
 impl Default for SnapshotState {
     fn default() -> Self {
-        Self { snapshots: vec![], idx: 0 }
+        Self {
+            snapshots: vec![],
+            idx: 0,
+            focus: SnapshotFocus::List,
+            create_name: String::new(),
+            auto_interval: AutoSnapshotInterval::Off,
+            auto_interval_idx: 0,
+            last_auto_snapshot: 0,
+        }
     }
 }
 
@@ -503,6 +576,7 @@ pub struct App {
     pub sidebar_idx: usize,
     pub sidebar_focused: bool,
     pub status_msg: Option<String>,
+    pub tick: usize,
 
     // Repo state (shared across views)
     pub repo_path: String,
@@ -535,6 +609,7 @@ pub struct App {
 
     pub event_log: Vec<EventEntry>,
     pub show_event_log: bool,
+    pub sync_rx: Option<std::sync::mpsc::Receiver<Result<String>>>,
 }
 
 impl App {
@@ -545,6 +620,7 @@ impl App {
             sidebar_idx: 0,
             sidebar_focused: true,
             status_msg: None,
+            tick: 0,
             repo_path: ".".to_string(),
             branch: String::new(),
             ahead: 0,
@@ -570,21 +646,14 @@ impl App {
             settings: TuiSettings::load(),
             event_log: vec![],
             show_event_log: false,
+            sync_rx: None,
         };
         app.refresh()?;
         Ok(app)
     }
 
-    pub fn sidebar_up(&mut self) {
-        if self.sidebar_idx > 0 { self.sidebar_idx -= 1; }
-    }
-
-    pub fn sidebar_down(&mut self) {
-        if self.sidebar_idx < 12 { self.sidebar_idx += 1; }
-    }
-
-    pub fn sidebar_enter(&mut self) {
-        let view = match self.sidebar_idx {
+    fn view_for_idx(idx: usize) -> View {
+        match idx {
             0  => View::Dashboard,
             1  => View::Commit,
             2  => View::Sync,
@@ -599,7 +668,29 @@ impl App {
             11 => View::Config,
             12 => View::Settings,
             _  => View::Dashboard,
-        };
+        }
+    }
+
+    pub fn sidebar_up(&mut self) {
+        if self.sidebar_idx > 0 {
+            self.sidebar_idx -= 1;
+            let view = Self::view_for_idx(self.sidebar_idx);
+            self.go_to(view);
+            self.sidebar_focused = true;
+        }
+    }
+
+    pub fn sidebar_down(&mut self) {
+        if self.sidebar_idx < 12 {
+            self.sidebar_idx += 1;
+            let view = Self::view_for_idx(self.sidebar_idx);
+            self.go_to(view);
+            self.sidebar_focused = true;
+        }
+    }
+
+    pub fn sidebar_enter(&mut self) {
+        let view = Self::view_for_idx(self.sidebar_idx);
         self.go_to(view);
     }
 
@@ -781,8 +872,9 @@ impl App {
             }
             View::Commit => {
                 match self.commit_view.focus {
-                    CommitFocus::List  => self.commit_view.focus = CommitFocus::Input,
-                    CommitFocus::Input => { self.sidebar_focused = true; return true; }
+                    CommitFocus::List         => self.commit_view.focus = CommitFocus::TypeSelector,
+                    CommitFocus::TypeSelector => self.commit_view.focus = CommitFocus::Input,
+                    CommitFocus::Input        => { self.sidebar_focused = true; return true; }
                 }
             }
             _ => { self.sidebar_focused = true; return true; }
@@ -957,7 +1049,7 @@ impl App {
 
     // ── Snapshot helpers ─────────────────────────────────────────────────────
 
-    fn load_snapshots(&mut self) {
+    pub fn load_snapshots(&mut self) {
         // Snapshots stored in .git/torii-snapshots/ — read metadata
         self.snapshot_view.snapshots.clear();
         let snap_dir = std::path::Path::new(&self.repo_path)
@@ -1335,13 +1427,14 @@ fn diff_to_lines(diff: &git2::Diff) -> Vec<DiffLine> {
     let mut lines = vec![];
     let _ = diff.print(git2::DiffFormat::Patch, |_delta, _hunk, line| {
         let content = String::from_utf8_lossy(line.content()).trim_end_matches('\n').to_string();
-        let kind = match line.origin() {
-            '+' => DiffLineKind::Added,
-            '-' => DiffLineKind::Removed,
-            'F' | 'H' => DiffLineKind::Header,
-            _   => DiffLineKind::Context,
+        let (kind, line_no) = match line.origin() {
+            '+' => (DiffLineKind::Added,   line.new_lineno()),
+            '-' => (DiffLineKind::Removed, line.old_lineno()),
+            'F' => (DiffLineKind::Header,  None),
+            'H' => (DiffLineKind::HunkHeader, line.new_lineno()),
+            _   => (DiffLineKind::Context, line.new_lineno()),
         };
-        lines.push(DiffLine { kind, content });
+        lines.push(DiffLine { kind, content, line_no });
         true
     });
     lines

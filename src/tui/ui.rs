@@ -129,10 +129,20 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         ("synced".to_string(), C_GREEN)
     };
 
+    let repo_name: String = std::fs::canonicalize(&app.repo_path)
+        .ok()
+        .as_deref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or(&app.repo_path)
+        .to_string();
+
     // Inner width = area.width - 2 borders
     let inner_w = area.width.saturating_sub(2) as usize;
     let left_spans: Vec<Span> = vec![
         Span::styled("⛩  gitorii", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+        Span::styled("  /  ", Style::default().fg(C_DIM)),
+        Span::styled(repo_name, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
     ];
     let right_spans: Vec<Span> = vec![
         Span::styled("branch: ", Style::default().fg(C_SUBTLE)),

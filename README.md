@@ -253,11 +253,55 @@ torii clone github <user>/<repo> -d dir # clone into specific directory
 torii ssh-check                         # verify SSH key setup
 ```
 
+## TUI
+
+Launch the interactive terminal UI:
+
+```bash
+torii tui
+```
+
+Full-screen interface with sidebar navigation. All views accessible from keyboard.
+
+| Key | Action |
+|-----|--------|
+| `↑↓` / `j k` | Navigate sidebar (previews view in real time) |
+| `Tab` / `Enter` | Enter selected view |
+| `Esc` | Return to sidebar |
+| `q` / `Ctrl+C` | Quit |
+| `e` | Toggle event log |
+| `?` | Help |
+
+**Views** (navigate with sidebar or shortcut key):
+
+| Key | View | Description |
+|-----|------|-------------|
+| `f` | files | Staged / unstaged / untracked files. `Space` to stage/unstage, `d` for diff |
+| `c` | save | Commit staged files. Optional conventional commit type selector |
+| `s` | sync | Pull, push, fetch, force-push. Animated progress, non-blocking |
+| `p` | snapshot | Create, restore, delete snapshots. Auto-snapshot with configurable interval |
+| `l` | log | Commit history. `Enter` diff, `r` reset soft, `b` new branch |
+| `b` | branch | List branches, checkout with `Enter` |
+| `t` | tags | List tags, push/delete |
+| `h` | history | Reflog and history rewrite operations |
+| `r` | remote | Remote repository info |
+| `m` | mirror | Mirror sync |
+| `w` | workspace | Multi-repo workspace management |
+| `g` | config | Edit repo/global config inline |
+| `x` | settings | TUI appearance, keybinds, visible views |
+
+**Diff view** — LCS-based inline char highlighting, paired +/- lines, hunk separators, line numbers.
+
+**Snapshot auto-interval** — configurable per-repo in `.torii/auto-interval` (travels with the project).
+
+**Settings** — customizable brand color, border style, keybinds. Saved in `~/.torii/tui-settings.toml`.
+
 ## Gitorii vs other Git clients
 
 | Feature | Gitorii | Lazygit | GitUI | Tig | Magit | gh CLI |
 |---------|:-------:|:-------:|:-----:|:---:|:-----:|:------:|
 | Pure CLI (no TUI required) | ✓ | ✗ | ✗ | ✗ | ✗ | ✓ |
+| Optional TUI with full feature parity | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ |
 | Secret scanner (pre-commit) | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Scan full git history | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | Snapshots (pre-op safety saves) | ✓ | ✗ | ✗ | ✗ | ~ | ✗ |

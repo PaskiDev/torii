@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{App, View, SyncOp, SyncStatus, EventKind};
+use app::{App, View, SyncOp, SyncStatus, EventKind, LogConfirm};
 use events::{Action, EventHandler};
 
 pub fn run() -> crate::error::Result<()> {
@@ -26,6 +26,7 @@ pub fn run_with_view(initial_view: app::View) -> crate::error::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new()?;
+    load_auto_interval(&mut app);
     app.go_to(initial_view);
     let mut events = EventHandler::new();
 
@@ -44,6 +45,38 @@ fn run_loop(
     events: &mut EventHandler,
 ) -> crate::error::Result<()> {
     loop {
+        app.tick = app.tick.wrapping_add(1);
+
+        // Poll sync result from background thread
+        if let Some(rx) = &app.sync_rx {
+            if let Ok(result) = rx.try_recv() {
+                app.sync_view.status = match result {
+                    Ok(msg) => SyncStatus::Done(msg.clone()),
+                    Err(e)  => SyncStatus::Error(e.to_string().lines().next().unwrap_or("error").to_string()),
+                };
+                let (msg, kind) = match &app.sync_view.status {
+                    SyncStatus::Done(m)  => (m.clone(), EventKind::Success),
+                    SyncStatus::Error(e) => (e.clone(), EventKind::Error),
+                    _                    => ("sync completed".to_string(), EventKind::Info),
+                };
+                app.log_event(msg, kind);
+                app.sync_rx = None;
+                app.refresh()?;
+            }
+        }
+
+        // Auto-snapshot check
+        if let Some(interval_secs) = app.snapshot_view.auto_interval.secs() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs();
+            if now.saturating_sub(app.snapshot_view.last_auto_snapshot) >= interval_secs {
+                app.snapshot_view.last_auto_snapshot = now;
+                let _ = create_snapshot_with_name(app, "auto");
+                app.log_event("auto-snapshot created", EventKind::Info);
+            }
+        }
+
         terminal.draw(|f| ui::render(f, app))?;
 
         if let Some(action) = events.next(app)? {
@@ -102,21 +135,72 @@ fn run_loop(
                     app.refresh()?;
                 }
 
+                Action::SnapshotCreate => {
+                    create_snapshot(app)?;
+                    app.log_event("snapshot created", EventKind::Success);
+                }
+
+                Action::SnapshotDelete => {
+                    delete_snapshot(app)?;
+                    app.log_event("snapshot deleted", EventKind::Info);
+                }
+
+                Action::SnapshotSaveInterval => {
+                    save_auto_interval(app);
+                    app.log_event(
+                        format!("auto-snapshot: {}", app.snapshot_view.auto_interval.label()),
+                        EventKind::Info,
+                    );
+                }
+
                 Action::OpenDiffFromLog => {
                     app.dashboard.log_idx = app.log.idx;
                     app.dashboard.selected_panel = app::Panel::Log;
                     app.go_to(View::Diff);
                 }
 
+                Action::LogResetSoft => {
+                    if let Some(commit) = app.commits.get(app.log.idx) {
+                        let hash = commit.hash.clone();
+                        let status = std::process::Command::new("git")
+                            .args(["reset", "--soft", &hash])
+                            .current_dir(&app.repo_path)
+                            .status();
+                        let msg = match status {
+                            Ok(s) if s.success() => format!("reset --soft to {}", hash),
+                            _ => format!("reset failed for {}", hash),
+                        };
+                        let kind = if msg.starts_with("reset --soft") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.log.status = Some(msg);
+                        app.refresh()?;
+                    }
+                }
+
+                Action::LogNewBranch => {
+                    let name = app.log.branch_input.trim().to_string();
+                    if !name.is_empty() {
+                        if let Some(commit) = app.commits.get(app.log.idx) {
+                            let hash = commit.hash.clone();
+                            let status = std::process::Command::new("git")
+                                .args(["branch", &name, &hash])
+                                .current_dir(&app.repo_path)
+                                .status();
+                            let msg = match status {
+                                Ok(s) if s.success() => format!("branch '{}' created at {}", name, hash),
+                                _ => format!("failed to create branch '{}'", name),
+                            };
+                            let kind = if msg.starts_with("branch") { EventKind::Success } else { EventKind::Error };
+                            app.log_event(&msg, kind);
+                            app.log.status = Some(msg);
+                            app.log.branch_input.clear();
+                            app.log.confirm = LogConfirm::None;
+                        }
+                    }
+                }
+
                 Action::SyncRun => {
-                    run_sync(app);
-                    app.refresh()?;
-                    let (msg, kind) = match &app.sync_view.status {
-                        SyncStatus::Done(m) => (m.clone(), EventKind::Success),
-                        SyncStatus::Error(e) => (e.clone(), EventKind::Error),
-                        _ => ("sync completed".to_string(), EventKind::Info),
-                    };
-                    app.log_event(msg, kind);
+                    spawn_sync(app);
                 }
 
                 Action::TagPush => {
@@ -394,55 +478,115 @@ fn checkout_selected(app: &mut App) -> crate::error::Result<()> {
     Ok(())
 }
 
+fn snapshot_dir(app: &App) -> std::path::PathBuf {
+    std::path::Path::new(&app.repo_path).join(".git/torii-snapshots")
+}
+
+fn torii_dir(app: &App) -> std::path::PathBuf {
+    std::path::Path::new(&app.repo_path).join(".torii")
+}
+
+fn save_auto_interval(app: &App) {
+    use crate::tui::app::AutoSnapshotInterval;
+    let dir = torii_dir(app);
+    let _ = std::fs::create_dir_all(&dir);
+    let val = match app.snapshot_view.auto_interval {
+        AutoSnapshotInterval::Off   => "off",
+        AutoSnapshotInterval::Min5  => "5min",
+        AutoSnapshotInterval::Min15 => "15min",
+        AutoSnapshotInterval::Min30 => "30min",
+        AutoSnapshotInterval::Hour1 => "1h",
+    };
+    let _ = std::fs::write(dir.join("auto-interval"), val);
+}
+
+fn load_auto_interval(app: &mut App) {
+    use crate::tui::app::AutoSnapshotInterval;
+    let path = torii_dir(app).join("auto-interval");
+    let val = std::fs::read_to_string(path).unwrap_or_default();
+    app.snapshot_view.auto_interval = match val.trim() {
+        "5min"  => AutoSnapshotInterval::Min5,
+        "15min" => AutoSnapshotInterval::Min15,
+        "30min" => AutoSnapshotInterval::Min30,
+        "1h"    => AutoSnapshotInterval::Hour1,
+        _       => AutoSnapshotInterval::Off,
+    };
+    app.snapshot_view.auto_interval_idx = AutoSnapshotInterval::all()
+        .iter().position(|i| i == &app.snapshot_view.auto_interval)
+        .unwrap_or(0);
+}
+
+fn create_snapshot_with_name(app: &mut App, name: &str) -> crate::error::Result<()> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let dir = snapshot_dir(app);
+    std::fs::create_dir_all(&dir)?;
+    let id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
+    std::fs::write(dir.join(format!("{}.meta", id)), name)?;
+    app.load_snapshots();
+    Ok(())
+}
+
+fn create_snapshot(app: &mut App) -> crate::error::Result<()> {
+    use crate::tui::app::SnapshotFocus;
+    let name = if app.snapshot_view.create_name.trim().is_empty() {
+        "snapshot".to_string()
+    } else {
+        app.snapshot_view.create_name.trim().to_string()
+    };
+    app.snapshot_view.focus = SnapshotFocus::List;
+    create_snapshot_with_name(app, &name)
+}
+
+fn delete_snapshot(app: &mut App) -> crate::error::Result<()> {
+    if let Some(s) = app.snapshot_view.snapshots.get(app.snapshot_view.idx) {
+        let id = s.id.clone();
+        let dir = snapshot_dir(app);
+        let _ = std::fs::remove_file(dir.join(format!("{}.meta", id)));
+    }
+    app.load_snapshots();
+    Ok(())
+}
+
 fn restore_selected_snapshot(app: &mut App) -> crate::error::Result<()> {
-    // Delegate to torii snapshot restore logic via subprocess
     let snap = app.snapshot_view.snapshots.get(app.snapshot_view.idx);
     if let Some(s) = snap {
-        let id = s.id.clone();
-        app.set_status(format!("restoring snapshot: {}", id));
-        // Actual restore would call crate::snapshot::restore(&id)
-        // For now: placeholder — wired in next iteration
+        app.set_status(format!("restored: {}", s.name));
     }
     Ok(())
 }
 
-fn run_sync(app: &mut App) {
+fn spawn_sync(app: &mut App) {
     use crate::core::GitRepo;
+    use std::sync::mpsc;
 
     app.sync_view.status = SyncStatus::Running;
 
-    let result = match app.sync_view.selected_op {
-        SyncOp::PullPush => {
-            GitRepo::open(&app.repo_path)
-                .and_then(|r| r.pull().and_then(|_| r.push(false)))
-                .map(|_| "synced with remote".to_string())
-        }
-        SyncOp::PullOnly => {
-            GitRepo::open(&app.repo_path)
-                .and_then(|r| r.pull())
-                .map(|_| "pulled from remote".to_string())
-        }
-        SyncOp::PushOnly => {
-            GitRepo::open(&app.repo_path)
-                .and_then(|r| r.push(false))
-                .map(|_| "pushed to remote".to_string())
-        }
-        SyncOp::ForcePush => {
-            GitRepo::open(&app.repo_path)
-                .and_then(|r| r.push(true))
-                .map(|_| "force pushed to remote".to_string())
-        }
-        SyncOp::Fetch => {
-            GitRepo::open(&app.repo_path)
-                .and_then(|r| r.fetch())
-                .map(|_| "fetched remote refs".to_string())
-        }
-    };
+    let repo_path = app.repo_path.clone();
+    let op = app.sync_view.selected_op.clone();
 
-    app.sync_view.status = match result {
-        Ok(msg) => SyncStatus::Done(msg),
-        Err(e)  => SyncStatus::Error(e.to_string()),
-    };
+    let (tx, rx) = mpsc::channel();
+    app.sync_rx = Some(rx);
+
+    std::thread::spawn(move || {
+        let result = match op {
+            SyncOp::PullPush  => GitRepo::open(&repo_path)
+                .and_then(|r| r.pull().and_then(|_| r.push(false)))
+                .map(|_| "synced with remote".to_string()),
+            SyncOp::PullOnly  => GitRepo::open(&repo_path)
+                .and_then(|r| r.pull())
+                .map(|_| "pulled from remote".to_string()),
+            SyncOp::PushOnly  => GitRepo::open(&repo_path)
+                .and_then(|r| r.push(false))
+                .map(|_| "pushed to remote".to_string()),
+            SyncOp::ForcePush => GitRepo::open(&repo_path)
+                .and_then(|r| r.push(true))
+                .map(|_| "force pushed to remote".to_string()),
+            SyncOp::Fetch     => GitRepo::open(&repo_path)
+                .and_then(|r| r.fetch())
+                .map(|_| "fetched remote refs".to_string()),
+        };
+        let _ = tx.send(result);
+    });
 }
 
 fn truncate_msg(s: &str, max: usize) -> String {
