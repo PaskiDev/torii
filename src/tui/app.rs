@@ -289,15 +289,21 @@ pub struct WorkspaceEntry {
     pub repos: Vec<WorkspaceRepo>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorkspaceFocus { Workspaces, Repos }
+
 pub struct WorkspaceState {
     pub workspaces: Vec<WorkspaceEntry>,
     pub ws_idx: usize,
     pub repo_idx: usize,
+    pub focus: WorkspaceFocus,
     pub status: Option<String>,
 }
 
 impl Default for WorkspaceState {
-    fn default() -> Self { Self { workspaces: vec![], ws_idx: 0, repo_idx: 0, status: None } }
+    fn default() -> Self {
+        Self { workspaces: vec![], ws_idx: 0, repo_idx: 0, focus: WorkspaceFocus::Workspaces, status: None }
+    }
 }
 
 // ── Config state ─────────────────────────────────────────────────────────────
@@ -1086,15 +1092,44 @@ impl App {
     }
 
     pub fn workspace_move_up(&mut self) {
-        if self.workspace_view.ws_idx > 0 { self.workspace_view.ws_idx -= 1; }
-        self.workspace_view.repo_idx = 0;
+        match self.workspace_view.focus {
+            WorkspaceFocus::Workspaces => {
+                if self.workspace_view.ws_idx > 0 { self.workspace_view.ws_idx -= 1; }
+                self.workspace_view.repo_idx = 0;
+            }
+            WorkspaceFocus::Repos => {
+                if self.workspace_view.repo_idx > 0 { self.workspace_view.repo_idx -= 1; }
+            }
+        }
     }
 
     pub fn workspace_move_down(&mut self) {
-        if self.workspace_view.ws_idx + 1 < self.workspace_view.workspaces.len() {
-            self.workspace_view.ws_idx += 1;
+        match self.workspace_view.focus {
+            WorkspaceFocus::Workspaces => {
+                if self.workspace_view.ws_idx + 1 < self.workspace_view.workspaces.len() {
+                    self.workspace_view.ws_idx += 1;
+                }
+                self.workspace_view.repo_idx = 0;
+            }
+            WorkspaceFocus::Repos => {
+                let repo_len = self.workspace_view.workspaces
+                    .get(self.workspace_view.ws_idx)
+                    .map(|ws| ws.repos.len())
+                    .unwrap_or(0);
+                if self.workspace_view.repo_idx + 1 < repo_len {
+                    self.workspace_view.repo_idx += 1;
+                }
+            }
         }
+    }
+
+    pub fn workspace_focus_repos(&mut self) {
+        self.workspace_view.focus = WorkspaceFocus::Repos;
         self.workspace_view.repo_idx = 0;
+    }
+
+    pub fn workspace_focus_workspaces(&mut self) {
+        self.workspace_view.focus = WorkspaceFocus::Workspaces;
     }
 
     // ── Config helpers ───────────────────────────────────────────────────────

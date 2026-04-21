@@ -241,6 +241,36 @@ fn run_loop(
                         app.go_to(View::Workspace);
                     }
                 }
+
+                Action::WorkspaceSyncOne => {
+                    let repo_path = app.workspace_view.workspaces
+                        .get(app.workspace_view.ws_idx)
+                        .and_then(|ws| ws.repos.get(app.workspace_view.repo_idx))
+                        .map(|r| r.path.clone());
+                    if let Some(path) = repo_path {
+                        let status = std::process::Command::new("torii")
+                            .args(["sync"])
+                            .current_dir(&path)
+                            .status();
+                        app.workspace_view.status = Some(match status {
+                            Ok(s) if s.success() => format!("synced: {}", path),
+                            _ => format!("sync failed: {}", path),
+                        });
+                        app.refresh().ok();
+                    }
+                }
+
+                Action::WorkspaceOpenRepo => {
+                    let repo_path = app.workspace_view.workspaces
+                        .get(app.workspace_view.ws_idx)
+                        .and_then(|ws| ws.repos.get(app.workspace_view.repo_idx))
+                        .map(|r| r.path.clone());
+                    if let Some(path) = repo_path {
+                        app.repo_path = path;
+                        app.refresh().ok();
+                        app.go_to(View::Dashboard);
+                    }
+                }
             }
         }
 

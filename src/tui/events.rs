@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus};
 
 
 pub enum Action {
@@ -23,6 +23,8 @@ pub enum Action {
     RemoteInfo,
     MirrorSync,
     WorkspaceSync,
+    WorkspaceSyncOne,
+    WorkspaceOpenRepo,
     ConfigEdit,
     ConfigSave,
     ConfigToggleScope,
@@ -287,11 +289,24 @@ fn handle_mirror(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 
 fn handle_workspace(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
-    match (key.modifiers, key.code) {
-        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.workspace_move_up(),
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.workspace_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::WorkspaceSync),
-        _ => {}
+    match app.workspace_view.focus {
+        WorkspaceFocus::Workspaces => match (key.modifiers, key.code) {
+            (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.workspace_move_up(),
+            (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.workspace_move_down(),
+            (_, KeyCode::Right) | (_, KeyCode::Char('l')) => app.workspace_focus_repos(),
+            (_, KeyCode::Enter)                           => return Some(Action::WorkspaceSync),
+            _ => {}
+        },
+        WorkspaceFocus::Repos => match (key.modifiers, key.code) {
+            (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.workspace_move_up(),
+            (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.workspace_move_down(),
+            (_, KeyCode::Left)  | (_, KeyCode::Char('h')) => app.workspace_focus_workspaces(),
+            (_, KeyCode::Esc)                             => app.workspace_focus_workspaces(),
+            (_, KeyCode::Enter)                           => return Some(Action::WorkspaceOpenRepo),
+            (_, KeyCode::Char('s'))                       => return Some(Action::WorkspaceSyncOne),
+            (_, KeyCode::Char('S'))                       => return Some(Action::WorkspaceSync),
+            _ => {}
+        },
     }
     None
 }
