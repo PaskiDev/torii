@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_DIM};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
@@ -44,6 +44,6 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(C_SUBTLE),
         ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }

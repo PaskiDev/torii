@@ -7,9 +7,10 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let bc = app.brand_color();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(3)])
@@ -48,7 +49,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(C_SUBTLE),
         ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
 
     // Status block
@@ -57,7 +58,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let status_block = Block::default()
         .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw(" "),

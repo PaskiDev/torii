@@ -108,7 +108,7 @@ pub fn render(f: &mut Frame, app: &App) {
     // div_x: columna del divisor RIGHT de la sidebar = inner.x + SIDEBAR_WIDTH - 1
     let div_x = inner.x + SIDEBAR_WIDTH - 1;
     if div_x < area.x + area.width {
-        let border_color = if app.sidebar_focused { app.brand_color() } else { C_BORDER };
+        let border_color = if app.sidebar_focused { C_WHITE } else { app.brand_color() };
         let buf = f.buffer_mut();
         let outer_color = app.brand_color();
         buf.cell_mut((div_x, area.y))
@@ -332,7 +332,7 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 }
 
 fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
-    let border_color = if app.sidebar_focused { app.brand_color() } else { C_BORDER };
+    let border_color = if app.sidebar_focused { C_WHITE } else { app.brand_color() };
 
     // Right border as divider between sidebar and content
     let outer = Block::default()

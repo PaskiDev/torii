@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, ConfigScope};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_YELLOW, C_CYAN, C_RED, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_YELLOW, C_CYAN, C_RED};
 
 const SECTIONS: &[&str] = &["user", "auth", "git", "mirror", "snapshot", "ui"];
 const SECTION_COLORS: &[ratatui::style::Color] = &[C_CYAN, C_YELLOW, C_GREEN, C_CYAN, C_YELLOW, C_GREEN];
@@ -53,11 +53,12 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(" sections ", Style::default().fg(C_SUBTLE)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_widget(List::new(items).block(block), area);
 }
 
 fn render_entries(f: &mut Frame, app: &App, area: Rect) {
+    let bc = app.brand_color();
     let scope_label = if app.config_view.scope == ConfigScope::Global { "global" } else { "local" };
 
     let items: Vec<ListItem> = if app.config_view.entries.is_empty() {
@@ -66,7 +67,6 @@ fn render_entries(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(C_DIM),
         ))]
     } else {
-        let bc = app.brand_color();
         app.config_view.entries.iter().enumerate().map(|(i, e)| {
             let is_sel = i == app.config_view.idx;
             let is_editing = is_sel && app.config_view.editing;
@@ -119,11 +119,12 @@ fn render_entries(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(title, Style::default().fg(C_SUBTLE)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
 fn render_status(f: &mut Frame, app: &App, area: Rect) {
+    let bc = app.brand_color();
     let (text, color) = if app.config_view.editing {
         ("editing — [Enter] save  [Esc] cancel".to_string(), C_YELLOW)
     } else {
@@ -136,7 +137,7 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(bc));
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw(" "),

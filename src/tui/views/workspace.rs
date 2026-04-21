@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, WorkspaceFocus};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_CYAN, C_YELLOW, C_GREEN, C_RED, C_BORDER};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_CYAN, C_YELLOW, C_GREEN, C_RED};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -19,7 +19,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let block = Block::default()
             .title(Span::styled(" workspaces ", Style::default().fg(C_SUBTLE)))
             .borders(Borders::ALL).border_type(app.border_type())
-            .border_style(Style::default().fg(C_BORDER));
+            .border_style(Style::default().fg(app.brand_color()));
         f.render_widget(
             Paragraph::new(Span::styled(
                 "  no workspaces — run `torii tui` outside a repo to create one",
@@ -74,15 +74,15 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let mut ws_state = ListState::default();
         ws_state.select(Some(app.workspace_view.ws_idx));
 
-        let ws_border_color = if focus_ws { bc } else { C_BORDER };
+        let ws_border_color = if focus_ws { C_WHITE } else { bc };
         let ws_block = Block::default()
-            .title(Span::styled(" workspaces ", Style::default().fg(if focus_ws { bc } else { C_SUBTLE })))
+            .title(Span::styled(" workspaces ", Style::default().fg(if focus_ws { C_WHITE } else { bc })))
             .borders(Borders::ALL).border_type(app.border_type())
             .border_style(Style::default().fg(ws_border_color));
         f.render_stateful_widget(List::new(ws_items).block(ws_block), cols[0], &mut ws_state);
 
         // ── Lista de repos (derecha) ─────────────────────────────────────────
-        let repos_border_color = if focus_repos { bc } else { C_BORDER };
+        let repos_border_color = if focus_repos { C_WHITE } else { bc };
 
         let repo_items: Vec<ListItem> = app.workspace_view.workspaces
             .get(app.workspace_view.ws_idx)
@@ -141,7 +141,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let repos_block = Block::default()
             .title(Span::styled(
                 format!(" {} — repos ", ws_name),
-                Style::default().fg(if focus_repos { bc } else { C_SUBTLE }),
+                Style::default().fg(if focus_repos { C_WHITE } else { bc }),
             ))
             .borders(Borders::ALL).border_type(app.border_type())
             .border_style(Style::default().fg(repos_border_color));
@@ -158,9 +158,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let status_block = Block::default()
-        .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" status ", Style::default().fg(app.brand_color())))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(app.brand_color()));
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(status_text, Style::default().fg(status_color)),

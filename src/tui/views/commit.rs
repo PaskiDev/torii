@@ -8,7 +8,7 @@ use ratatui::{
 
 
 use crate::tui::app::{App, CommitFocus};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_DIM, C_BORDER};
+use super::super::ui::{C_WHITE, C_GREEN, C_DIM};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -39,11 +39,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let staged_block = Block::default()
         .title(Span::styled(
             format!(" staged ({}) ", app.staged.len()),
-            if in_list { Style::default().fg(bc).add_modifier(Modifier::BOLD) }
-            else       { Style::default().fg(C_SUBTLE) },
+            if in_list { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) }
+            else       { Style::default().fg(bc) },
         ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(if in_list { Style::default().fg(bc) } else { Style::default().fg(C_BORDER) });
+        .border_style(if in_list { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_widget(List::new(staged_items).block(staged_block), chunks[0]);
 
     let msg = &app.commit_view.message;
@@ -69,10 +69,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let msg_block = Block::default()
         .title(Span::styled(
             " message ",
-            if in_list { Style::default().fg(C_SUBTLE) }
-            else       { Style::default().fg(bc).add_modifier(Modifier::BOLD) },
+            if in_list { Style::default().fg(bc) }
+            else       { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) },
         ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(if in_list { Style::default().fg(C_BORDER) } else { Style::default().fg(bc) });
+        .border_style(if in_list { Style::default().fg(bc) } else { Style::default().fg(C_WHITE) });
     f.render_widget(Paragraph::new(input_line).block(msg_block), chunks[1]);
 }

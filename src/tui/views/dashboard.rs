@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, Panel};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_BORDER};
+use super::super::ui::{C_WHITE, C_DIM, C_YELLOW};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
@@ -49,14 +49,14 @@ fn render_file_list(
     let is_active = !app.sidebar_focused && app.dashboard.selected_panel == panel;
     let bc = app.brand_color();
     let border_style = if is_active {
-        Style::default().fg(bc)
+        Style::default().fg(C_WHITE)
     } else {
-        Style::default().fg(C_BORDER)
+        Style::default().fg(bc)
     };
     let title_style = if is_active {
-        Style::default().fg(bc).add_modifier(Modifier::BOLD)
+        Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(C_SUBTLE)
+        Style::default().fg(bc)
     };
 
     let block = Block::default()
@@ -68,7 +68,7 @@ fn render_file_list(
         let style = if is_active && i == selected {
             Style::default().bg(app.selected_bg()).fg(C_WHITE).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(C_SUBTLE)
+            Style::default().fg(bc)
         };
         let prefix = if is_active && i == selected { "▶ " } else { "  " };
         ListItem::new(format!("{}{}", prefix, shorten_path(&entry.path, area.width as usize - 4)))
@@ -86,14 +86,14 @@ fn render_log(f: &mut Frame, app: &App, area: Rect) {
     let is_active = !app.sidebar_focused && app.dashboard.selected_panel == Panel::Log;
     let bc = app.brand_color();
     let border_style = if is_active {
-        Style::default().fg(bc)
+        Style::default().fg(C_WHITE)
     } else {
-        Style::default().fg(C_BORDER)
+        Style::default().fg(bc)
     };
     let title_style = if is_active {
-        Style::default().fg(bc).add_modifier(Modifier::BOLD)
+        Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(C_SUBTLE)
+        Style::default().fg(bc)
     };
 
     let block = Block::default()
