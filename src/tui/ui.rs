@@ -61,7 +61,7 @@ pub fn render(f: &mut Frame, app: &App) {
     // Outer border around the entire UI
     let outer = Block::default()
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_BORDER));
+        .border_style(Style::default().fg(app.brand_color()));
     let inner = outer.inner(area);
     f.render_widget(outer, area);
 
@@ -103,6 +103,32 @@ pub fn render(f: &mut Frame, app: &App) {
     }
 
     render_hint(f, app, content_rows[1]);
+
+    // Intersecciones sidebar ↔ borde exterior — se ponen al final para no ser sobreescritas
+    // div_x: columna del divisor RIGHT de la sidebar = inner.x + SIDEBAR_WIDTH - 1
+    let div_x = inner.x + SIDEBAR_WIDTH - 1;
+    if div_x < area.x + area.width {
+        let border_color = if app.sidebar_focused { app.brand_color() } else { C_BORDER };
+        let buf = f.buffer_mut();
+        let outer_color = app.brand_color();
+        buf.cell_mut((div_x, area.y))
+            .map(|c| c.set_symbol("┬").set_fg(outer_color));
+        buf.cell_mut((div_x, area.y + area.height - 1))
+            .map(|c| c.set_symbol("┴").set_fg(outer_color));
+        // Intersecciones internas: donde brand y tabs BOTTOM tocan ambos bordes
+        let brand_bottom_y = inner.y + 3;
+        let tabs_bottom_y  = inner.y + inner.height - 3;
+        // Lado derecho (divisor): ┤
+        buf.cell_mut((div_x, brand_bottom_y))
+            .map(|c| c.set_symbol("┤").set_fg(border_color));
+        buf.cell_mut((div_x, tabs_bottom_y))
+            .map(|c| c.set_symbol("┤").set_fg(border_color));
+        // Lado izquierdo (borde outer): ├
+        buf.cell_mut((area.x, brand_bottom_y))
+            .map(|c| c.set_symbol("├").set_fg(outer_color));
+        buf.cell_mut((area.x, tabs_bottom_y))
+            .map(|c| c.set_symbol("├").set_fg(outer_color));
+    }
 }
 
 fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
