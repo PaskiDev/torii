@@ -58,13 +58,6 @@ pub fn render(f: &mut Frame, app: &App) {
 
     let area = f.area();
 
-    // Outer border around the entire UI
-    let outer = Block::default()
-        .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(app.brand_color()));
-    let inner = outer.inner(area);
-    f.render_widget(outer, area);
-
     // Global layout: sidebar | content
     let cols = Layout::default()
         .direction(Direction::Horizontal)
@@ -72,7 +65,8 @@ pub fn render(f: &mut Frame, app: &App) {
             Constraint::Length(SIDEBAR_WIDTH),
             Constraint::Min(1),
         ])
-        .split(inner);
+        .split(area);
+    let inner = area;
 
     // Content area: main view + 1 line hint at bottom
     let content_rows = Layout::default()
@@ -104,65 +98,6 @@ pub fn render(f: &mut Frame, app: &App) {
 
     render_hint(f, app, content_rows[1]);
 
-    // Intersecciones sidebar ↔ borde exterior
-    let div_x = inner.x + SIDEBAR_WIDTH - 1;
-    if div_x < area.x + area.width {
-        let bc = app.brand_color();
-        let buf = f.buffer_mut();
-
-        if app.sidebar_focused {
-            // Sidebar focused: esquinas redondeadas blancas formando su propio recuadro
-            let w = C_WHITE;
-            // Esquinas del recuadro sidebar
-            buf.cell_mut((area.x, area.y))
-                .map(|c| c.set_symbol("╭").set_fg(w));
-            buf.cell_mut((div_x, area.y))
-                .map(|c| c.set_symbol("╮").set_fg(w));
-            buf.cell_mut((area.x, area.y + area.height - 1))
-                .map(|c| c.set_symbol("╰").set_fg(w));
-            buf.cell_mut((div_x, area.y + area.height - 1))
-                .map(|c| c.set_symbol("╯").set_fg(w));
-            // Borde top y bottom del sidebar en blanco
-            for x in (area.x + 1)..div_x {
-                buf.cell_mut((x, area.y))
-                    .map(|c| c.set_symbol("─").set_fg(w));
-                buf.cell_mut((x, area.y + area.height - 1))
-                    .map(|c| c.set_symbol("─").set_fg(w));
-            }
-            // Borde izquierdo del sidebar en blanco
-            for y in (area.y + 1)..(area.y + area.height - 1) {
-                buf.cell_mut((area.x, y))
-                    .map(|c| c.set_symbol("│").set_fg(w));
-            }
-            // Intersecciones internas con brand/tabs borders
-            let brand_bottom_y = inner.y + 3;
-            let tabs_bottom_y  = inner.y + inner.height - 3;
-            buf.cell_mut((div_x, brand_bottom_y))
-                .map(|c| c.set_symbol("┤").set_fg(w));
-            buf.cell_mut((div_x, tabs_bottom_y))
-                .map(|c| c.set_symbol("┤").set_fg(w));
-            buf.cell_mut((area.x, brand_bottom_y))
-                .map(|c| c.set_symbol("├").set_fg(w));
-            buf.cell_mut((area.x, tabs_bottom_y))
-                .map(|c| c.set_symbol("├").set_fg(w));
-        } else {
-            // Sin foco: intersecciones normales con el borde exterior
-            buf.cell_mut((div_x, area.y))
-                .map(|c| c.set_symbol("┬").set_fg(bc));
-            buf.cell_mut((div_x, area.y + area.height - 1))
-                .map(|c| c.set_symbol("┴").set_fg(bc));
-            let brand_bottom_y = inner.y + 3;
-            let tabs_bottom_y  = inner.y + inner.height - 3;
-            buf.cell_mut((div_x, brand_bottom_y))
-                .map(|c| c.set_symbol("┤").set_fg(bc));
-            buf.cell_mut((div_x, tabs_bottom_y))
-                .map(|c| c.set_symbol("┤").set_fg(bc));
-            buf.cell_mut((area.x, brand_bottom_y))
-                .map(|c| c.set_symbol("├").set_fg(bc));
-            buf.cell_mut((area.x, tabs_bottom_y))
-                .map(|c| c.set_symbol("├").set_fg(bc));
-        }
-    }
 
     if app.show_event_log {
         render_event_log(f, app, area);
