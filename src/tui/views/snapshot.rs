@@ -26,17 +26,32 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     // ── Snapshot list ─────────────────────────────────────────────────────────
+    let display_indices: Vec<usize> = if app.snapshot_view.filtered.is_empty() && app.snapshot_view.search_query.is_empty() {
+        (0..app.snapshot_view.snapshots.len()).collect()
+    } else {
+        app.snapshot_view.filtered.clone()
+    };
+
     let items: Vec<ListItem> = if app.snapshot_view.snapshots.is_empty() {
         vec![ListItem::new(Span::styled(
             "  no snapshots — press [n] to create one",
             Style::default().fg(C_DIM),
         ))]
+    } else if display_indices.is_empty() {
+        vec![ListItem::new(Span::styled(
+            "  no matches",
+            Style::default().fg(C_DIM),
+        ))]
     } else {
-        app.snapshot_view.snapshots.iter().enumerate().map(|(i, s)| {
-            let is_sel = in_list && i == app.snapshot_view.idx;
+        display_indices.iter().map(|&i| {
+            let s = &app.snapshot_view.snapshots[i];
+            let is_sel = in_list && app.snapshot_view.idx == display_indices.iter().position(|&x| x == i).unwrap_or(usize::MAX);
+            let name_color = if !app.snapshot_view.search_query.is_empty() && !app.snapshot_view.filtered.is_empty() {
+                super::super::ui::C_GREEN
+            } else if is_sel { C_WHITE } else { C_SUBTLE };
             ListItem::new(Line::from(vec![
                 Span::styled(if is_sel { "▶ " } else { "  " }, Style::default().fg(bc)),
-                Span::styled(&s.name, Style::default().fg(if is_sel { C_WHITE } else { C_SUBTLE }).add_modifier(if is_sel { Modifier::BOLD } else { Modifier::empty() })),
+                Span::styled(&s.name, Style::default().fg(name_color).add_modifier(if is_sel { Modifier::BOLD } else { Modifier::empty() })),
                 Span::styled(format!("  {}", s.id), Style::default().fg(C_YELLOW)),
                 Span::styled(format!("  {}", s.time), Style::default().fg(C_DIM)),
             ])).style(if is_sel { Style::default().bg(app.selected_bg()) } else { Style::default() })
@@ -44,15 +59,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let mut state = ListState::default();
-    if in_list && !app.snapshot_view.snapshots.is_empty() {
-        state.select(Some(app.snapshot_view.idx));
-    }
+    if in_list && !display_indices.is_empty() { state.select(Some(app.snapshot_view.idx)); }
+
+    let title = if app.snapshot_view.search_mode {
+        format!(" snapshots — search: {}█ ", app.snapshot_view.search_query)
+    } else if !app.snapshot_view.search_query.is_empty() {
+        format!(" snapshots — \"{}\"  {} matches ", app.snapshot_view.search_query, display_indices.len())
+    } else {
+        format!(" snapshots ({}) ", app.snapshot_view.snapshots.len())
+    };
+    let title_color = if app.snapshot_view.search_mode { C_YELLOW } else if in_list { C_WHITE } else { bc };
 
     let list_block = Block::default()
-        .title(Span::styled(
-            format!(" snapshots ({}) ", app.snapshot_view.snapshots.len()),
-            if in_list { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) } else { Style::default().fg(bc) },
-        ))
+        .title(Span::styled(title, Style::default().fg(title_color).add_modifier(
+            if in_list || app.snapshot_view.search_mode { Modifier::BOLD } else { Modifier::empty() }
+        )))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(if in_list { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_stateful_widget(List::new(items).block(list_block), chunks[0], &mut state);

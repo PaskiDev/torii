@@ -67,7 +67,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         format!(" log — {} ({} commits){} ", app.branch, total, loaded_hint)
     };
 
-    let title_color = if app.log.search_mode { C_YELLOW } else if focused { C_WHITE } else { C_SUBTLE };
+    let title_color = if app.log.search_mode { C_YELLOW } else if focused { C_WHITE } else { bc };
 
     let list_block = Block::default()
         .title(Span::styled(title, Style::default().fg(title_color).add_modifier(
@@ -101,7 +101,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     }).unwrap_or_default();
 
     let files_block = Block::default()
-        .title(Span::styled(commit_info, Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(commit_info, Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(List::new(file_items).block(files_block), chunks[1]);

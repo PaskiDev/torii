@@ -70,7 +70,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let list_block = Block::default()
         .title(Span::styled(title,
             if focused { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) }
-            else { Style::default().fg(C_SUBTLE) }
+            else { Style::default().fg(bc) }
         ))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });

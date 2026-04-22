@@ -48,7 +48,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .title(Span::styled(
             format!(" tags — {} ", app.tag_view.tags.len()),
             if focused { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) }
-            else { Style::default().fg(C_SUBTLE) },
+            else { Style::default().fg(bc) },
         ))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
@@ -79,7 +79,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let info_block = Block::default()
-        .title(Span::styled(" info ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" info ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(

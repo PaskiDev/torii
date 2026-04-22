@@ -15,6 +15,7 @@ pub enum View {
     Remote,
     Mirror,
     Workspace,
+    Pr,
     Config,
     Settings,
     Help,
@@ -165,6 +166,9 @@ pub struct BranchState {
     pub current_has_upstream: bool,
     pub ops_mode: bool,
     pub ops_idx: usize,
+    pub search_mode: bool,
+    pub search_query: String,
+    pub filtered: Vec<usize>,
 }
 
 impl Default for BranchState {
@@ -178,6 +182,9 @@ impl Default for BranchState {
             current_has_upstream: false,
             ops_mode: false,
             ops_idx: 0,
+            search_mode: false,
+            search_query: String::new(),
+            filtered: vec![],
         }
     }
 }
@@ -196,11 +203,12 @@ pub struct CommitState {
     pub cursor: usize,
     pub focus: CommitFocus,
     pub type_idx: usize,
+    pub amend: bool,
 }
 
 impl Default for CommitState {
     fn default() -> Self {
-        Self { message: String::new(), cursor: 0, focus: CommitFocus::List, type_idx: 0 }
+        Self { message: String::new(), cursor: 0, focus: CommitFocus::List, type_idx: 0, amend: false }
     }
 }
 
@@ -210,6 +218,7 @@ pub struct SnapshotEntry {
     pub id: String,
     pub name: String,
     pub time: String,
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -262,6 +271,9 @@ pub struct SnapshotState {
     pub last_auto_snapshot: u64,
     pub ops_mode: bool,
     pub ops_idx: usize,
+    pub search_mode: bool,
+    pub search_query: String,
+    pub filtered: Vec<usize>,
 }
 
 impl Default for SnapshotState {
@@ -276,6 +288,9 @@ impl Default for SnapshotState {
             last_auto_snapshot: 0,
             ops_mode: false,
             ops_idx: 0,
+            search_mode: false,
+            search_query: String::new(),
+            filtered: vec![],
         }
     }
 }
@@ -339,6 +354,9 @@ pub struct TagState {
     pub new_message: String,
     pub ops_mode: bool,
     pub ops_idx: usize,
+    pub search_mode: bool,
+    pub search_query: String,
+    pub filtered: Vec<usize>,
 }
 
 impl Default for TagState {
@@ -351,6 +369,9 @@ impl Default for TagState {
             new_message: String::new(),
             ops_mode: false,
             ops_idx: 0,
+            search_mode: false,
+            search_query: String::new(),
+            filtered: vec![],
         }
     }
 }
@@ -406,35 +427,174 @@ impl Default for HistoryState {
 
 pub struct RemoteEntry {
     pub name: String,
+    pub git_name: String,
     pub url: String,
+    pub platform: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RemoteConfirm {
+    None,
+    Remove,
+    AddName,
+    AddUrl,
+    Rename,
+    MirrorRename,
+    MirrorAddPlatform,
+    MirrorAddAccount,
+    MirrorAddRepo,
+    MirrorAddType,
 }
 
 pub struct RemoteState {
     pub remotes: Vec<RemoteEntry>,
+    pub mirrors: Vec<MirrorEntry>,
     pub idx: usize,
     pub status: Option<String>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
+    pub confirm: RemoteConfirm,
+    pub new_name: String,
+    pub new_url: String,
+    pub new_mirror_platform: String,
+    pub new_mirror_account: String,
+    pub new_mirror_repo: String,
+    pub new_mirror_type: usize, // 0=replica, 1=primary
+}
+
+impl RemoteState {
+    pub fn selected_is_mirror(&self) -> bool {
+        self.idx >= self.remotes.len()
+    }
+    pub fn selected_remote(&self) -> Option<&RemoteEntry> {
+        if self.selected_is_mirror() { return None; }
+        self.remotes.get(self.idx)
+    }
+    pub fn selected_mirror(&self) -> Option<&MirrorEntry> {
+        if !self.selected_is_mirror() { return None; }
+        self.mirrors.get(self.idx - self.remotes.len())
+    }
+    pub fn total_len(&self) -> usize {
+        self.remotes.len() + self.mirrors.len()
+    }
 }
 
 impl Default for RemoteState {
-    fn default() -> Self { Self { remotes: vec![], idx: 0, status: None } }
+    fn default() -> Self {
+        Self {
+            remotes: vec![],
+            mirrors: vec![],
+            idx: 0,
+            status: None,
+            ops_mode: false,
+            ops_idx: 0,
+            confirm: RemoteConfirm::None,
+            new_name: String::new(),
+            new_url: String::new(),
+            new_mirror_platform: String::new(),
+            new_mirror_account: String::new(),
+            new_mirror_repo: String::new(),
+            new_mirror_type: 0,
+        }
+    }
 }
 
 // ── Mirror state ──────────────────────────────────────────────────────────────
 
 pub struct MirrorEntry {
     pub name: String,
+    pub platform: String,
     pub url: String,
     pub kind: String,
+    pub account: String,
+    pub repo: String,
 }
 
 pub struct MirrorState {
     pub mirrors: Vec<MirrorEntry>,
     pub idx: usize,
     pub status: Option<String>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for MirrorState {
-    fn default() -> Self { Self { mirrors: vec![], idx: 0, status: None } }
+    fn default() -> Self { Self { mirrors: vec![], idx: 0, status: None, ops_mode: false, ops_idx: 0 } }
+}
+
+// ── PR state ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct PrEntry {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub head: String,
+    pub base: String,
+    pub author: String,
+    pub url: String,
+    pub draft: bool,
+    pub mergeable: Option<bool>,
+    pub created_at: String,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrStateFilter { Open, Closed, All }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrConfirm {
+    None,
+    Merge,
+    Close,
+    CreateTitle,
+    CreateBase,
+    CreateDesc,
+}
+
+pub struct PrState {
+    pub prs: Vec<PrEntry>,
+    pub idx: usize,
+    pub filter: PrStateFilter,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
+    pub confirm: PrConfirm,
+    pub merge_method: usize, // 0=merge, 1=squash, 2=rebase
+    pub platform: String,
+    pub owner: String,
+    pub repo_name: String,
+    // create flow
+    pub create_title: String,
+    pub create_base: String,
+    pub create_desc: String,
+    pub create_draft: bool,
+    pub create_input: String,
+}
+
+impl Default for PrState {
+    fn default() -> Self {
+        Self {
+            prs: vec![],
+            idx: 0,
+            filter: PrStateFilter::Open,
+            loading: false,
+            error: None,
+            ops_mode: false,
+            ops_idx: 0,
+            confirm: PrConfirm::None,
+            merge_method: 0,
+            platform: String::new(),
+            owner: String::new(),
+            repo_name: String::new(),
+            create_title: String::new(),
+            create_base: String::new(),
+            create_desc: String::new(),
+            create_draft: false,
+            create_input: String::new(),
+        }
+    }
 }
 
 // ── Workspace state ───────────────────────────────────────────────────────────
@@ -455,17 +615,41 @@ pub struct WorkspaceEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkspaceFocus { Workspaces, Repos }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorkspaceConfirm {
+    None,
+    DeleteWorkspace,
+    RemoveRepo,
+    SaveMessage,
+    AddRepoPath,
+    RenameWorkspace,
+}
+
 pub struct WorkspaceState {
     pub workspaces: Vec<WorkspaceEntry>,
     pub ws_idx: usize,
     pub repo_idx: usize,
     pub focus: WorkspaceFocus,
     pub status: Option<String>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
+    pub confirm: WorkspaceConfirm,
+    pub input: String,
 }
 
 impl Default for WorkspaceState {
     fn default() -> Self {
-        Self { workspaces: vec![], ws_idx: 0, repo_idx: 0, focus: WorkspaceFocus::Workspaces, status: None }
+        Self {
+            workspaces: vec![],
+            ws_idx: 0,
+            repo_idx: 0,
+            focus: WorkspaceFocus::Workspaces,
+            status: None,
+            ops_mode: false,
+            ops_idx: 0,
+            confirm: WorkspaceConfirm::None,
+            input: String::new(),
+        }
     }
 }
 
@@ -694,6 +878,7 @@ pub struct App {
     pub remote_view: RemoteState,
     pub mirror_view: MirrorState,
     pub workspace_view: WorkspaceState,
+    pub pr_view: PrState,
     pub config_view: ConfigState,
     pub settings_view: SettingsState,
     pub settings: TuiSettings,
@@ -701,6 +886,11 @@ pub struct App {
     pub event_log: Vec<EventEntry>,
     pub show_event_log: bool,
     pub sync_rx: Option<std::sync::mpsc::Receiver<Result<String>>>,
+    pub pr_rx: Option<std::sync::mpsc::Receiver<Result<Vec<PrEntry>>>>,
+
+    pub repo_picker_open: bool,
+    pub repo_picker_idx: usize,
+    pub active_workspace: Option<String>, // nombre del workspace activo, None si llegó por picker/carpeta
 }
 
 impl App {
@@ -733,14 +923,20 @@ impl App {
             remote_view: RemoteState::default(),
             mirror_view: MirrorState::default(),
             workspace_view: WorkspaceState::default(),
+            pr_view: PrState::default(),
             config_view: ConfigState::default(),
             settings_view: SettingsState::default(),
             settings: TuiSettings::load(),
             event_log: vec![],
             show_event_log: false,
             sync_rx: None,
+            pr_rx: None,
+            repo_picker_open: false,
+            repo_picker_idx: 0,
+            active_workspace: None,
         };
         app.refresh()?;
+        app.load_workspaces();
         Ok(app)
     }
 
@@ -755,8 +951,8 @@ impl App {
             6  => View::Tag,
             7  => View::History,
             8  => View::Remote,
-            9  => View::Mirror,
-            10 => View::Workspace,
+            9  => View::Workspace,
+            10 => View::Pr,
             11 => View::Config,
             12 => View::Settings,
             _  => View::Dashboard,
@@ -814,8 +1010,8 @@ impl App {
             View::Tag       => self.load_tags(),
             View::History   => self.load_reflog(),
             View::Remote    => self.load_remotes(),
-            View::Mirror    => self.load_mirrors(),
             View::Workspace => self.load_workspaces(),
+            View::Pr        => self.load_prs(),
             View::Config    => self.load_config(),
             _ => {}
         }
@@ -829,8 +1025,9 @@ impl App {
             View::Tag       => 6,
             View::History   => 7,
             View::Remote    => 8,
-            View::Mirror    => 9,
-            View::Workspace => 10,
+            View::Mirror    => 8,
+            View::Workspace => 9,
+            View::Pr        => 10,
             View::Config    => 11,
             View::Settings  => 12,
             _               => self.sidebar_idx,
@@ -851,8 +1048,9 @@ impl App {
                 View::Tag       => 6,
                 View::History   => 7,
                 View::Remote    => 8,
-                View::Mirror    => 9,
-                View::Workspace => 10,
+                View::Mirror    => 8,
+                View::Workspace => 9,
+                View::Pr        => 10,
                 View::Config    => 11,
                 View::Settings  => 12,
                 _               => 0,
@@ -1296,15 +1494,12 @@ impl App {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.ends_with(".meta") {
                     let id = name.trim_end_matches(".meta").to_string();
-                    let time = entry.metadata()
+                    let timestamp = entry.metadata()
                         .ok()
                         .and_then(|m| m.modified().ok())
-                        .map(|t| {
-                            let secs = t.duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default().as_secs() as i64;
-                            format_age(secs)
-                        })
-                        .unwrap_or_default();
+                        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                        .unwrap_or(0);
+                    let time = if timestamp > 0 { format_age(timestamp) } else { String::new() };
                     let label = std::fs::read_to_string(entry.path())
                         .unwrap_or_else(|_| id.clone())
                         .trim().to_string();
@@ -1312,10 +1507,12 @@ impl App {
                         id: id.clone(),
                         name: label,
                         time,
+                        timestamp,
                     });
                 }
             }
         }
+        self.snapshot_view.snapshots.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         self.snapshot_view.idx = 0;
     }
 
@@ -1324,9 +1521,12 @@ impl App {
     }
 
     pub fn snapshot_move_down(&mut self) {
-        if self.snapshot_view.idx + 1 < self.snapshot_view.snapshots.len() {
-            self.snapshot_view.idx += 1;
-        }
+        let len = if self.snapshot_view.filtered.is_empty() && self.snapshot_view.search_query.is_empty() {
+            self.snapshot_view.snapshots.len()
+        } else {
+            self.snapshot_view.filtered.len()
+        };
+        if self.snapshot_view.idx + 1 < len { self.snapshot_view.idx += 1; }
     }
 
     // ── Sync helpers ─────────────────────────────────────────────────────────
@@ -1411,16 +1611,154 @@ impl App {
 
     fn load_remotes(&mut self) {
         self.remote_view.remotes.clear();
-        let Ok(repo) = Repository::discover(&self.repo_path) else { return };
-        let Ok(remotes) = repo.remotes() else { return };
-        for name in remotes.iter().flatten() {
-            let url = repo.find_remote(name)
-                .ok()
-                .and_then(|r| r.url().map(|u| u.to_string()))
-                .unwrap_or_default();
-            self.remote_view.remotes.push(RemoteEntry { name: name.to_string(), url });
+        self.remote_view.mirrors.clear();
+        // git remotes
+        if let Ok(repo) = Repository::discover(&self.repo_path) {
+            if let Ok(remotes) = repo.remotes() {
+                for name in remotes.iter().flatten() {
+                    let url = repo.find_remote(name)
+                        .ok()
+                        .and_then(|r| r.url().map(|u| u.to_string()))
+                        .unwrap_or_default();
+                    let platform = detect_platform(&url);
+                    let display_name = shorten_remote_name(name, &platform);
+                    self.remote_view.remotes.push(RemoteEntry { name: display_name, git_name: name.to_string(), url, platform });
+                }
+            }
+        }
+        // torii mirrors
+        let mirrors_path = std::path::Path::new(&self.repo_path).join(".torii/mirrors.json");
+        if mirrors_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&mirrors_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(arr) = json["mirrors"].as_array() {
+                        for m in arr {
+                            let name     = m["name"].as_str().unwrap_or("").to_string();
+                            let platform = m["platform"].as_str().unwrap_or("").to_string();
+                            let url      = m["url"].as_str().unwrap_or("").to_string();
+                            let kind     = match m["mirror_type"].as_str().unwrap_or("Replica") {
+                                "Primary" | "Master" => "primary",
+                                _                   => "replica",
+                            }.to_string();
+                            let account  = m["account_name"].as_str().unwrap_or("").to_string();
+                            let repo     = m["repo_name"].as_str().unwrap_or("").to_string();
+                            self.remote_view.mirrors.push(MirrorEntry { name, platform, url, kind, account, repo });
+                        }
+                    }
+                }
+            }
         }
         self.remote_view.idx = 0;
+    }
+
+    pub fn reload_remotes(&mut self) {
+        self.load_remotes();
+    }
+
+    pub fn load_prs(&mut self) {
+        use crate::pr::{detect_platform_from_remote, get_pr_client};
+
+        self.pr_view.prs.clear();
+        self.pr_view.error = None;
+        self.pr_view.loading = true;
+        self.pr_rx = None;
+
+        let Some((platform, owner, repo_name)) = detect_platform_from_remote(&self.repo_path)
+        else {
+            self.pr_view.loading = false;
+            self.pr_view.error = Some("no github/gitlab remote detected".to_string());
+            return;
+        };
+        self.pr_view.platform  = platform.clone();
+        self.pr_view.owner     = owner.clone();
+        self.pr_view.repo_name = repo_name.clone();
+
+        let state = match self.pr_view.filter {
+            PrStateFilter::Open   => "open".to_string(),
+            PrStateFilter::Closed => "closed".to_string(),
+            PrStateFilter::All    => "all".to_string(),
+        };
+
+        let client = match get_pr_client(&platform) {
+            Err(e) => {
+                self.pr_view.loading = false;
+                self.pr_view.error = Some(e.to_string());
+                return;
+            }
+            Ok(c) => c,
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.pr_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = client.list(&owner, &repo_name, &state).map(|prs| {
+                prs.into_iter().map(|p| PrEntry {
+                    number:     p.number,
+                    title:      p.title,
+                    state:      p.state,
+                    head:       p.head,
+                    base:       p.base,
+                    author:     p.author,
+                    url:        p.url,
+                    draft:      p.draft,
+                    mergeable:  p.mergeable,
+                    created_at: p.created_at,
+                    body:       p.body,
+                }).collect()
+            });
+            let _ = tx.send(result);
+        });
+    }
+
+    pub fn pr_move_up(&mut self) {
+        if self.pr_view.idx > 0 { self.pr_view.idx -= 1; }
+    }
+
+    pub fn pr_move_down(&mut self) {
+        if self.pr_view.idx + 1 < self.pr_view.prs.len() {
+            self.pr_view.idx += 1;
+        }
+    }
+
+    pub fn branch_update_filter(&mut self) {
+        let q = self.branch_view.search_query.to_lowercase();
+        self.branch_view.filtered = self.branch_view.branches.iter().enumerate()
+            .filter(|(_, b)| b.name.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect();
+        self.branch_view.idx = self.branch_view.filtered.first().copied().unwrap_or(0);
+    }
+
+    pub fn tag_update_filter(&mut self) {
+        let q = self.tag_view.search_query.to_lowercase();
+        self.tag_view.filtered = self.tag_view.tags.iter().enumerate()
+            .filter(|(_, t)| t.name.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect();
+        self.tag_view.idx = self.tag_view.filtered.first().copied().unwrap_or(0);
+    }
+
+    pub fn workspace_repo_paths(&self) -> Vec<String> {
+        let name = match &self.active_workspace { Some(n) => n, None => return vec![] };
+        if let Some(ws) = self.workspace_view.workspaces.iter().find(|ws| &ws.name == name) {
+            return ws.repos.iter().map(|r| r.path.clone()).collect();
+        }
+        vec![]
+    }
+
+    pub fn workspace_has_siblings(&self) -> bool {
+        self.workspace_repo_paths().len() > 1
+    }
+
+    pub fn open_repo_picker(&mut self) {
+        let paths = self.workspace_repo_paths();
+        if paths.len() <= 1 { return; }
+        let current = std::fs::canonicalize(&self.repo_path).ok();
+        self.repo_picker_idx = paths.iter().position(|p| {
+            std::fs::canonicalize(p).ok() == current
+        }).unwrap_or(0);
+        self.repo_picker_open = true;
     }
 
     pub fn remote_move_up(&mut self) {
@@ -1428,31 +1766,15 @@ impl App {
     }
 
     pub fn remote_move_down(&mut self) {
-        if self.remote_view.idx + 1 < self.remote_view.remotes.len() {
+        if self.remote_view.idx + 1 < self.remote_view.total_len() {
             self.remote_view.idx += 1;
         }
     }
 
-    // ── Mirror helpers ───────────────────────────────────────────────────────
+    // ── Mirror helpers (legacy — kept for mirror_move_up/down) ───────────────
 
     fn load_mirrors(&mut self) {
-        self.mirror_view.mirrors.clear();
-        // Mirrors stored in .torii/mirrors.toml
-        let mirrors_path = std::path::Path::new(&self.repo_path).join(".torii/mirrors.toml");
-        if !mirrors_path.exists() { return; }
-        let Ok(content) = std::fs::read_to_string(&mirrors_path) else { return };
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with("url") {
-                let url = line.split('=').nth(1).unwrap_or("").trim().trim_matches('"').to_string();
-                self.mirror_view.mirrors.push(MirrorEntry {
-                    name: format!("mirror-{}", self.mirror_view.mirrors.len() + 1),
-                    url,
-                    kind: "replica".to_string(),
-                });
-            }
-        }
-        self.mirror_view.idx = 0;
+        // mirrors now loaded inside load_remotes
     }
 
     pub fn mirror_move_up(&mut self) {
@@ -1685,6 +2007,22 @@ fn format_age(ts: i64) -> String {
     else if diff < 3600 { format!("{}m ago", diff / 60) }
     else if diff < 86400 { format!("{}h ago", diff / 3600) }
     else                { format!("{}d ago", diff / 86400) }
+}
+
+fn shorten_remote_name(name: &str, platform: &str) -> String {
+    match platform {
+        "GitHub" if name.starts_with("github") => "gh".to_string(),
+        "GitLab" if name.starts_with("gitlab") => "gl".to_string(),
+        _ => name.to_string(),
+    }
+}
+
+fn detect_platform(url: &str) -> String {
+    if url.contains("github.com")    { "GitHub".into() }
+    else if url.contains("gitlab.com") { "GitLab".into() }
+    else if url.contains("bitbucket.org") { "Bitbucket".into() }
+    else if url.contains("codeberg.org")  { "Codeberg".into() }
+    else { "git".into() }
 }
 
 fn repo_quick_status(path: &str) -> (String, usize, usize, bool) {

@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm};
 
 
 pub enum Action {
@@ -35,10 +35,32 @@ pub enum Action {
     HistoryRewrite,
     HistoryBlame,
     RemoteInfo,
+    RemoteFetch,
+    RemoteAdd,
+    RemoteRemove,
+    RemoteRename,
+    RemoteOpenBrowser,
     MirrorSync,
+    MirrorSyncOne,
+    MirrorSyncForce,
+    MirrorRemove,
+    MirrorRename,
+    MirrorAdd,
+    MirrorSetPrimary,
     WorkspaceSync,
     WorkspaceSyncOne,
     WorkspaceOpenRepo,
+    WorkspaceDelete,
+    WorkspaceSave,
+    WorkspaceAddRepo,
+    WorkspaceRemoveRepo,
+    WorkspaceRename,
+    PrMerge,
+    PrClose,
+    PrCreate,
+    PrCheckout,
+    PrOpenBrowser,
+    PrRefresh,
     ConfigEdit,
     ConfigSave,
     ConfigToggleScope,
@@ -71,10 +93,48 @@ impl EventHandler {
                     app.tab_cycle();
                     return Ok(None);
                 }
+                // Repo picker — global, except when typing
+                if key.code == KeyCode::Char('W') && key.modifiers == KeyModifiers::SHIFT {
+                    if app.repo_picker_open {
+                        app.repo_picker_open = false;
+                    } else {
+                        app.open_repo_picker();
+                    }
+                    return Ok(None);
+                }
+
+                // Repo picker navigation when open
+                if app.repo_picker_open {
+                    match (key.modifiers, key.code) {
+                        (_, KeyCode::Esc) => { app.repo_picker_open = false; }
+                        (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                            if app.repo_picker_idx > 0 { app.repo_picker_idx -= 1; }
+                        }
+                        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                            let max = app.workspace_repo_paths().len().saturating_sub(1);
+                            if app.repo_picker_idx < max { app.repo_picker_idx += 1; }
+                        }
+                        (_, KeyCode::Enter) => {
+                            let ws_name = app.active_workspace.clone();
+                            let paths = app.workspace_repo_paths();
+                            if let Some(path) = paths.get(app.repo_picker_idx) {
+                                app.repo_path = path.clone();
+                                app.active_workspace = ws_name; // mantener el workspace activo
+                                app.repo_picker_open = false;
+                                app.refresh().ok();
+                                app.go_to(View::Dashboard);
+                            }
+                        }
+                        (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Ok(Some(Action::Quit)),
+                        _ => {}
+                    }
+                    return Ok(None);
+                }
+
                 // e toggles event log from anywhere — except when typing in a text input
                 let typing = match app.view {
                     View::Commit    => app.commit_view.focus == CommitFocus::Input,
-                    View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create,
+                    View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create || app.snapshot_view.search_mode,
                     View::Log       => app.log.search_mode,
                     View::Branch    => app.branch_view.confirm == BranchConfirm::NewBranch,
                     View::Tag       => matches!(app.tag_view.confirm, TagConfirm::CreateName | TagConfirm::CreateMessage),
@@ -82,6 +142,16 @@ impl EventHandler {
                         HistoryConfirm::Rebase | HistoryConfirm::RemoveFile |
                         HistoryConfirm::RewriteStart | HistoryConfirm::RewriteEnd |
                         HistoryConfirm::Blame),
+                    View::Remote    => matches!(app.remote_view.confirm,
+                        RemoteConfirm::AddName | RemoteConfirm::AddUrl | RemoteConfirm::Rename |
+                        RemoteConfirm::MirrorRename | RemoteConfirm::MirrorAddPlatform |
+                        RemoteConfirm::MirrorAddAccount | RemoteConfirm::MirrorAddRepo),
+                    View::Workspace => matches!(app.workspace_view.confirm,
+                        WorkspaceConfirm::SaveMessage | WorkspaceConfirm::AddRepoPath),
+                    View::Pr        => matches!(app.pr_view.confirm,
+                        PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc),
+                    View::Branch    => app.branch_view.search_mode,
+                    View::Tag       => app.tag_view.search_mode,
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -119,6 +189,10 @@ impl EventHandler {
                     return Ok(handle_sidebar(key, app));
                 }
                 // Esc always returns focus to sidebar unless the view handles it specially
+                if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE && app.repo_picker_open {
+                    app.repo_picker_open = false;
+                    return Ok(None);
+                }
                 if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
                     let handled_by_view = match app.view {
                         View::Diff      => { app.go_back(); true }
@@ -139,7 +213,12 @@ impl EventHandler {
                             }
                         }
                         View::Branch    => {
-                            if app.branch_view.ops_mode {
+                            if app.branch_view.search_mode {
+                                app.branch_view.search_mode = false;
+                                app.branch_view.search_query.clear();
+                                app.branch_view.filtered.clear();
+                                true
+                            } else if app.branch_view.ops_mode {
                                 app.branch_view.ops_mode = false;
                                 true
                             } else if app.branch_view.confirm != BranchConfirm::None {
@@ -151,7 +230,12 @@ impl EventHandler {
                             }
                         }
                         View::Tag       => {
-                            if app.tag_view.ops_mode {
+                            if app.tag_view.search_mode {
+                                app.tag_view.search_mode = false;
+                                app.tag_view.search_query.clear();
+                                app.tag_view.filtered.clear();
+                                true
+                            } else if app.tag_view.ops_mode {
                                 app.tag_view.ops_mode = false;
                                 true
                             } else if app.tag_view.confirm != TagConfirm::None {
@@ -180,10 +264,69 @@ impl EventHandler {
                             if app.snapshot_view.ops_mode {
                                 app.snapshot_view.ops_mode = false;
                                 true
+                            } else if app.snapshot_view.search_mode {
+                                app.snapshot_view.search_mode = false;
+                                app.snapshot_view.search_query.clear();
+                                app.snapshot_view.filtered.clear();
+                                app.snapshot_view.idx = 0;
+                                true
                             } else {
                                 false
                             }
                         }
+                        View::Mirror    => {
+                            if app.mirror_view.ops_mode {
+                                app.mirror_view.ops_mode = false;
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Pr => {
+                            if app.pr_view.ops_mode {
+                                app.pr_view.ops_mode = false;
+                                true
+                            } else if app.pr_view.confirm != PrConfirm::None {
+                                app.pr_view.confirm = PrConfirm::None;
+                                app.pr_view.create_input.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Workspace => {
+                            if app.workspace_view.ops_mode {
+                                app.workspace_view.ops_mode = false;
+                                true
+                            } else if app.workspace_view.confirm != WorkspaceConfirm::None {
+                                app.workspace_view.confirm = WorkspaceConfirm::None;
+                                app.workspace_view.input.clear();
+                                true
+                            } else if app.workspace_view.focus == WorkspaceFocus::Repos {
+                                app.workspace_view.focus = WorkspaceFocus::Workspaces;
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Remote    => {
+                            if app.remote_view.ops_mode {
+                                app.remote_view.ops_mode = false;
+                                true
+                            } else if app.remote_view.confirm != RemoteConfirm::None {
+                                app.remote_view.confirm = RemoteConfirm::None;
+                                app.remote_view.new_name.clear();
+                                app.remote_view.new_url.clear();
+                                app.remote_view.new_mirror_platform.clear();
+                                app.remote_view.new_mirror_account.clear();
+                                app.remote_view.new_mirror_repo.clear();
+                                app.remote_view.new_mirror_type = 0;
+                                true
+                            } else {
+                                false
+                            }
+                        }
+
                         _               => false,
                     };
                     if !handled_by_view {
@@ -204,6 +347,7 @@ impl EventHandler {
                     View::Remote    => handle_remote(key, app),
                     View::Mirror    => handle_mirror(key, app),
                     View::Workspace => handle_workspace(key, app),
+                    View::Pr        => handle_pr(key, app),
                     View::Config    => handle_config(key, app),
                     View::Settings  => handle_settings(key, app),
                     View::Help      => handle_help(key, app),
@@ -270,6 +414,7 @@ fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('r')) => app.go_to(View::Remote),
         (_, KeyCode::Char('m')) => app.go_to(View::Mirror),
         (_, KeyCode::Char('w')) => app.go_to(View::Workspace),
+        (_, KeyCode::Char('n')) => app.go_to(View::Pr),
         (_, KeyCode::Char('g')) => app.go_to(View::Config),
         (_, KeyCode::Char('x')) => app.go_to(View::Settings),
         _ => return None,
@@ -442,6 +587,27 @@ fn handle_branch(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         }
         return None;
     }
+    if app.branch_view.search_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.branch_view.search_mode = false;
+                app.branch_view.search_query.clear();
+                app.branch_view.filtered.clear();
+            }
+            (_, KeyCode::Enter) => { app.branch_view.search_mode = false; }
+            (_, KeyCode::Backspace) => {
+                app.branch_view.search_query.pop();
+                app.branch_update_filter();
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT => {
+                app.branch_view.search_query.push(c);
+                app.branch_update_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.branch_move_up(),
@@ -449,6 +615,11 @@ fn handle_branch(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('o')) => {
             app.branch_view.ops_mode = true;
             app.branch_view.ops_idx = 0;
+        }
+        (_, KeyCode::Char('/')) => {
+            app.branch_view.search_mode = true;
+            app.branch_view.search_query.clear();
+            app.branch_view.filtered.clear();
         }
         _ => {}
     }
@@ -464,6 +635,16 @@ fn handle_commit(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 (_, KeyCode::Enter) => app.commit_view.focus = CommitFocus::TypeSelector,
                 (_, KeyCode::Char('i')) => {
                     app.commit_view.focus = CommitFocus::Input;
+                }
+                (_, KeyCode::Char('a')) => {
+                    app.commit_view.amend = !app.commit_view.amend;
+                    if app.commit_view.amend && app.commit_view.message.is_empty() {
+                        // Pre-fill with last commit message
+                        if let Some(c) = app.commits.first() {
+                            app.commit_view.message = c.message.clone();
+                            app.commit_view.cursor = c.message.len();
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -560,6 +741,33 @@ fn handle_snapshot(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 
     match app.snapshot_view.focus {
         SnapshotFocus::List => {
+            // search mode input
+            if app.snapshot_view.search_mode {
+                match (key.modifiers, key.code) {
+                    (_, KeyCode::Esc) => {
+                        app.snapshot_view.search_mode = false;
+                        app.snapshot_view.search_query.clear();
+                        app.snapshot_view.filtered.clear();
+                        app.snapshot_view.idx = 0;
+                    }
+                    (_, KeyCode::Enter) => {
+                        app.snapshot_view.search_mode = false;
+                    }
+                    (_, KeyCode::Backspace) => {
+                        app.snapshot_view.search_query.pop();
+                        snapshot_update_filter(app);
+                    }
+                    (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                              key.modifiers == KeyModifiers::SHIFT
+                                            => {
+                        app.snapshot_view.search_query.push(c);
+                        snapshot_update_filter(app);
+                    }
+                    _ => {}
+                }
+                return None;
+            }
+
             if let Some(a) = handle_global_nav(key, app) { return Some(a); }
             match (key.modifiers, key.code) {
                 (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.snapshot_move_up(),
@@ -567,6 +775,12 @@ fn handle_snapshot(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 (_, KeyCode::Char('o')) => {
                     app.snapshot_view.ops_mode = true;
                     app.snapshot_view.ops_idx = 0;
+                }
+                (_, KeyCode::Char('/')) => {
+                    app.snapshot_view.search_mode = true;
+                    app.snapshot_view.search_query.clear();
+                    app.snapshot_view.filtered.clear();
+                    app.snapshot_view.idx = 0;
                 }
                 (_, KeyCode::Char('n'))                       => {
                     app.snapshot_view.create_name.clear();
@@ -630,6 +844,20 @@ fn handle_sync(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         _ => {}
     }
     None
+}
+
+fn snapshot_update_filter(app: &mut App) {
+    let q = app.snapshot_view.search_query.to_lowercase();
+    if q.is_empty() {
+        app.snapshot_view.filtered.clear();
+    } else {
+        app.snapshot_view.filtered = app.snapshot_view.snapshots
+            .iter().enumerate()
+            .filter(|(_, s)| s.name.to_lowercase().contains(&q) || s.id.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect();
+    }
+    app.snapshot_view.idx = 0;
 }
 
 fn handle_sidebar(key: event::KeyEvent, app: &mut App) -> Option<Action> {
@@ -729,6 +957,27 @@ fn handle_tag(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         }
         return None;
     }
+    if app.tag_view.search_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.tag_view.search_mode = false;
+                app.tag_view.search_query.clear();
+                app.tag_view.filtered.clear();
+            }
+            (_, KeyCode::Enter) => { app.tag_view.search_mode = false; }
+            (_, KeyCode::Backspace) => {
+                app.tag_view.search_query.pop();
+                app.tag_update_filter();
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT => {
+                app.tag_view.search_query.push(c);
+                app.tag_update_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.tag_move_up(),
@@ -736,6 +985,11 @@ fn handle_tag(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('o')) => {
             app.tag_view.ops_mode = true;
             app.tag_view.ops_idx = 0;
+        }
+        (_, KeyCode::Char('/')) => {
+            app.tag_view.search_mode = true;
+            app.tag_view.search_query.clear();
+            app.tag_view.filtered.clear();
         }
         _ => {}
     }
@@ -899,47 +1153,623 @@ fn handle_history(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    // confirm states (text input)
+    match &app.remote_view.confirm {
+        RemoteConfirm::AddName => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_name.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_name.is_empty() {
+                        app.remote_view.confirm = RemoteConfirm::AddUrl;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_name.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_name.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::AddUrl => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_name.clear();
+                    app.remote_view.new_url.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_url.is_empty() {
+                        return Some(Action::RemoteAdd);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_url.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_url.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::Remove => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    return Some(Action::RemoteRemove);
+                }
+                _ => { app.remote_view.confirm = RemoteConfirm::None; }
+            }
+            return None;
+        }
+        RemoteConfirm::Rename => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_name.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_name.is_empty() {
+                        return Some(Action::RemoteRename);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_name.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_name.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::MirrorRename => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_name.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_name.is_empty() {
+                        return Some(Action::MirrorRename);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_name.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_name.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::MirrorAddPlatform => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_mirror_platform.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_mirror_platform.is_empty() {
+                        app.remote_view.new_mirror_account.clear();
+                        app.remote_view.confirm = RemoteConfirm::MirrorAddAccount;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_mirror_platform.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_mirror_platform.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::MirrorAddAccount => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_mirror_platform.clear();
+                    app.remote_view.new_mirror_account.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_mirror_account.is_empty() {
+                        app.remote_view.new_mirror_repo.clear();
+                        app.remote_view.confirm = RemoteConfirm::MirrorAddRepo;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_mirror_account.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_mirror_account.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::MirrorAddRepo => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_mirror_platform.clear();
+                    app.remote_view.new_mirror_account.clear();
+                    app.remote_view.new_mirror_repo.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_mirror_repo.is_empty() {
+                        app.remote_view.new_mirror_type = 0;
+                        app.remote_view.confirm = RemoteConfirm::MirrorAddType;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_mirror_repo.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_mirror_repo.push(c),
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::MirrorAddType => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                }
+                (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {
+                    app.remote_view.new_mirror_type = 0;
+                }
+                (_, KeyCode::Right) | (_, KeyCode::Char('l')) => {
+                    app.remote_view.new_mirror_type = 1;
+                }
+                (_, KeyCode::Enter) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    return Some(Action::MirrorAdd);
+                }
+                _ => {}
+            }
+            return None;
+        }
+        RemoteConfirm::None => {}
+    }
+
+    // ops dropdown
+    if app.remote_view.ops_mode {
+        let is_mirror = app.remote_view.selected_is_mirror();
+        let ops_len = if is_mirror { 6 } else { 5 };
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.remote_view.ops_idx > 0 { app.remote_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.remote_view.ops_idx < ops_len - 1 { app.remote_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.remote_view.ops_idx;
+                app.remote_view.ops_mode = false;
+                if is_mirror {
+                    // mirror ops: sync all(0), force sync(1), add mirror(2), set primary(3), rename(4), remove(5)
+                    return match idx {
+                        0 => Some(Action::MirrorSync),
+                        1 => Some(Action::MirrorSyncForce),
+                        2 => {
+                            app.remote_view.new_mirror_platform.clear();
+                            app.remote_view.new_mirror_account.clear();
+                            app.remote_view.new_mirror_repo.clear();
+                            app.remote_view.new_mirror_type = 0;
+                            app.remote_view.confirm = RemoteConfirm::MirrorAddPlatform;
+                            None
+                        }
+                        3 => Some(Action::MirrorSetPrimary),
+                        4 => {
+                            app.remote_view.new_name.clear();
+                            app.remote_view.confirm = RemoteConfirm::MirrorRename;
+                            None
+                        }
+                        5 => Some(Action::MirrorRemove),
+                        _ => None,
+                    };
+                } else {
+                    // git remote ops: fetch(0), add remote(1), rename(2), remove(3), open(4)
+                    return match idx {
+                        0 => Some(Action::RemoteFetch),
+                        1 => {
+                            app.remote_view.new_name.clear();
+                            app.remote_view.confirm = RemoteConfirm::AddName;
+                            None
+                        }
+                        2 => {
+                            app.remote_view.new_name.clear();
+                            app.remote_view.confirm = RemoteConfirm::Rename;
+                            None
+                        }
+                        3 => {
+                            app.remote_view.confirm = RemoteConfirm::Remove;
+                            None
+                        }
+                        4 => Some(Action::RemoteOpenBrowser),
+                        _ => None,
+                    };
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.remote_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.remote_move_up(),
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.remote_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::RemoteInfo),
+        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => { app.remote_move_up(); }
+        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => { app.remote_move_down(); }
+        (_, KeyCode::Char('o')) => {
+            app.remote_view.ops_mode = true;
+            app.remote_view.ops_idx = 0;
+        }
         _ => {}
     }
     None
 }
 
 fn handle_mirror(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    if app.mirror_view.ops_mode {
+        const OPS_LEN: usize = 3;
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.mirror_view.ops_idx > 0 { app.mirror_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.mirror_view.ops_idx < OPS_LEN - 1 { app.mirror_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.mirror_view.ops_idx;
+                app.mirror_view.ops_mode = false;
+                return match idx {
+                    0 => Some(Action::MirrorSync),
+                    1 => Some(Action::MirrorSyncForce),
+                    2 => Some(Action::MirrorRemove),
+                    _ => None,
+                };
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.mirror_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.mirror_move_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.mirror_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::MirrorSync),
+        (_, KeyCode::Char('o')) => {
+            app.mirror_view.ops_mode = true;
+            app.mirror_view.ops_idx = 0;
+        }
         _ => {}
     }
     None
 }
 
 fn handle_workspace(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    // confirm states
+    match &app.workspace_view.confirm {
+        WorkspaceConfirm::DeleteWorkspace => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.workspace_view.confirm = WorkspaceConfirm::None;
+                    return Some(Action::WorkspaceDelete);
+                }
+                _ => { app.workspace_view.confirm = WorkspaceConfirm::None; }
+            }
+            return None;
+        }
+        WorkspaceConfirm::RemoveRepo => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.workspace_view.confirm = WorkspaceConfirm::None;
+                    return Some(Action::WorkspaceRemoveRepo);
+                }
+                _ => { app.workspace_view.confirm = WorkspaceConfirm::None; }
+            }
+            return None;
+        }
+        WorkspaceConfirm::SaveMessage => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.workspace_view.confirm = WorkspaceConfirm::None;
+                    app.workspace_view.input.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.workspace_view.input.trim().is_empty() {
+                        app.workspace_view.confirm = WorkspaceConfirm::None;
+                        return Some(Action::WorkspaceSave);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.workspace_view.input.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.workspace_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        WorkspaceConfirm::AddRepoPath => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.workspace_view.confirm = WorkspaceConfirm::None;
+                    app.workspace_view.input.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.workspace_view.input.trim().is_empty() {
+                        app.workspace_view.confirm = WorkspaceConfirm::None;
+                        return Some(Action::WorkspaceAddRepo);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.workspace_view.input.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.workspace_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        WorkspaceConfirm::RenameWorkspace => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.workspace_view.confirm = WorkspaceConfirm::None;
+                    app.workspace_view.input.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.workspace_view.input.trim().is_empty() {
+                        app.workspace_view.confirm = WorkspaceConfirm::None;
+                        return Some(Action::WorkspaceRename);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.workspace_view.input.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.workspace_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        WorkspaceConfirm::None => {}
+    }
+
+    // ops dropdown
+    if app.workspace_view.ops_mode {
+        let is_repos = app.workspace_view.focus == WorkspaceFocus::Repos;
+        let ops_len = if is_repos { 4 } else { 5 };
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.workspace_view.ops_idx > 0 { app.workspace_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.workspace_view.ops_idx < ops_len - 1 { app.workspace_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.workspace_view.ops_idx;
+                app.workspace_view.ops_mode = false;
+                if is_repos {
+                    // open(0), sync repo(1), sync workspace(2), remove from workspace(3)
+                    return match idx {
+                        0 => Some(Action::WorkspaceOpenRepo),
+                        1 => Some(Action::WorkspaceSyncOne),
+                        2 => Some(Action::WorkspaceSync),
+                        3 => {
+                            app.workspace_view.confirm = WorkspaceConfirm::RemoveRepo;
+                            None
+                        }
+                        _ => None,
+                    };
+                } else {
+                    // sync all(0), save all(1), rename(2), add repo(3), delete workspace(4)
+                    return match idx {
+                        0 => Some(Action::WorkspaceSync),
+                        1 => {
+                            app.workspace_view.input.clear();
+                            app.workspace_view.confirm = WorkspaceConfirm::SaveMessage;
+                            None
+                        }
+                        2 => {
+                            app.workspace_view.input.clear();
+                            app.workspace_view.confirm = WorkspaceConfirm::RenameWorkspace;
+                            None
+                        }
+                        3 => {
+                            app.workspace_view.input.clear();
+                            app.workspace_view.confirm = WorkspaceConfirm::AddRepoPath;
+                            None
+                        }
+                        4 => {
+                            app.workspace_view.confirm = WorkspaceConfirm::DeleteWorkspace;
+                            None
+                        }
+                        _ => None,
+                    };
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.workspace_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match app.workspace_view.focus {
         WorkspaceFocus::Workspaces => match (key.modifiers, key.code) {
             (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.workspace_move_up(),
             (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.workspace_move_down(),
             (_, KeyCode::Right) | (_, KeyCode::Char('l')) => app.workspace_focus_repos(),
-            (_, KeyCode::Enter)                           => return Some(Action::WorkspaceSync),
+            (_, KeyCode::Enter)                           => app.workspace_focus_repos(),
+            (_, KeyCode::Char('o')) => {
+                app.workspace_view.ops_mode = true;
+                app.workspace_view.ops_idx = 0;
+            }
             _ => {}
         },
         WorkspaceFocus::Repos => match (key.modifiers, key.code) {
             (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.workspace_move_up(),
             (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.workspace_move_down(),
             (_, KeyCode::Left)  | (_, KeyCode::Char('h')) => app.workspace_focus_workspaces(),
-            (_, KeyCode::Esc)                             => app.workspace_focus_workspaces(),
             (_, KeyCode::Enter)                           => return Some(Action::WorkspaceOpenRepo),
-            (_, KeyCode::Char('s'))                       => return Some(Action::WorkspaceSyncOne),
-            (_, KeyCode::Char('S'))                       => return Some(Action::WorkspaceSync),
+            (_, KeyCode::Char('o')) => {
+                app.workspace_view.ops_mode = true;
+                app.workspace_view.ops_idx = 0;
+            }
             _ => {}
         },
+    }
+    None
+}
+
+fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    use crate::tui::app::PrConfirm;
+
+    // Create flow — multi-step text input
+    if matches!(app.pr_view.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc) {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.create_input.clear();
+            }
+            (_, KeyCode::Backspace) => { app.pr_view.create_input.pop(); }
+            (_, KeyCode::Enter) => {
+                match app.pr_view.confirm.clone() {
+                    PrConfirm::CreateTitle => {
+                        app.pr_view.create_title = app.pr_view.create_input.trim().to_string();
+                        app.pr_view.create_input = app.pr_view.create_base.clone();
+                        app.pr_view.confirm = PrConfirm::CreateBase;
+                    }
+                    PrConfirm::CreateBase => {
+                        app.pr_view.create_base = app.pr_view.create_input.trim().to_string();
+                        app.pr_view.create_input = app.pr_view.create_desc.clone();
+                        app.pr_view.confirm = PrConfirm::CreateDesc;
+                    }
+                    PrConfirm::CreateDesc => {
+                        app.pr_view.create_desc = app.pr_view.create_input.trim().to_string();
+                        app.pr_view.create_input.clear();
+                        app.pr_view.confirm = PrConfirm::None;
+                        return Some(Action::PrCreate);
+                    }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Tab) if app.pr_view.confirm == PrConfirm::CreateDesc => {
+                app.pr_view.create_draft = !app.pr_view.create_draft;
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                  || key.modifiers == KeyModifiers::SHIFT => {
+                app.pr_view.create_input.push(c);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Merge method selector
+    if app.pr_view.confirm == PrConfirm::Merge {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+            }
+            (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {
+                if app.pr_view.merge_method > 0 { app.pr_view.merge_method -= 1; }
+            }
+            (_, KeyCode::Right) | (_, KeyCode::Char('l')) => {
+                if app.pr_view.merge_method < 2 { app.pr_view.merge_method += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrMerge);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Close confirmation
+    if app.pr_view.confirm == PrConfirm::Close {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Char('y')) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrClose);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {
+                app.pr_view.confirm = PrConfirm::None;
+            }
+        }
+        return None;
+    }
+
+    // Ops dropdown
+    if app.pr_view.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.ops_idx > 0 { app.pr_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.ops_idx < 5 { app.pr_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.pr_view.ops_idx;
+                app.pr_view.ops_mode = false;
+                match idx {
+                    0 => {
+                        // create new PR/MR
+                        app.pr_view.create_title.clear();
+                        app.pr_view.create_base = "main".to_string();
+                        app.pr_view.create_desc.clear();
+                        app.pr_view.create_draft = false;
+                        app.pr_view.create_input.clear();
+                        app.pr_view.confirm = PrConfirm::CreateTitle;
+                    }
+                    1 => {
+                        app.pr_view.merge_method = 0;
+                        app.pr_view.confirm = PrConfirm::Merge;
+                    }
+                    2 => { app.pr_view.confirm = PrConfirm::Close; }
+                    3 => return Some(Action::PrCheckout),
+                    4 => return Some(Action::PrOpenBrowser),
+                    5 => return Some(Action::PrRefresh),
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.pr_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    // Intercept ^r before global_nav steals it
+    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('r') {
+        return Some(Action::PrRefresh);
+    }
+    if let Some(a) = handle_global_nav(key, app) { return Some(a); }
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.pr_move_up(),
+        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.pr_move_down(),
+        (_, KeyCode::Tab)                             => {
+            app.pr_view.filter = match app.pr_view.filter {
+                crate::tui::app::PrStateFilter::Open   => crate::tui::app::PrStateFilter::Closed,
+                crate::tui::app::PrStateFilter::Closed => crate::tui::app::PrStateFilter::All,
+                crate::tui::app::PrStateFilter::All    => crate::tui::app::PrStateFilter::Open,
+            };
+            app.load_prs();
+        }
+        (_, KeyCode::Char('o')) => {
+            app.pr_view.ops_mode = true;
+            app.pr_view.ops_idx = 0;
+        }
+        _ => {}
     }
     None
 }

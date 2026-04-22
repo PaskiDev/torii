@@ -52,7 +52,7 @@ impl std::fmt::Display for MergeMethod {
 // Trait
 // ============================================================================
 
-pub trait PrClient {
+pub trait PrClient: Send {
     fn create(&self, owner: &str, repo: &str, opts: CreatePrOptions) -> Result<PullRequest>;
     fn list(&self, owner: &str, repo: &str, state: &str) -> Result<Vec<PullRequest>>;
     fn get(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest>;

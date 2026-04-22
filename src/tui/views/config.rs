@@ -51,7 +51,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     }).collect();
 
     let block = Block::default()
-        .title(Span::styled(" sections ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" sections ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(List::new(items).block(block), area);
@@ -117,7 +117,7 @@ fn render_entries(f: &mut Frame, app: &App, area: Rect) {
 
     let title = format!(" config ({}) ", scope_label);
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(title, Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
@@ -135,7 +135,7 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" status ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(

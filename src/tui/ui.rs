@@ -40,8 +40,8 @@ const TABS: &[Tab] = &[
     Tab { key: "t", label: "tags",      view: View::Tag        },
     Tab { key: "h", label: "history",   view: View::History    },
     Tab { key: "r", label: "remote",    view: View::Remote     },
-    Tab { key: "m", label: "mirror",    view: View::Mirror     },
     Tab { key: "w", label: "workspace", view: View::Workspace  },
+    Tab { key: "n", label: "pr/mr",      view: View::Pr         },
     Tab { key: "g", label: "config",    view: View::Config     },
     Tab { key: "x", label: "settings",  view: View::Settings   },
 ];
@@ -101,8 +101,9 @@ pub fn render(f: &mut Frame, app: &App) {
         View::Tag       => views::tag::render(f, app, content_rows[0]),
         View::History   => views::history::render(f, app, content_rows[0]),
         View::Remote    => views::remote::render(f, app, content_rows[0]),
-        View::Mirror    => views::mirror::render(f, app, content_rows[0]),
+        View::Mirror    => views::remote::render(f, app, content_rows[0]),
         View::Workspace => views::workspace::render(f, app, content_rows[0]),
+        View::Pr        => views::pr::render(f, app, content_rows[0]),
         View::Config    => views::config::render(f, app, content_rows[0]),
         View::Settings  => views::settings::render(f, app, content_rows[0]),
         View::Diff | View::Help => {}
@@ -113,6 +114,10 @@ pub fn render(f: &mut Frame, app: &App) {
 
     if app.show_event_log {
         render_event_log(f, app, area);
+    }
+
+    if app.repo_picker_open {
+        render_repo_picker(f, app, global_rows[0]);
     }
 }
 
@@ -168,6 +173,56 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 .border_style(Style::default().fg(bc))),
         area,
     );
+}
+
+fn render_repo_picker(f: &mut Frame, app: &App, header_area: Rect) {
+    let bc = app.brand_color();
+    let paths = app.workspace_repo_paths();
+    if paths.is_empty() { return; }
+
+    let dropdown_w: u16 = paths.iter()
+        .map(|p| std::path::Path::new(p).file_name()
+            .map(|n| n.to_string_lossy().len()).unwrap_or(p.len()) + 4)
+        .max().unwrap_or(20)
+        .min(40) as u16;
+    let dropdown_h = paths.len() as u16 + 2;
+
+    // Position: just below "⛩  gitorii  /  " prefix (~18 chars + 1 border + 1 space)
+    let x = header_area.x + 18;
+    let y = header_area.y + header_area.height; // just below header
+    let drop_area = Rect::new(x, y, dropdown_w, dropdown_h.min(header_area.height + 10));
+
+    let current = std::fs::canonicalize(&app.repo_path).ok();
+    let items: Vec<ListItem> = paths.iter().enumerate().map(|(i, p)| {
+        let name = std::path::Path::new(p)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| p.clone());
+        let is_current = std::fs::canonicalize(p).ok() == current;
+        let is_sel = i == app.repo_picker_idx;
+        let color = if is_sel { C_WHITE } else if is_current { C_GREEN } else { C_SUBTLE };
+        let prefix = if is_sel { "▶ " } else if is_current { "✓ " } else { "  " };
+        let style = if is_sel {
+            Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        ListItem::new(Line::from(vec![
+            Span::styled(prefix, Style::default().fg(bc)),
+            Span::styled(name, Style::default().fg(color)),
+        ])).style(style)
+    }).collect();
+
+    let mut state = ratatui::widgets::ListState::default();
+    state.select(Some(app.repo_picker_idx));
+
+    let block = Block::default()
+        .title(Span::styled(" switch repo ", Style::default().fg(bc).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(bc));
+
+    f.render_widget(Clear, drop_area);
+    f.render_stateful_widget(List::new(items).block(block), drop_area, &mut state);
 }
 
 fn render_event_log(f: &mut Frame, app: &App, area: Rect) {
@@ -233,11 +288,20 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
         ]);
         let events_label = if app.show_event_log { " events ✓" } else { " events" };
-        let right_str = format!("[e]{} ", events_label);
+        let has_siblings = app.workspace_has_siblings();
+        let right_str = if has_siblings {
+            format!("[W] repos  [e]{} ", events_label)
+        } else {
+            format!("[e]{} ", events_label)
+        };
         let left_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
         let pad = (area.width as usize).saturating_sub(left_len + right_str.len());
         let mut spans = line.spans;
         spans.push(Span::raw(" ".repeat(pad)));
+        if has_siblings {
+            spans.push(Span::styled("[W]", Style::default().fg(bc)));
+            spans.push(Span::styled(" repos  ", Style::default().fg(C_SUBTLE)));
+        }
         spans.push(Span::styled("[e]", Style::default().fg(bc)));
         spans.push(Span::styled(events_label, Style::default().fg(C_SUBTLE)));
         spans.push(Span::raw(" "));
@@ -276,15 +340,25 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                 ]),
             }
         }
-        View::Commit => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" save  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[←→]", Style::default().fg(bc)),
-            Span::styled(" cursor  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Esc]", Style::default().fg(bc)),
-            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
-        ]),
+        View::Commit => {
+            let amend_style = if app.commit_view.amend {
+                Style::default().fg(bc).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(C_DIM)
+            };
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled("[Enter]", Style::default().fg(bc)),
+                Span::styled(" save  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[←→]", Style::default().fg(bc)),
+                Span::styled(" cursor  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[a]", Style::default().fg(bc)),
+                Span::styled(" amend ", Style::default().fg(C_SUBTLE)),
+                Span::styled(if app.commit_view.amend { "[amend ✓]" } else { "" }, amend_style),
+                Span::styled("  [Esc]", Style::default().fg(bc)),
+                Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+            ])
+        },
         View::Sync => Line::from(vec![
             Span::raw(" "),
             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -349,7 +423,18 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                     ])
                 }
                 BranchConfirm::None => {
-                    if app.branch_view.ops_mode {
+                    if app.branch_view.search_mode {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("search: ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.branch_view.search_query.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                            Span::styled("█  ", Style::default().fg(bc)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" confirm  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Esc]", Style::default().fg(bc)),
+                            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                        ])
+                    } else if app.branch_view.ops_mode {
                         Line::from(vec![
                             Span::raw(" "),
                             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -374,7 +459,9 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
                             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
                             Span::styled("[o]", Style::default().fg(bc)),
-                            Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                            Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[/]", Style::default().fg(bc)),
+                            Span::styled(" search", Style::default().fg(C_SUBTLE)),
                         ])
                     }
                 }
@@ -382,7 +469,15 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         },
         View::Snapshot => {
             use crate::tui::app::SnapshotFocus;
-            if app.snapshot_view.ops_mode && app.snapshot_view.focus == SnapshotFocus::List {
+            if app.snapshot_view.search_mode {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" confirm  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" cancel search", Style::default().fg(C_SUBTLE)),
+                ])
+            } else if app.snapshot_view.ops_mode && app.snapshot_view.focus == SnapshotFocus::List {
                 Line::from(vec![
                     Span::raw(" "),
                     Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -416,6 +511,8 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                     Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
                     Span::styled("[o]", Style::default().fg(bc)),
                     Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[/]", Style::default().fg(bc)),
+                    Span::styled(" search  ", Style::default().fg(C_SUBTLE)),
                     Span::styled("[a]", Style::default().fg(bc)),
                     Span::styled(" auto-config", Style::default().fg(C_SUBTLE)),
                 ])
@@ -445,7 +542,18 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                     Span::styled("█", Style::default().fg(bc)),
                 ]),
                 TagConfirm::None => {
-                    if app.tag_view.ops_mode {
+                    if app.tag_view.search_mode {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("search: ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.tag_view.search_query.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                            Span::styled("█  ", Style::default().fg(bc)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" confirm  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Esc]", Style::default().fg(bc)),
+                            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                        ])
+                    } else if app.tag_view.ops_mode {
                         Line::from(vec![
                             Span::raw(" "),
                             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -461,7 +569,9 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
                             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
                             Span::styled("[o]", Style::default().fg(bc)),
-                            Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                            Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[/]", Style::default().fg(bc)),
+                            Span::styled(" search", Style::default().fg(C_SUBTLE)),
                         ])
                     }
                 }
@@ -548,27 +658,261 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                 }
             }
         },
-        View::Remote => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" info", Style::default().fg(C_SUBTLE)),
-        ]),
-        View::Mirror => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" sync", Style::default().fg(C_SUBTLE)),
-        ]),
-        View::Workspace => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" sync all", Style::default().fg(C_SUBTLE)),
-        ]),
+        View::Remote => {
+            use crate::tui::app::RemoteConfirm;
+            if app.remote_view.ops_mode {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                ])
+            } else {
+                match &app.remote_view.confirm {
+                    RemoteConfirm::AddName => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("remote name: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.remote_view.new_name.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    RemoteConfirm::AddUrl => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("remote url: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.remote_view.new_url.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    RemoteConfirm::Rename => {
+                        let old = app.remote_view.remotes.get(app.remote_view.idx)
+                            .map(|r| r.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("rename ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(old.to_string(), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
+                            Span::styled(" → ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.remote_view.new_name.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                            Span::styled("█", Style::default().fg(bc)),
+                        ])
+                    }
+                    RemoteConfirm::MirrorRename => {
+                        let old = app.remote_view.selected_mirror()
+                            .map(|m| m.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("rename mirror ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(old.to_string(), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
+                            Span::styled(" → ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.remote_view.new_name.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                            Span::styled("█", Style::default().fg(bc)),
+                        ])
+                    }
+                    RemoteConfirm::MirrorAddPlatform => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("mirror platform (github/gitlab/…): ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.remote_view.new_mirror_platform.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    RemoteConfirm::MirrorAddAccount => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("account: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.remote_view.new_mirror_account.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    RemoteConfirm::MirrorAddRepo => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("repo name: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.remote_view.new_mirror_repo.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    RemoteConfirm::MirrorAddType => {
+                        let (replica_style, primary_style) = if app.remote_view.new_mirror_type == 0 {
+                            (Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD),
+                             Style::default().fg(C_SUBTLE))
+                        } else {
+                            (Style::default().fg(C_SUBTLE),
+                             Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD))
+                        };
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("type: ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("replica", replica_style),
+                            Span::styled(" / ", Style::default().fg(C_DIM)),
+                            Span::styled("primary", primary_style),
+                            Span::styled("  [←→]", Style::default().fg(bc)),
+                            Span::styled(" toggle  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" confirm", Style::default().fg(C_SUBTLE)),
+                        ])
+                    }
+                    RemoteConfirm::Remove => {
+                        let name = app.remote_view.remotes.get(app.remote_view.idx)
+                            .map(|r| r.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("remove remote ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(name.to_string(), Style::default().fg(C_RED).add_modifier(Modifier::BOLD)),
+                            Span::styled("?  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[y]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                            Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                            Span::styled("[any]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                            Span::styled(" cancel", Style::default().fg(C_DIM)),
+                        ])
+                    }
+                    RemoteConfirm::None => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[o]", Style::default().fg(bc)),
+                        Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                    ]),
+                }
+            }
+        },
+        View::Mirror => Line::from(vec![]),
+        View::Pr => {
+            use crate::tui::app::PrConfirm;
+            if app.pr_view.ops_mode {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                ])
+            } else {
+                match &app.pr_view.confirm {
+                    PrConfirm::Merge => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[←→]", Style::default().fg(bc)),
+                        Span::styled(" method  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" merge  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::Close => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[y]", Style::default().fg(bc)),
+                        Span::styled(" confirm close  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[any]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::CreateTitle | PrConfirm::CreateBase => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next step  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::CreateDesc => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Tab]", Style::default().fg(bc)),
+                        Span::styled(" toggle draft  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::None => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[o]", Style::default().fg(bc)),
+                        Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Tab]", Style::default().fg(bc)),
+                        Span::styled(" filter  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[^r]", Style::default().fg(bc)),
+                        Span::styled(" refresh", Style::default().fg(C_SUBTLE)),
+                    ]),
+                }
+            }
+        },
+        View::Workspace => {
+            use crate::tui::app::{WorkspaceConfirm, WorkspaceFocus};
+            if app.workspace_view.ops_mode {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                ])
+            } else {
+                match &app.workspace_view.confirm {
+                    WorkspaceConfirm::DeleteWorkspace => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("delete workspace?  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[y]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                        Span::styled("[any]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" cancel", Style::default().fg(C_DIM)),
+                    ]),
+                    WorkspaceConfirm::RemoveRepo => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("remove repo from workspace?  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[y]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                        Span::styled("[any]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" cancel", Style::default().fg(C_DIM)),
+                    ]),
+                    WorkspaceConfirm::SaveMessage => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("commit message: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.workspace_view.input.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    WorkspaceConfirm::AddRepoPath => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("repo path: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.workspace_view.input.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ]),
+                    WorkspaceConfirm::RenameWorkspace => {
+                        let old = app.workspace_view.workspaces.get(app.workspace_view.ws_idx)
+                            .map(|ws| ws.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("rename ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(old.to_string(), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
+                            Span::styled(" → ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.workspace_view.input.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                            Span::styled("█", Style::default().fg(bc)),
+                        ])
+                    }
+                    WorkspaceConfirm::None => {
+                        if app.workspace_view.focus == WorkspaceFocus::Workspaces {
+                            Line::from(vec![
+                                Span::raw(" "),
+                                Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                                Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                                Span::styled("[→/l]", Style::default().fg(bc)),
+                                Span::styled(" repos  ", Style::default().fg(C_SUBTLE)),
+                                Span::styled("[o]", Style::default().fg(bc)),
+                                Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                            ])
+                        } else {
+                            Line::from(vec![
+                                Span::raw(" "),
+                                Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                                Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                                Span::styled("[Enter]", Style::default().fg(bc)),
+                                Span::styled(" open  ", Style::default().fg(C_SUBTLE)),
+                                Span::styled("[o]", Style::default().fg(bc)),
+                                Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                                Span::styled("[←/h]", Style::default().fg(bc)),
+                                Span::styled(" workspaces", Style::default().fg(C_SUBTLE)),
+                            ])
+                        }
+                    }
+                }
+            }
+        },
         View::Config => Line::from(vec![
             Span::raw(" "),
             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -590,14 +934,23 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
         _ => Line::from(""),
     };
 
-    // Push [e] events to the right edge
+    // Push [e] events (and [W] repo picker if available) to the right edge
     let events_label = if app.show_event_log { " events ✓" } else { " events" };
-    let right_str = format!("[e]{} ", events_label);
+    let has_siblings = app.workspace_has_siblings();
+    let right_str = if has_siblings {
+        format!("[W] repos  [e]{} ", events_label)
+    } else {
+        format!("[e]{} ", events_label)
+    };
     let left_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
     let pad = (area.width as usize).saturating_sub(left_len + right_str.len());
 
     let mut spans = line.spans;
     spans.push(Span::raw(" ".repeat(pad)));
+    if has_siblings {
+        spans.push(Span::styled("[W]", Style::default().fg(bc)));
+        spans.push(Span::styled(" repos  ", Style::default().fg(C_SUBTLE)));
+    }
     spans.push(Span::styled("[e]", Style::default().fg(bc)));
     spans.push(Span::styled(events_label, Style::default().fg(C_SUBTLE)));
     spans.push(Span::raw(" "));
@@ -639,9 +992,18 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             ("  ", Style::default().fg(C_SUBTLE), None)
         };
 
+        let label_owned: String;
+        let label: &str = if tab.view == View::Pr {
+            label_owned = "pr/mr".to_string();
+            &label_owned
+        } else {
+            label_owned = String::new();
+            tab.label
+        };
+
         let mut item = ListItem::new(Line::from(vec![
             Span::styled(prefix, Style::default().fg(brand)),
-            Span::styled(tab.label, label_style),
+            Span::styled(label.to_string(), label_style),
         ]));
         if let Some(color) = bg {
             item = item.style(Style::default().bg(color));

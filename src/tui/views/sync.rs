@@ -51,7 +51,7 @@ fn render_ops(f: &mut Frame, app: &App, area: Rect) {
     }).collect();
 
     let block = Block::default()
-        .title(Span::styled(" operation ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" operation ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(List::new(items).block(block), area);
@@ -94,7 +94,7 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let block = Block::default()
-        .title(Span::styled(" status ", Style::default().fg(C_SUBTLE)))
+        .title(Span::styled(" status ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(Paragraph::new(line).block(block), area);
