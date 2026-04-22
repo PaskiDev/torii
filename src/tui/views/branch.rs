@@ -3,11 +3,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState},
 };
 
-use crate::tui::app::{App, BranchConfirm};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_RED, C_YELLOW};
+use crate::tui::app::App;
+use super::super::ui::{C_WHITE, C_SUBTLE, C_GREEN, C_RED};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
@@ -15,7 +15,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1)])
         .split(area);
 
     // ── Branch list ───────────────────────────────────────────────────────────
@@ -76,60 +76,58 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_stateful_widget(List::new(items).block(list_block), chunks[0], &mut state);
 
-    // ── Bottom bar: status / confirm / input ──────────────────────────────────
-    let (bottom_line, border_color) = match &app.branch_view.confirm {
-        BranchConfirm::Delete => {
-            let name = app.branch_view.branches.get(app.branch_view.idx)
-                .map(|b| b.name.as_str()).unwrap_or("?");
-            (Line::from(vec![
-                Span::raw(" "),
-                Span::styled("delete ", Style::default().fg(C_SUBTLE)),
-                Span::styled(name, Style::default().fg(C_RED).add_modifier(Modifier::BOLD)),
-                Span::styled("?  ", Style::default().fg(C_SUBTLE)),
-                Span::styled("[y]", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
-                Span::styled(" confirm  ", Style::default().fg(C_DIM)),
-                Span::styled("[any]", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
-                Span::styled(" cancel ", Style::default().fg(C_DIM)),
-            ]), C_RED)
-        }
-        BranchConfirm::NewBranch => {
-            (Line::from(vec![
-                Span::raw(" "),
-                Span::styled("new branch: ", Style::default().fg(C_SUBTLE)),
-                Span::styled(app.branch_view.new_name.as_str(),
-                    Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
-                Span::styled("█", Style::default().fg(bc)),
-            ]), C_WHITE)
-        }
-        BranchConfirm::None => {
-            let content = if let Some(s) = &app.branch_view.status {
-                let color = if s.starts_with("checkout:") || s.starts_with("created") || s.starts_with("deleted") {
-                    C_GREEN
-                } else if s.contains("failed") || s.contains("cannot") {
-                    C_RED
-                } else {
-                    C_YELLOW
-                };
-                Line::from(vec![Span::raw(" "), Span::styled(s.as_str(), Style::default().fg(color))])
-            } else {
-                Line::from(vec![
-                    Span::raw(" "),
-                    Span::styled("[Enter]", Style::default().fg(bc)),
-                    Span::styled(" checkout  ", Style::default().fg(C_DIM)),
-                    Span::styled("[n]", Style::default().fg(bc)),
-                    Span::styled(" new  ", Style::default().fg(C_DIM)),
-                    Span::styled("[d]", Style::default().fg(bc)),
-                    Span::styled(" delete ", Style::default().fg(C_DIM)),
-                ])
-            };
-            (content, bc)
-        }
-    };
+    // ── Ops dropdown overlay ──────────────────────────────────────────────────
+    if app.branch_view.ops_mode {
+        let push_disabled = app.branch_view.current_has_upstream;
+        let selected = app.branch_view.branches.get(app.branch_view.idx);
+        let can_delete = selected.map(|b| !b.is_current && !b.is_remote).unwrap_or(false);
 
-    let bottom_block = Block::default()
-        .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(border_color));
-    f.render_widget(Paragraph::new(bottom_line).block(bottom_block), chunks[1]);
+        let ops: &[(&str, bool)] = &[
+            ("checkout",    false),
+            ("new branch",  false),
+            ("push",        false),
+            ("delete ⚠",    true),
+        ];
+
+        let dropdown_w = 18u16;
+        let dropdown_h = ops.len() as u16 + 2;
+        let entry_y = chunks[0].y + 1 + sel_list_pos as u16 + 1;
+        let drop_y = if entry_y + dropdown_h < chunks[0].y + chunks[0].height {
+            entry_y
+        } else {
+            chunks[0].y + chunks[0].height - dropdown_h
+        };
+        let drop_area = Rect::new(chunks[0].x + 3, drop_y, dropdown_w, dropdown_h);
+
+        let items: Vec<ListItem> = ops.iter().enumerate().map(|(i, (label, danger))| {
+            let is_sel = i == app.branch_view.ops_idx;
+            let dimmed = (i == 2 && push_disabled) || (i == 3 && !can_delete);
+            let color = if dimmed { super::super::ui::C_DIM }
+                else if *danger { C_RED }
+                else if is_sel { C_WHITE }
+                else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            let style = if is_sel && !dimmed {
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(*label, Style::default().fg(color)),
+            ])).style(style)
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(app.branch_view.ops_idx));
+
+        let drop_block = Block::default()
+            .borders(Borders::ALL).border_type(app.border_type())
+            .border_style(Style::default().fg(bc));
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(List::new(items).block(drop_block), drop_area, &mut drop_state);
+    }
 }
 
 fn branch_item<'a>(

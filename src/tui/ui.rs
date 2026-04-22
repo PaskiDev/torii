@@ -302,53 +302,252 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                 Span::styled("[Esc]", Style::default().fg(bc)),
                 Span::styled(" cancel search", Style::default().fg(C_SUBTLE)),
             ])
+        } else if app.log.ops_mode {
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[Enter]", Style::default().fg(bc)),
+                Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[Esc]", Style::default().fg(bc)),
+                Span::styled(" close", Style::default().fg(C_SUBTLE)),
+            ])
         } else {
             Line::from(vec![
                 Span::raw(" "),
                 Span::styled("[↑↓/jk]", Style::default().fg(bc)),
                 Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-                Span::styled("[d]", Style::default().fg(bc)),
-                Span::styled(" diff  ", Style::default().fg(C_SUBTLE)),
-                Span::styled("[y]", Style::default().fg(bc)),
-                Span::styled(" copy hash  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[o]", Style::default().fg(bc)),
+                Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
                 Span::styled("[/]", Style::default().fg(bc)),
                 Span::styled(" search", Style::default().fg(C_SUBTLE)),
             ])
         },
-        View::Branch => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" checkout  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[n]", Style::default().fg(bc)),
-            Span::styled(" new  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[d]", Style::default().fg(bc)),
-            Span::styled(" delete", Style::default().fg(C_SUBTLE)),
-        ]),
-        View::Snapshot => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" restore", Style::default().fg(C_SUBTLE)),
-        ]),
-        View::Tag => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" push  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[d]", Style::default().fg(bc)),
-            Span::styled(" delete", Style::default().fg(C_SUBTLE)),
-        ]),
-        View::History => Line::from(vec![
-            Span::raw(" "),
-            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
-            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" cherry-pick", Style::default().fg(C_SUBTLE)),
-        ]),
+        View::Branch => {
+            use crate::tui::app::BranchConfirm;
+            match &app.branch_view.confirm {
+                BranchConfirm::Delete => {
+                    let name = app.branch_view.branches.get(app.branch_view.idx)
+                        .map(|b| b.name.as_str()).unwrap_or("?");
+                    Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("delete ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(name.to_string(), Style::default().fg(C_RED).add_modifier(Modifier::BOLD)),
+                        Span::styled("?  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[y]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                        Span::styled("[any]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                        Span::styled(" cancel", Style::default().fg(C_DIM)),
+                    ])
+                }
+                BranchConfirm::NewBranch => {
+                    Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("new branch: ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(app.branch_view.new_name.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                        Span::styled("█", Style::default().fg(bc)),
+                    ])
+                }
+                BranchConfirm::None => {
+                    if app.branch_view.ops_mode {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Esc]", Style::default().fg(bc)),
+                            Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                        ])
+                    } else if let Some(s) = &app.branch_view.status {
+                        let color = if s.starts_with("checkout:") || s.starts_with("created") || s.starts_with("pushed") || s.starts_with("deleted") {
+                            C_GREEN
+                        } else if s.contains("failed") || s.contains("cannot") {
+                            C_RED
+                        } else {
+                            C_YELLOW
+                        };
+                        Line::from(vec![Span::raw(" "), Span::styled(s.clone(), Style::default().fg(color))])
+                    } else {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[o]", Style::default().fg(bc)),
+                            Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                        ])
+                    }
+                }
+            }
+        },
+        View::Snapshot => {
+            use crate::tui::app::SnapshotFocus;
+            if app.snapshot_view.ops_mode && app.snapshot_view.focus == SnapshotFocus::List {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                ])
+            } else if app.snapshot_view.focus == SnapshotFocus::Create {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("snapshot name: ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.snapshot_view.create_name.clone(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ])
+            } else if app.snapshot_view.focus == SnapshotFocus::AutoConfig {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" set  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" back", Style::default().fg(C_SUBTLE)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[o]", Style::default().fg(bc)),
+                    Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[a]", Style::default().fg(bc)),
+                    Span::styled(" auto-config", Style::default().fg(C_SUBTLE)),
+                ])
+            }
+        },
+        View::Tag => {
+            use crate::tui::app::TagConfirm;
+            match &app.tag_view.confirm {
+                TagConfirm::Delete => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("delete tag?  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[y]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                    Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                    Span::styled("[any]", Style::default().fg(bc).add_modifier(Modifier::BOLD)),
+                    Span::styled(" cancel", Style::default().fg(C_DIM)),
+                ]),
+                TagConfirm::CreateName => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("tag name: ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.tag_view.new_name.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                TagConfirm::CreateMessage => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("message: ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.tag_view.new_message.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                TagConfirm::None => {
+                    if app.tag_view.ops_mode {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Esc]", Style::default().fg(bc)),
+                            Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[o]", Style::default().fg(bc)),
+                            Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                        ])
+                    }
+                }
+            }
+        },
+        View::History => {
+            use crate::tui::app::HistoryConfirm;
+            match &app.history_view.confirm {
+                HistoryConfirm::CherryPick => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("cherry-pick commit?  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[y]", Style::default().fg(bc)),
+                    Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                    Span::styled("[any]", Style::default().fg(bc)),
+                    Span::styled(" cancel", Style::default().fg(C_DIM)),
+                ]),
+                HistoryConfirm::Clean => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("clean history & GC?  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[y]", Style::default().fg(bc)),
+                    Span::styled(" confirm  ", Style::default().fg(C_DIM)),
+                    Span::styled("[any]", Style::default().fg(bc)),
+                    Span::styled(" cancel", Style::default().fg(C_DIM)),
+                ]),
+                HistoryConfirm::Rebase => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("rebase onto: ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.history_view.input.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                HistoryConfirm::RemoveFile => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("remove file from history: ", Style::default().fg(C_RED)),
+                    Span::styled(app.history_view.input.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                HistoryConfirm::RewriteStart => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("rewrite start date (YYYY-MM-DD HH:MM): ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.history_view.input.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                HistoryConfirm::RewriteEnd => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("rewrite end date (YYYY-MM-DD HH:MM): ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.history_view.input2.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                HistoryConfirm::Blame => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("blame file: ", Style::default().fg(C_SUBTLE)),
+                    Span::styled(app.history_view.input.as_str(), Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                    Span::styled("█", Style::default().fg(bc)),
+                ]),
+                HistoryConfirm::Scan => Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[f]", Style::default().fg(bc)),
+                    Span::styled(" toggle mode  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run scan  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                ]),
+                HistoryConfirm::None => {
+                    if app.history_view.ops_mode {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Enter]", Style::default().fg(bc)),
+                            Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[Esc]", Style::default().fg(bc)),
+                            Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                            Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                            Span::styled("[o]", Style::default().fg(bc)),
+                            Span::styled(" operations", Style::default().fg(C_SUBTLE)),
+                        ])
+                    }
+                }
+            }
+        },
         View::Remote => Line::from(vec![
             Span::raw(" "),
             Span::styled("[↑↓/jk]", Style::default().fg(bc)),

@@ -137,9 +137,9 @@ fn run_loop(
                             Ok(_)  => format!("checkout: {}", name),
                             Err(e) => format!("checkout failed: {}", e),
                         };
-                        let kind = if msg.starts_with("checkout:") { EventKind::Success } else { EventKind::Error };
-                        app.log_event(&msg, kind);
-                        app.branch_view.status = Some(msg);
+                        let is_ok = msg.starts_with("checkout:");
+                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                        app.branch_view.status = if is_ok { None } else { Some(msg) };
                         app.go_to(View::Branch);
                         app.refresh()?;
                     }
@@ -156,7 +156,7 @@ fn run_loop(
                         };
                         let kind = if msg.starts_with("deleted") { EventKind::Success } else { EventKind::Error };
                         app.log_event(&msg, kind);
-                        app.branch_view.status = Some(msg);
+                        app.branch_view.status = None;
                         app.go_to(View::Branch);
                     }
                 }
@@ -167,16 +167,29 @@ fn run_loop(
                         let result = crate::core::GitRepo::open(&app.repo_path)
                             .and_then(|r| r.create_branch(&name).and_then(|_| r.switch_branch(&name)));
                         let msg = match result {
-                            Ok(_)  => format!("created and switched to: {}", name),
+                            Ok(_)  => format!("created: {}", name),
                             Err(e) => format!("create failed: {}", e),
                         };
-                        let kind = if msg.starts_with("created") { EventKind::Success } else { EventKind::Error };
-                        app.log_event(&msg, kind);
+                        let is_ok = msg.starts_with("created");
+                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
                         app.branch_view.new_name.clear();
-                        app.branch_view.status = Some(msg);
+                        app.branch_view.status = if is_ok { None } else { Some(msg) };
                         app.go_to(View::Branch);
                         app.refresh()?;
                     }
+                }
+
+                Action::BranchPush => {
+                    let result = crate::core::GitRepo::open(&app.repo_path)
+                        .and_then(|r| r.push(false));
+                    let msg = match result {
+                        Ok(_)  => format!("pushed: {}", app.branch),
+                        Err(e) => format!("push failed: {}", e),
+                    };
+                    let is_ok = msg.starts_with("pushed");
+                    app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                    app.branch_view.status = if is_ok { None } else { Some(msg) };
+                    app.refresh()?;
                 }
 
                 Action::SnapshotRestore => {
@@ -226,53 +239,161 @@ fn run_loop(
                     spawn_sync(app);
                 }
 
+                Action::TagCreate => {
+                    let name = app.tag_view.new_name.trim().to_string();
+                    let message = app.tag_view.new_message.trim().to_string();
+                    app.tag_view.new_name.clear();
+                    app.tag_view.new_message.clear();
+                    if !name.is_empty() {
+                        let result = std::process::Command::new("torii")
+                            .args(["tag", "create", &name, "-m", &message])
+                            .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status();
+                        let is_ok = result.map(|s| s.success()).unwrap_or(false);
+                        let msg = if is_ok { format!("created tag: {}", name) } else { format!("failed to create tag: {}", name) };
+                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                        app.refresh()?;
+                    }
+                }
+
                 Action::TagPush => {
                     if let Some(tag) = app.tag_view.tags.get(app.tag_view.idx) {
                         let name = tag.name.clone();
-                        let status = std::process::Command::new("git")
-                            .args(["push", "origin", &name])
+                        let result = std::process::Command::new("torii")
+                            .args(["tag", "push", &name])
                             .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status();
-                        let msg = match status {
-                            Ok(s) if s.success() => format!("pushed tag: {}", name),
-                            _ => format!("failed to push tag: {}", name),
-                        };
-                        let kind = if msg.starts_with("pushed") { EventKind::Success } else { EventKind::Error };
-                        app.log_event(&msg, kind);
-                        app.tag_view.status = Some(msg);
+                        let is_ok = result.map(|s| s.success()).unwrap_or(false);
+                        let msg = if is_ok { format!("pushed tag: {}", name) } else { format!("failed to push tag: {}", name) };
+                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
                     }
                 }
 
                 Action::TagDelete => {
                     if let Some(tag) = app.tag_view.tags.get(app.tag_view.idx) {
                         let name = tag.name.clone();
-                        let status = std::process::Command::new("git")
-                            .args(["tag", "-d", &name])
+                        let result = std::process::Command::new("torii")
+                            .args(["tag", "delete", &name])
                             .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status();
-                        let msg = match status {
-                            Ok(s) if s.success() => format!("deleted tag: {}", name),
-                            _ => format!("failed to delete tag: {}", name),
-                        };
-                        let kind = if msg.starts_with("deleted") { EventKind::Success } else { EventKind::Error };
-                        app.log_event(&msg, kind);
-                        app.tag_view.status = Some(msg);
-                        app.go_to(View::Tag);
+                        let is_ok = result.map(|s| s.success()).unwrap_or(false);
+                        let msg = if is_ok { format!("deleted tag: {}", name) } else { format!("failed to delete tag: {}", name) };
+                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                        app.refresh()?;
                     }
                 }
 
                 Action::HistoryCherryPick => {
                     if let Some(entry) = app.history_view.reflog.get(app.history_view.idx) {
                         let hash = entry.id.clone();
-                        let status = std::process::Command::new("git")
-                            .args(["cherry-pick", &hash])
+                        let ok = std::process::Command::new("torii")
+                            .args(["history", "cherry-pick", &hash])
                             .current_dir(&app.repo_path)
-                            .status();
-                        app.history_view.status = Some(match status {
-                            Ok(s) if s.success() => format!("cherry-picked: {}", hash),
-                            _ => format!("cherry-pick failed: {}", hash),
-                        });
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status().map(|s| s.success()).unwrap_or(false);
+                        let msg = if ok { format!("cherry-picked: {}", hash) } else { format!("cherry-pick failed: {}", hash) };
+                        app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
                         app.refresh()?;
+                    }
+                }
+
+                Action::HistoryRebase => {
+                    let target = app.history_view.input.trim().to_string();
+                    app.history_view.input.clear();
+                    if !target.is_empty() {
+                        let ok = std::process::Command::new("torii")
+                            .args(["history", "rebase", &target])
+                            .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status().map(|s| s.success()).unwrap_or(false);
+                        let msg = if ok { format!("rebased onto: {}", target) } else { format!("rebase failed onto: {}", target) };
+                        app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
+                        app.refresh()?;
+                    }
+                }
+
+                Action::HistoryScan => {
+                    let full = app.history_view.scan_full;
+                    let mut cmd = std::process::Command::new("torii");
+                    cmd.args(if full { vec!["history", "scan", "--history"] } else { vec!["history", "scan"] })
+                        .current_dir(&app.repo_path)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null());
+                    let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
+                    let msg = if ok { "scan complete — no secrets found".to_string() } else { "scan found issues — check event log".to_string() };
+                    app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
+                }
+
+                Action::HistoryClean => {
+                    let ok = std::process::Command::new("torii")
+                        .args(["history", "clean"])
+                        .current_dir(&app.repo_path)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status().map(|s| s.success()).unwrap_or(false);
+                    let msg = if ok { "history cleaned".to_string() } else { "clean failed".to_string() };
+                    app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
+                    app.refresh()?;
+                }
+
+                Action::HistoryRemoveFile => {
+                    let path = app.history_view.input.trim().to_string();
+                    app.history_view.input.clear();
+                    if !path.is_empty() {
+                        let ok = std::process::Command::new("torii")
+                            .args(["history", "remove-file", &path])
+                            .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status().map(|s| s.success()).unwrap_or(false);
+                        let msg = if ok { format!("removed file from history: {}", path) } else { format!("remove-file failed: {}", path) };
+                        app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
+                        app.refresh()?;
+                    }
+                }
+
+                Action::HistoryRewrite => {
+                    let start = app.history_view.input.trim().to_string();
+                    let end = app.history_view.input2.trim().to_string();
+                    app.history_view.input.clear();
+                    app.history_view.input2.clear();
+                    if !start.is_empty() && !end.is_empty() {
+                        let ok = std::process::Command::new("torii")
+                            .args(["history", "rewrite", &start, &end])
+                            .current_dir(&app.repo_path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .status().map(|s| s.success()).unwrap_or(false);
+                        let msg = if ok { format!("rewrote dates: {} → {}", start, end) } else { "rewrite failed".to_string() };
+                        app.log_event(&msg, if ok { EventKind::Success } else { EventKind::Error });
+                        app.refresh()?;
+                    }
+                }
+
+                Action::HistoryBlame => {
+                    let file = app.history_view.input.trim().to_string();
+                    app.history_view.input.clear();
+                    if !file.is_empty() {
+                        let output = std::process::Command::new("torii")
+                            .args(["history", "blame", &file])
+                            .current_dir(&app.repo_path)
+                            .output();
+                        match output {
+                            Ok(o) if o.status.success() => {
+                                let text = String::from_utf8_lossy(&o.stdout).to_string();
+                                app.history_view.input = text;
+                                app.log_event(&format!("blame: {}", file), EventKind::Info);
+                            }
+                            _ => { app.log_event(&format!("blame failed: {}", file), EventKind::Error); }
+                        }
                     }
                 }
 
@@ -286,6 +407,8 @@ fn run_loop(
                     let status = std::process::Command::new("torii")
                         .args(["mirror", "sync"])
                         .current_dir(&app.repo_path)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
                         .status();
                     app.mirror_view.status = Some(match status {
                         Ok(s) if s.success() => "synced all mirrors".to_string(),
@@ -307,6 +430,8 @@ fn run_loop(
                         };
                         let status = std::process::Command::new("torii")
                             .args(["config", "set", &key, &val, scope_flag])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status();
                         app.config_view.editing = false;
                         app.config_view.status = Some(match status {
@@ -358,6 +483,8 @@ fn run_loop(
                         let name = ws.name.clone();
                         let status = std::process::Command::new("torii")
                             .args(["workspace", "sync", &name])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status();
                         let msg = match status {
                             Ok(s) if s.success() => format!("synced workspace: {}", name),
@@ -379,6 +506,8 @@ fn run_loop(
                         let status = std::process::Command::new("torii")
                             .args(["sync"])
                             .current_dir(&path)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
                             .status();
                         let msg = match status {
                             Ok(s) if s.success() => format!("synced: {}", path),

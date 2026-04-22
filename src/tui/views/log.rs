@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState},
 };
 
 use crate::tui::app::App;
@@ -105,6 +105,50 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
     f.render_widget(List::new(file_items).block(files_block), chunks[1]);
+
+    // ── Ops dropdown overlay ──────────────────────────────────────────────────
+    if app.log.ops_mode {
+        const OPS: &[(&str, bool)] = &[
+            ("diff",       false),
+            ("copy hash",  false),
+            ("search",     false),
+        ];
+        let dropdown_w = 16u16;
+        let dropdown_h = OPS.len() as u16 + 2;
+        let sel_display_pos = sel_pos.unwrap_or(0);
+        let entry_y = chunks[0].y + 1 + sel_display_pos as u16 + 1;
+        let drop_y = if entry_y + dropdown_h < chunks[0].y + chunks[0].height {
+            entry_y
+        } else {
+            chunks[0].y + chunks[0].height - dropdown_h
+        };
+        let drop_area = Rect::new(chunks[0].x + 3, drop_y, dropdown_w, dropdown_h);
+
+        let drop_items: Vec<ListItem> = OPS.iter().enumerate().map(|(i, (label, danger))| {
+            let is_sel = i == app.log.ops_idx;
+            let color = if *danger { C_RED } else if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            let style = if is_sel {
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(*label, Style::default().fg(color)),
+            ])).style(style)
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(app.log.ops_idx));
+
+        let drop_block = Block::default()
+            .borders(Borders::ALL).border_type(app.border_type())
+            .border_style(Style::default().fg(bc));
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(List::new(drop_items).block(drop_block), drop_area, &mut drop_state);
+    }
 }
 
 fn file_basename(path: &str) -> String {

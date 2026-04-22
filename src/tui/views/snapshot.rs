@@ -3,11 +3,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::tui::app::{App, AutoSnapshotInterval, SnapshotFocus};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_RED, C_YELLOW, C_GREEN};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let in_list   = app.snapshot_view.focus == SnapshotFocus::List;
@@ -50,12 +50,55 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let list_block = Block::default()
         .title(Span::styled(
-            format!(" snapshots ({})  [n] new  [d] delete  [Enter] load  [a] auto ", app.snapshot_view.snapshots.len()),
+            format!(" snapshots ({}) ", app.snapshot_view.snapshots.len()),
             if in_list { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) } else { Style::default().fg(bc) },
         ))
         .borders(Borders::ALL).border_type(app.border_type())
         .border_style(if in_list { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_stateful_widget(List::new(items).block(list_block), chunks[0], &mut state);
+
+    // ── Ops dropdown overlay ──────────────────────────────────────────────────
+    if app.snapshot_view.ops_mode && in_list {
+        const OPS: &[(&str, bool)] = &[
+            ("restore",    false),
+            ("new",        false),
+            ("delete ⚠",  true),
+        ];
+        let dropdown_w = 16u16;
+        let dropdown_h = OPS.len() as u16 + 2;
+        let entry_y = chunks[0].y + 1 + app.snapshot_view.idx as u16 + 1;
+        let drop_y = if entry_y + dropdown_h < chunks[0].y + chunks[0].height {
+            entry_y
+        } else {
+            chunks[0].y + chunks[0].height - dropdown_h
+        };
+        let drop_area = Rect::new(chunks[0].x + 3, drop_y, dropdown_w, dropdown_h);
+
+        let drop_items: Vec<ListItem> = OPS.iter().enumerate().map(|(i, (label, danger))| {
+            let is_sel = i == app.snapshot_view.ops_idx;
+            let color = if *danger { C_RED } else if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            let style = if is_sel {
+                Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(*label, Style::default().fg(color)),
+            ])).style(style)
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(app.snapshot_view.ops_idx));
+
+        let drop_block = Block::default()
+            .borders(Borders::ALL).border_type(app.border_type())
+            .border_style(Style::default().fg(bc));
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(List::new(drop_items).block(drop_block), drop_area, &mut drop_state);
+    }
 
     // ── Create input ──────────────────────────────────────────────────────────
     let name = &app.snapshot_view.create_name;

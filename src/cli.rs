@@ -651,6 +651,8 @@ enum RemoteCommands {
     List {
         platform: String,
     },
+    /// List remotes configured in the current repository
+    Local,
 }
 
 #[derive(Subcommand)]
@@ -1541,6 +1543,21 @@ impl Cli {
                         println!("   Default Branch: {}", repo_info.default_branch);
                         println!("   URL: {}", repo_info.url);
                         println!("   SSH: {}", repo_info.ssh_url);
+                    }
+                    RemoteCommands::Local => {
+                        let repo = GitRepo::open(".")?;
+                        let git_repo = repo.repository();
+                        let remotes = git_repo.remotes()?;
+                        if remotes.is_empty() {
+                            println!("No remotes configured");
+                        } else {
+                            for name in remotes.iter().flatten() {
+                                if let Ok(remote) = git_repo.find_remote(name) {
+                                    let url = remote.url().unwrap_or("(no url)");
+                                    println!("  {}  {}", name, url);
+                                }
+                            }
+                        }
                     }
                     RemoteCommands::List { platform } => {
                         let client = get_platform_client(platform)?;

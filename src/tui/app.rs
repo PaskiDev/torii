@@ -119,6 +119,8 @@ pub struct LogState {
     pub all_loaded: bool,
     pub commit_files: Vec<CommitFileEntry>,
     pub last_files_idx: Option<usize>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for LogState {
@@ -133,6 +135,8 @@ impl Default for LogState {
             all_loaded: false,
             commit_files: vec![],
             last_files_idx: None,
+            ops_mode: false,
+            ops_idx: 0,
         }
     }
 }
@@ -158,6 +162,9 @@ pub struct BranchState {
     pub confirm: BranchConfirm,
     pub new_name: String,
     pub status: Option<String>,
+    pub current_has_upstream: bool,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for BranchState {
@@ -168,6 +175,9 @@ impl Default for BranchState {
             confirm: BranchConfirm::None,
             new_name: String::new(),
             status: None,
+            current_has_upstream: false,
+            ops_mode: false,
+            ops_idx: 0,
         }
     }
 }
@@ -250,6 +260,8 @@ pub struct SnapshotState {
     pub auto_interval: AutoSnapshotInterval,
     pub auto_interval_idx: usize,
     pub last_auto_snapshot: u64,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for SnapshotState {
@@ -262,6 +274,8 @@ impl Default for SnapshotState {
             auto_interval: AutoSnapshotInterval::Off,
             auto_interval_idx: 0,
             last_auto_snapshot: 0,
+            ops_mode: false,
+            ops_idx: 0,
         }
     }
 }
@@ -304,17 +318,41 @@ impl Default for SyncState {
 pub struct TagEntry {
     pub name: String,
     pub message: String,
+    pub hash: String,
     pub time: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TagConfirm {
+    None,
+    Delete,
+    CreateName,
+    CreateMessage,
 }
 
 pub struct TagState {
     pub tags: Vec<TagEntry>,
     pub idx: usize,
-    pub status: Option<String>,
+    pub confirm: TagConfirm,
+    pub new_name: String,
+    pub new_message: String,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for TagState {
-    fn default() -> Self { Self { tags: vec![], idx: 0, status: None } }
+    fn default() -> Self {
+        Self {
+            tags: vec![],
+            idx: 0,
+            confirm: TagConfirm::None,
+            new_name: String::new(),
+            new_message: String::new(),
+            ops_mode: false,
+            ops_idx: 0,
+        }
+    }
 }
 
 // ── History state ─────────────────────────────────────────────────────────────
@@ -325,14 +363,43 @@ pub struct ReflogEntry {
     pub time: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum HistoryConfirm {
+    None,
+    CherryPick,
+    Clean,
+    RemoveFile,
+    Rebase,
+    RewriteStart,
+    RewriteEnd,
+    Blame,
+    Scan,
+}
+
 pub struct HistoryState {
     pub reflog: Vec<ReflogEntry>,
     pub idx: usize,
-    pub status: Option<String>,
+    pub confirm: HistoryConfirm,
+    pub input: String,
+    pub input2: String,
+    pub scan_full: bool,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
 }
 
 impl Default for HistoryState {
-    fn default() -> Self { Self { reflog: vec![], idx: 0, status: None } }
+    fn default() -> Self {
+        Self {
+            reflog: vec![],
+            idx: 0,
+            confirm: HistoryConfirm::None,
+            input: String::new(),
+            input2: String::new(),
+            scan_full: false,
+            ops_mode: false,
+            ops_idx: 0,
+        }
+    }
 }
 
 // ── Remote state ──────────────────────────────────────────────────────────────
@@ -1172,6 +1239,13 @@ impl App {
         }
         self.branch_view.idx = self.branch_view.branches
             .iter().position(|b| b.is_current).unwrap_or(0);
+
+        self.branch_view.current_has_upstream = repo.branches(Some(git2::BranchType::Local))
+            .ok()
+            .map(|branches| branches.flatten().any(|(b, _)| {
+                b.is_head() && b.upstream().is_ok()
+            }))
+            .unwrap_or(false);
     }
 
     pub fn branch_move_up(&mut self) {
@@ -1285,17 +1359,19 @@ impl App {
         let _ = repo.tag_foreach(|oid, name| {
             let name = String::from_utf8_lossy(name).to_string();
             let name = name.trim_start_matches("refs/tags/").to_string();
-            let (message, time) = repo.find_object(oid, None).ok()
-                .and_then(|obj| obj.peel_to_commit().ok())
-                .map(|c| (
-                    c.summary().unwrap_or("").to_string(),
-                    format_age(c.time().seconds()),
-                ))
-                .unwrap_or_default();
-            self.tag_view.tags.push(TagEntry { name, message, time });
+            let commit = repo.find_object(oid, None).ok()
+                .and_then(|obj| obj.peel_to_commit().ok());
+            let (message, hash, time, timestamp) = commit.map(|c| (
+                c.summary().unwrap_or("").to_string(),
+                format!("{:.7}", c.id()),
+                format_age(c.time().seconds()),
+                c.time().seconds(),
+            )).unwrap_or_default();
+            self.tag_view.tags.push(TagEntry { name, message, hash, time, timestamp });
             true
         });
-        self.tag_view.idx = 0;
+        self.tag_view.tags.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        self.tag_view.idx = self.tag_view.idx.min(self.tag_view.tags.len().saturating_sub(1));
     }
 
     pub fn tag_move_up(&mut self) {

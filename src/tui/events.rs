@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, BranchConfirm};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm};
 
 
 pub enum Action {
@@ -16,6 +16,7 @@ pub enum Action {
     BranchCheckout,
     BranchDelete,
     BranchCreate,
+    BranchPush,
     SnapshotRestore,
     SnapshotCreate,
     SnapshotDelete,
@@ -25,7 +26,14 @@ pub enum Action {
     SyncRun,
     TagPush,
     TagDelete,
+    TagCreate,
     HistoryCherryPick,
+    HistoryRebase,
+    HistoryScan,
+    HistoryClean,
+    HistoryRemoveFile,
+    HistoryRewrite,
+    HistoryBlame,
     RemoteInfo,
     MirrorSync,
     WorkspaceSync,
@@ -69,6 +77,11 @@ impl EventHandler {
                     View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create,
                     View::Log       => app.log.search_mode,
                     View::Branch    => app.branch_view.confirm == BranchConfirm::NewBranch,
+                    View::Tag       => matches!(app.tag_view.confirm, TagConfirm::CreateName | TagConfirm::CreateMessage),
+                    View::History   => matches!(app.history_view.confirm,
+                        HistoryConfirm::Rebase | HistoryConfirm::RemoveFile |
+                        HistoryConfirm::RewriteStart | HistoryConfirm::RewriteEnd |
+                        HistoryConfirm::Blame),
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -113,7 +126,10 @@ impl EventHandler {
                         View::Config    => app.config_view.editing,
                         View::Settings  => app.settings_view.editing_keybind.is_some(),
                         View::Log       => {
-                            if app.log.search_mode {
+                            if app.log.ops_mode {
+                                app.log.ops_mode = false;
+                                true
+                            } else if app.log.search_mode {
                                 app.log.search_mode = false;
                                 app.log.search_query.clear();
                                 app.log.filtered.clear();
@@ -123,9 +139,46 @@ impl EventHandler {
                             }
                         }
                         View::Branch    => {
-                            if app.branch_view.confirm != BranchConfirm::None {
+                            if app.branch_view.ops_mode {
+                                app.branch_view.ops_mode = false;
+                                true
+                            } else if app.branch_view.confirm != BranchConfirm::None {
                                 app.branch_view.confirm = BranchConfirm::None;
                                 app.branch_view.new_name.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Tag       => {
+                            if app.tag_view.ops_mode {
+                                app.tag_view.ops_mode = false;
+                                true
+                            } else if app.tag_view.confirm != TagConfirm::None {
+                                app.tag_view.confirm = TagConfirm::None;
+                                app.tag_view.new_name.clear();
+                                app.tag_view.new_message.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::History   => {
+                            if app.history_view.ops_mode {
+                                app.history_view.ops_mode = false;
+                                true
+                            } else if app.history_view.confirm != HistoryConfirm::None {
+                                app.history_view.confirm = HistoryConfirm::None;
+                                app.history_view.input.clear();
+                                app.history_view.input2.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Snapshot  => {
+                            if app.snapshot_view.ops_mode {
+                                app.snapshot_view.ops_mode = false;
                                 true
                             } else {
                                 false
@@ -263,12 +316,43 @@ fn handle_log(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         }
         return None;
     }
+    if app.log.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.log.ops_idx > 0 { app.log.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.log.ops_idx < 2 { app.log.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.log.ops_idx;
+                app.log.ops_mode = false;
+                match idx {
+                    0 => return Some(Action::OpenDiffFromLog),
+                    1 => return Some(Action::LogCopyHash),
+                    2 => {
+                        app.log.search_mode = true;
+                        app.log.search_query.clear();
+                        app.log.filtered.clear();
+                    }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.log.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Up)     | (_, KeyCode::Char('k')) => app.log_move_up(),
-        (_, KeyCode::Down)   | (_, KeyCode::Char('j')) => app.log_move_down(),
-        (_, KeyCode::Char('d'))                        => return Some(Action::OpenDiffFromLog),
-        (_, KeyCode::Char('y'))                        => return Some(Action::LogCopyHash),
+        (_, KeyCode::Up)     | (_, KeyCode::Char('k')) => { app.log_move_up(); app.log.ops_mode = false; }
+        (_, KeyCode::Down)   | (_, KeyCode::Char('j')) => { app.log_move_down(); app.log.ops_mode = false; }
+        (_, KeyCode::Char('o')) => {
+            app.log.ops_mode = true;
+            app.log.ops_idx = 0;
+        }
         (_, KeyCode::Char('/')) => {
             app.log.search_mode = true;
             app.log.search_query.clear();
@@ -315,25 +399,56 @@ fn handle_branch(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         }
         BranchConfirm::None => {}
     }
+    if app.branch_view.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.branch_view.ops_idx > 0 { app.branch_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.branch_view.ops_idx < 3 { app.branch_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.branch_view.ops_idx;
+                app.branch_view.ops_mode = false;
+                match idx {
+                    0 => return Some(Action::BranchCheckout),
+                    1 => {
+                        app.branch_view.new_name.clear();
+                        app.branch_view.confirm = BranchConfirm::NewBranch;
+                    }
+                    2 => {
+                        if !app.branch_view.current_has_upstream {
+                            return Some(Action::BranchPush);
+                        }
+                    }
+                    3 => {
+                        if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
+                            if !b.is_current && !b.is_remote {
+                                app.branch_view.confirm = BranchConfirm::Delete;
+                            } else if b.is_remote {
+                                app.branch_view.status = Some("cannot delete remote branch".to_string());
+                            } else {
+                                app.branch_view.status = Some("cannot delete current branch".to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.branch_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.branch_move_up(),
         (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.branch_move_down(),
-        (_, KeyCode::Enter)                           => return Some(Action::BranchCheckout),
-        (_, KeyCode::Char('n'))                       => {
-            app.branch_view.new_name.clear();
-            app.branch_view.confirm = BranchConfirm::NewBranch;
-        }
-        (_, KeyCode::Char('d'))                       => {
-            if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
-                if !b.is_current && !b.is_remote {
-                    app.branch_view.confirm = BranchConfirm::Delete;
-                } else if b.is_remote {
-                    app.branch_view.status = Some("cannot delete remote branch".to_string());
-                } else {
-                    app.branch_view.status = Some("cannot delete current branch".to_string());
-                }
-            }
+        (_, KeyCode::Char('o')) => {
+            app.branch_view.ops_mode = true;
+            app.branch_view.ops_idx = 0;
         }
         _ => {}
     }
@@ -410,18 +525,53 @@ pub const COMMIT_TYPES: &[(&str, &str)] = &[
 
 fn handle_snapshot(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     use crate::tui::app::{SnapshotFocus, AutoSnapshotInterval};
+
+    // ops dropdown (only in List focus)
+    if app.snapshot_view.focus == SnapshotFocus::List && app.snapshot_view.ops_mode {
+        const OPS_LEN: usize = 3;
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.snapshot_view.ops_idx > 0 { app.snapshot_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.snapshot_view.ops_idx < OPS_LEN - 1 { app.snapshot_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.snapshot_view.ops_idx;
+                app.snapshot_view.ops_mode = false;
+                return match idx {
+                    0 => Some(Action::SnapshotRestore),
+                    1 => {
+                        app.snapshot_view.create_name.clear();
+                        app.snapshot_view.focus = SnapshotFocus::Create;
+                        None
+                    }
+                    2 => Some(Action::SnapshotDelete),
+                    _ => None,
+                };
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.snapshot_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
     match app.snapshot_view.focus {
         SnapshotFocus::List => {
             if let Some(a) = handle_global_nav(key, app) { return Some(a); }
             match (key.modifiers, key.code) {
                 (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.snapshot_move_up(),
                 (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.snapshot_move_down(),
-                (_, KeyCode::Enter)                           => return Some(Action::SnapshotRestore),
+                (_, KeyCode::Char('o')) => {
+                    app.snapshot_view.ops_mode = true;
+                    app.snapshot_view.ops_idx = 0;
+                }
                 (_, KeyCode::Char('n'))                       => {
                     app.snapshot_view.create_name.clear();
                     app.snapshot_view.focus = SnapshotFocus::Create;
                 }
-                (_, KeyCode::Char('d'))                       => return Some(Action::SnapshotDelete),
                 (_, KeyCode::Char('a'))                       => {
                     app.snapshot_view.auto_interval_idx = AutoSnapshotInterval::all()
                         .iter().position(|i| i == &app.snapshot_view.auto_interval)
@@ -505,23 +655,244 @@ fn handle_help(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_tag(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    match app.tag_view.confirm.clone() {
+        TagConfirm::Delete => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.tag_view.confirm = TagConfirm::None;
+                    return Some(Action::TagDelete);
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => { app.tag_view.confirm = TagConfirm::None; }
+            }
+            return None;
+        }
+        TagConfirm::CreateName => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.tag_view.new_name.trim().is_empty() {
+                        app.tag_view.confirm = TagConfirm::CreateMessage;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.tag_view.new_name.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.tag_view.new_name.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        TagConfirm::CreateMessage => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    app.tag_view.confirm = TagConfirm::None;
+                    return Some(Action::TagCreate);
+                }
+                (_, KeyCode::Backspace) => { app.tag_view.new_message.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.tag_view.new_message.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        TagConfirm::None => {}
+    }
+    if app.tag_view.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.tag_view.ops_idx > 0 { app.tag_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.tag_view.ops_idx < 2 { app.tag_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.tag_view.ops_idx;
+                app.tag_view.ops_mode = false;
+                match idx {
+                    0 => return Some(Action::TagPush),
+                    1 => {
+                        app.tag_view.new_name.clear();
+                        app.tag_view.new_message.clear();
+                        app.tag_view.confirm = TagConfirm::CreateName;
+                    }
+                    2 => {
+                        if !app.tag_view.tags.is_empty() {
+                            app.tag_view.confirm = TagConfirm::Delete;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.tag_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.tag_move_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.tag_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::TagPush),
-        (_, KeyCode::Char('d'))                      => return Some(Action::TagDelete),
+        (_, KeyCode::Char('o')) => {
+            app.tag_view.ops_mode = true;
+            app.tag_view.ops_idx = 0;
+        }
         _ => {}
     }
     None
 }
 
 fn handle_history(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    match app.history_view.confirm.clone() {
+        HistoryConfirm::CherryPick => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.history_view.confirm = HistoryConfirm::None;
+                    return Some(Action::HistoryCherryPick);
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => { app.history_view.confirm = HistoryConfirm::None; }
+            }
+            return None;
+        }
+        HistoryConfirm::Clean => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.history_view.confirm = HistoryConfirm::None;
+                    return Some(Action::HistoryClean);
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => { app.history_view.confirm = HistoryConfirm::None; }
+            }
+            return None;
+        }
+        HistoryConfirm::RemoveFile => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.history_view.input.trim().is_empty() {
+                        app.history_view.confirm = HistoryConfirm::None;
+                        return Some(Action::HistoryRemoveFile);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.history_view.input.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.history_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        HistoryConfirm::Rebase => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.history_view.input.trim().is_empty() {
+                        app.history_view.confirm = HistoryConfirm::None;
+                        return Some(Action::HistoryRebase);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.history_view.input.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.history_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        HistoryConfirm::RewriteStart => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.history_view.input.trim().is_empty() {
+                        app.history_view.confirm = HistoryConfirm::RewriteEnd;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.history_view.input.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.history_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        HistoryConfirm::RewriteEnd => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.history_view.input2.trim().is_empty() {
+                        app.history_view.confirm = HistoryConfirm::None;
+                        return Some(Action::HistoryRewrite);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.history_view.input2.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.history_view.input2.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        HistoryConfirm::Blame => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Enter) => {
+                    if !app.history_view.input.trim().is_empty() {
+                        app.history_view.confirm = HistoryConfirm::None;
+                        return Some(Action::HistoryBlame);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.history_view.input.pop(); }
+                (KeyModifiers::NONE, KeyCode::Char(c)) => app.history_view.input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        HistoryConfirm::Scan => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('f')) => {
+                    app.history_view.scan_full = !app.history_view.scan_full;
+                }
+                (_, KeyCode::Enter) => {
+                    app.history_view.confirm = HistoryConfirm::None;
+                    return Some(Action::HistoryScan);
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => { app.history_view.confirm = HistoryConfirm::None; }
+            }
+            return None;
+        }
+        HistoryConfirm::None => {}
+    }
+    if app.history_view.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.history_view.ops_idx > 0 { app.history_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.history_view.ops_idx < 6 { app.history_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.history_view.ops_idx;
+                app.history_view.ops_mode = false;
+                match idx {
+                    0 => { app.history_view.confirm = HistoryConfirm::CherryPick; }
+                    1 => { app.history_view.input.clear(); app.history_view.confirm = HistoryConfirm::Rebase; }
+                    2 => { app.history_view.confirm = HistoryConfirm::Scan; }
+                    3 => { app.history_view.confirm = HistoryConfirm::Clean; }
+                    4 => { app.history_view.input.clear(); app.history_view.confirm = HistoryConfirm::Blame; }
+                    5 => { app.history_view.input.clear(); app.history_view.input2.clear(); app.history_view.confirm = HistoryConfirm::RewriteStart; }
+                    6 => { app.history_view.input.clear(); app.history_view.confirm = HistoryConfirm::RemoveFile; }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.history_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.history_move_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.history_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::HistoryCherryPick),
+        (_, KeyCode::Char('o')) => {
+            app.history_view.ops_mode = true;
+            app.history_view.ops_idx = 0;
+        }
         _ => {}
     }
     None

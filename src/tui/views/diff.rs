@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, DiffLine, DiffLineKind};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_RED};
+use super::super::ui::{C_SUBTLE, C_DIM, C_GREEN, C_RED};
 
 const BG_ADDED:   Color = Color::Rgb(20,  50,  20);
 const BG_REMOVED: Color = Color::Rgb(50,  15,  15);
