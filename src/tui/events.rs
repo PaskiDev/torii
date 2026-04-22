@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, LogConfirm};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus};
 
 
 pub enum Action {
@@ -19,8 +19,7 @@ pub enum Action {
     SnapshotDelete,
     SnapshotSaveInterval,
     OpenDiffFromLog,
-    LogResetSoft,
-    LogNewBranch,
+    LogCopyHash,
     SyncRun,
     TagPush,
     TagDelete,
@@ -66,7 +65,7 @@ impl EventHandler {
                 let typing = match app.view {
                     View::Commit    => app.commit_view.focus == CommitFocus::Input,
                     View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create,
-                    View::Log       => app.log.confirm == LogConfirm::NewBranch,
+                    View::Log       => app.log.search_mode,
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -80,9 +79,10 @@ impl EventHandler {
                         KeyCode::Up | KeyCode::Down |
                         KeyCode::Char('j') | KeyCode::Char('k')
                     ) && key.modifiers == KeyModifiers::NONE;
+                    let is_enter = key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE;
                     let is_quit = matches!(key.code, KeyCode::Char('q'))
                         || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'));
-                    if is_nav || is_quit {
+                    if is_nav || is_enter || is_quit {
                         return Ok(handle_sidebar(key, app));
                     }
                     // For action keys, delegate to view handler
@@ -109,6 +109,16 @@ impl EventHandler {
                         View::Commit    => app.commit_view.focus == CommitFocus::Input,
                         View::Config    => app.config_view.editing,
                         View::Settings  => app.settings_view.editing_keybind.is_some(),
+                        View::Log       => {
+                            if app.log.search_mode {
+                                app.log.search_mode = false;
+                                app.log.search_query.clear();
+                                app.log.filtered.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         _               => false,
                     };
                     if !handled_by_view {
@@ -207,6 +217,8 @@ fn handle_diff(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => app.go_back(),
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.diff_scroll_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.diff_scroll_down(),
+        (_, KeyCode::PageUp)                          => app.diff_page_up(),
+        (_, KeyCode::PageDown)                        => app.diff_page_down(),
         (KeyModifiers::CONTROL, KeyCode::Char('c'))  => return Some(Action::Quit),
         _ => {}
     }
@@ -214,58 +226,41 @@ fn handle_diff(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_log(key: event::KeyEvent, app: &mut App) -> Option<Action> {
-    match app.log.confirm.clone() {
-        LogConfirm::ResetSoft => {
-            match (key.modifiers, key.code) {
-                (_, KeyCode::Char('y')) => {
-                    app.log.confirm = LogConfirm::None;
-                    return Some(Action::LogResetSoft);
-                }
-                _ => {
-                    app.log.confirm = LogConfirm::None;
-                    app.log.status = Some("reset cancelled".to_string());
-                }
+    if app.log.search_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.log.search_mode = false;
+                app.log.search_query.clear();
+                app.log.filtered.clear();
             }
-            return None;
-        }
-        LogConfirm::NewBranch => {
-            match (key.modifiers, key.code) {
-                (_, KeyCode::Esc) => {
-                    app.log.confirm = LogConfirm::None;
-                    app.log.branch_input.clear();
-                }
-                (_, KeyCode::Enter) => {
-                    app.log.confirm = LogConfirm::None;
-                    return Some(Action::LogNewBranch);
-                }
-                (_, KeyCode::Backspace) => { app.log.branch_input.pop(); }
-                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
-                                          key.modifiers == KeyModifiers::SHIFT
-                                        => app.log.branch_input.push(c),
-                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
-                _ => {}
+            (_, KeyCode::Enter) => {
+                app.log.search_mode = false;
             }
-            return None;
+            (_, KeyCode::Backspace) => {
+                app.log.search_query.pop();
+                app.log_update_filter();
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                      key.modifiers == KeyModifiers::SHIFT
+                                    => {
+                app.log.search_query.push(c);
+                app.log_update_filter();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
         }
-        LogConfirm::None => {}
+        return None;
     }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.log_move_up(),
-        (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.log_move_down(),
-        (_, KeyCode::Enter) | (_, KeyCode::Char('d')) => return Some(Action::OpenDiffFromLog),
-        (_, KeyCode::Char('r')) => {
-            if !app.commits.is_empty() {
-                app.log.confirm = LogConfirm::ResetSoft;
-                app.log.status = None;
-            }
-        }
-        (_, KeyCode::Char('b')) => {
-            if !app.commits.is_empty() {
-                app.log.branch_input.clear();
-                app.log.confirm = LogConfirm::NewBranch;
-                app.log.status = None;
-            }
+        (_, KeyCode::Up)     | (_, KeyCode::Char('k')) => app.log_move_up(),
+        (_, KeyCode::Down)   | (_, KeyCode::Char('j')) => app.log_move_down(),
+        (_, KeyCode::Char('d'))                        => return Some(Action::OpenDiffFromLog),
+        (_, KeyCode::Char('y'))                        => return Some(Action::LogCopyHash),
+        (_, KeyCode::Char('/')) => {
+            app.log.search_mode = true;
+            app.log.search_query.clear();
+            app.log.filtered.clear();
         }
         _ => {}
     }

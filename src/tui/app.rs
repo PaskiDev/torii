@@ -35,7 +35,8 @@ pub enum FileStatus {
 
 #[derive(Debug, Clone)]
 pub struct CommitEntry {
-    pub hash: String,
+    pub hash: String,       // short (7 chars) for display
+    pub full_hash: String,  // full 40-char hash for git ops
     pub message: String,
     pub author: String,
     pub time: String,
@@ -103,19 +104,21 @@ impl Default for DiffState {
 
 // ── Log state ────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum LogConfirm {
-    None,
-    ResetSoft,    // waiting for y/n confirmation
-    NewBranch,    // typing branch name
+pub struct CommitFileEntry {
+    pub path: String,
+    pub status: char, // 'A' added, 'M' modified, 'D' deleted, 'R' renamed
 }
 
 pub struct LogState {
     pub idx: usize,
     pub scroll: usize,
-    pub confirm: LogConfirm,
-    pub branch_input: String,
-    pub status: Option<String>,
+    pub search_mode: bool,
+    pub search_query: String,
+    pub filtered: Vec<usize>,
+    pub page_size: usize,
+    pub all_loaded: bool,
+    pub commit_files: Vec<CommitFileEntry>,
+    pub last_files_idx: Option<usize>,
 }
 
 impl Default for LogState {
@@ -123,9 +126,13 @@ impl Default for LogState {
         Self {
             idx: 0,
             scroll: 0,
-            confirm: LogConfirm::None,
-            branch_input: String::new(),
-            status: None,
+            search_mode: false,
+            search_query: String::new(),
+            filtered: vec![],
+            page_size: 50,
+            all_loaded: false,
+            commit_files: vec![],
+            last_files_idx: None,
         }
     }
 }
@@ -575,6 +582,7 @@ pub struct App {
     pub view: View,
     pub sidebar_idx: usize,
     pub sidebar_focused: bool,
+    pub prev_view: Option<View>,
     pub status_msg: Option<String>,
     pub tick: usize,
 
@@ -619,6 +627,7 @@ impl App {
             view: View::Dashboard,
             sidebar_idx: 0,
             sidebar_focused: true,
+            prev_view: None,
             status_msg: None,
             tick: 0,
             repo_path: ".".to_string(),
@@ -694,9 +703,19 @@ impl App {
         self.go_to(view);
     }
 
+    pub fn go_to_diff_from_log(&mut self) {
+        self.prev_view = Some(self.view.clone());
+        self.load_commit_diff_from_log();
+        self.view = View::Diff;
+        self.status_msg = None;
+    }
+
     pub fn go_to(&mut self, view: View) {
         match &view {
-            View::Diff => self.load_diff(),
+            View::Diff => {
+                self.prev_view = Some(self.view.clone());
+                self.load_diff();
+            }
             View::Branch => self.load_branches(),
             View::Snapshot => self.load_snapshots(),
             View::Sync => {
@@ -706,6 +725,8 @@ impl App {
             View::Log => {
                 self.log.idx = self.dashboard.log_idx;
                 self.log.scroll = 0;
+                self.log.last_files_idx = None;
+                self.log_load_commit_files();
             }
             View::Tag       => self.load_tags(),
             View::History   => self.load_reflog(),
@@ -736,9 +757,32 @@ impl App {
     }
 
     pub fn go_back(&mut self) {
-        self.view = View::Dashboard;
-        self.sidebar_idx = 0;
-        self.sidebar_focused = true;
+        if let Some(prev) = self.prev_view.take() {
+            let idx = match &prev {
+                View::Dashboard => 0,
+                View::Commit    => 1,
+                View::Sync      => 2,
+                View::Snapshot  => 3,
+                View::Log       => 4,
+                View::Branch    => 5,
+                View::Tag       => 6,
+                View::History   => 7,
+                View::Remote    => 8,
+                View::Mirror    => 9,
+                View::Workspace => 10,
+                View::Config    => 11,
+                View::Settings  => 12,
+                _               => 0,
+            };
+            // If returning to a view with its own content, keep focus in the view
+            self.sidebar_focused = matches!(prev, View::Dashboard);
+            self.view = prev;
+            self.sidebar_idx = idx;
+        } else {
+            self.view = View::Dashboard;
+            self.sidebar_idx = 0;
+            self.sidebar_focused = true;
+        }
         self.status_msg = None;
     }
 
@@ -825,15 +869,21 @@ impl App {
         self.commits.clear();
         let mut revwalk = repo.revwalk().map_err(crate::error::ToriiError::Git)?;
         let _ = revwalk.push_head();
-        for oid in revwalk.take(50) {
+        let limit = self.log.page_size + 1;
+        let mut count = 0;
+        for oid in revwalk.take(limit) {
             let oid = match oid { Ok(o) => o, Err(_) => continue };
+            count += 1;
+            if count > self.log.page_size { break; }
             let commit = match repo.find_commit(oid) { Ok(c) => c, Err(_) => continue };
-            let hash = oid.to_string()[..7].to_string();
+            let full_hash = oid.to_string();
+            let hash = full_hash[..7].to_string();
             let message = commit.summary().unwrap_or("").to_string();
             let author = commit.author().name().unwrap_or("").to_string();
             let time = format_age(commit.time().seconds());
-            self.commits.push(CommitEntry { hash, message, author, time });
+            self.commits.push(CommitEntry { hash, full_hash, message, author, time });
         }
+        self.log.all_loaded = count <= self.log.page_size;
 
         Ok(())
     }
@@ -949,11 +999,20 @@ impl App {
         }
     }
 
+    fn load_commit_diff_from_log(&mut self) {
+        let idx = self.log.idx;
+        if let Some(commit) = self.commits.get(idx) {
+            self.diff.title = format!("{} {}", commit.hash, commit.message);
+            self.diff.lines = read_commit_diff(&self.repo_path, &commit.full_hash);
+            self.diff.scroll = 0;
+        }
+    }
+
     fn load_commit_diff(&mut self) {
         let idx = self.dashboard.log_idx;
         if let Some(commit) = self.commits.get(idx) {
             self.diff.title = format!("{} {}", commit.hash, commit.message);
-            self.diff.lines = read_commit_diff(&self.repo_path, &commit.hash);
+            self.diff.lines = read_commit_diff(&self.repo_path, &commit.full_hash);
             self.diff.scroll = 0;
         }
     }
@@ -967,20 +1026,107 @@ impl App {
         if self.diff.scroll < max { self.diff.scroll += 1; }
     }
 
+    pub fn diff_page_up(&mut self) {
+        self.diff.scroll = self.diff.scroll.saturating_sub(20);
+    }
+
+    pub fn diff_page_down(&mut self) {
+        let max = self.diff.lines.len().saturating_sub(1);
+        self.diff.scroll = (self.diff.scroll + 20).min(max);
+    }
+
     // ── Log helpers ──────────────────────────────────────────────────────────
 
     pub fn log_move_up(&mut self) {
-        if self.log.idx > 0 { self.log.idx -= 1; }
+        if self.log.filtered.is_empty() {
+            if self.log.idx > 0 { self.log.idx -= 1; }
+        } else {
+            let pos = self.log.filtered.iter().position(|&i| i == self.log.idx).unwrap_or(0);
+            if pos > 0 { self.log.idx = self.log.filtered[pos - 1]; }
+        }
         self.sync_log_scroll();
+        self.log_load_commit_files();
     }
 
     pub fn log_move_down(&mut self) {
-        if self.log.idx + 1 < self.commits.len() { self.log.idx += 1; }
+        if self.log.filtered.is_empty() {
+            if self.log.idx + 1 < self.commits.len() {
+                self.log.idx += 1;
+            } else {
+                self.log_load_more();
+            }
+        } else {
+            let pos = self.log.filtered.iter().position(|&i| i == self.log.idx).unwrap_or(0);
+            if pos + 1 < self.log.filtered.len() { self.log.idx = self.log.filtered[pos + 1]; }
+        }
         self.sync_log_scroll();
+        self.log_load_commit_files();
+    }
+
+    pub fn log_load_commit_files(&mut self) {
+        if self.log.last_files_idx == Some(self.log.idx) { return; }
+        self.log.last_files_idx = Some(self.log.idx);
+        self.log.commit_files.clear();
+        let Some(commit) = self.commits.get(self.log.idx) else { return };
+        let hash = commit.full_hash.clone();
+        let Ok(repo) = git2::Repository::discover(&self.repo_path) else { return };
+        let Ok(oid) = git2::Oid::from_str(&hash) else { return };
+        let Ok(commit) = repo.find_commit(oid) else { return };
+        let Ok(tree) = commit.tree() else { return };
+        let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+        let Ok(diff) = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) else { return };
+        let _ = diff.foreach(
+            &mut |delta, _| {
+                let status = match delta.status() {
+                    git2::Delta::Added    => 'A',
+                    git2::Delta::Deleted  => 'D',
+                    git2::Delta::Modified => 'M',
+                    git2::Delta::Renamed  => 'R',
+                    _                     => 'M',
+                };
+                let path = delta.new_file().path()
+                    .or_else(|| delta.old_file().path())
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                self.log.commit_files.push(CommitFileEntry { path, status });
+                true
+            },
+            None, None, None,
+        );
+    }
+
+    pub fn log_load_more(&mut self) {
+        if !self.log.all_loaded {
+            self.log.page_size += 50;
+            let _ = self.refresh();
+        }
+    }
+
+    pub fn log_update_filter(&mut self) {
+        let q = self.log.search_query.to_lowercase();
+        if q.is_empty() {
+            self.log.filtered.clear();
+            return;
+        }
+        self.log.filtered = self.commits.iter().enumerate()
+            .filter(|(_, c)| {
+                c.message.to_lowercase().contains(&q) ||
+                c.author.to_lowercase().contains(&q) ||
+                c.hash.to_lowercase().contains(&q)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        // Move selection to first match if current isn't in results
+        if !self.log.filtered.contains(&self.log.idx) {
+            if let Some(&first) = self.log.filtered.first() {
+                self.log.idx = first;
+                self.sync_log_scroll();
+            }
+        }
     }
 
     fn sync_log_scroll(&mut self) {
-        // Keep selected item visible (page of 20)
         let page = 20usize;
         if self.log.idx < self.log.scroll {
             self.log.scroll = self.log.idx;

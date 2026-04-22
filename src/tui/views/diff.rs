@@ -210,6 +210,8 @@ pub fn render(f: &mut Frame, app: &App) {
             Span::raw(" "),
             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" scroll  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[PgUp/PgDn]", Style::default().fg(bc)),
+            Span::styled(" page  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" back  ", Style::default().fg(C_SUBTLE)),
             Span::styled(format!("{}%  {}/{} lines", pct, app.diff.scroll, total), Style::default().fg(C_DIM)),

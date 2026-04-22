@@ -11,7 +11,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use app::{App, View, SyncOp, SyncStatus, EventKind, LogConfirm};
+use app::{App, View, SyncOp, SyncStatus, EventKind};
 use events::{Action, EventHandler};
 
 pub fn run() -> crate::error::Result<()> {
@@ -154,48 +154,21 @@ fn run_loop(
                 }
 
                 Action::OpenDiffFromLog => {
-                    app.dashboard.log_idx = app.log.idx;
-                    app.dashboard.selected_panel = app::Panel::Log;
-                    app.go_to(View::Diff);
+                    app.go_to_diff_from_log();
                 }
 
-                Action::LogResetSoft => {
+                Action::LogCopyHash => {
                     if let Some(commit) = app.commits.get(app.log.idx) {
-                        let hash = commit.hash.clone();
-                        let status = std::process::Command::new("git")
-                            .args(["reset", "--soft", &hash])
-                            .current_dir(&app.repo_path)
-                            .status();
-                        let msg = match status {
-                            Ok(s) if s.success() => format!("reset --soft to {}", hash),
-                            _ => format!("reset failed for {}", hash),
+                        let hash = commit.full_hash.clone();
+                        let copied = copy_to_clipboard(&hash);
+                        let msg = if copied {
+                            format!("copied: {}", &hash[..7])
+                        } else {
+                            "clipboard not available".to_string()
                         };
-                        let kind = if msg.starts_with("reset --soft") { EventKind::Success } else { EventKind::Error };
+                        let kind = if copied { EventKind::Success } else { EventKind::Error };
                         app.log_event(&msg, kind);
-                        app.log.status = Some(msg);
-                        app.refresh()?;
-                    }
-                }
-
-                Action::LogNewBranch => {
-                    let name = app.log.branch_input.trim().to_string();
-                    if !name.is_empty() {
-                        if let Some(commit) = app.commits.get(app.log.idx) {
-                            let hash = commit.hash.clone();
-                            let status = std::process::Command::new("git")
-                                .args(["branch", &name, &hash])
-                                .current_dir(&app.repo_path)
-                                .status();
-                            let msg = match status {
-                                Ok(s) if s.success() => format!("branch '{}' created at {}", name, hash),
-                                _ => format!("failed to create branch '{}'", name),
-                            };
-                            let kind = if msg.starts_with("branch") { EventKind::Success } else { EventKind::Error };
-                            app.log_event(&msg, kind);
-                            app.log.status = Some(msg);
-                            app.log.branch_input.clear();
-                            app.log.confirm = LogConfirm::None;
-                        }
+                        app.set_status(msg);
                     }
                 }
 
@@ -587,6 +560,47 @@ fn spawn_sync(app: &mut App) {
         };
         let _ = tx.send(result);
     });
+}
+
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let pipe_cmd = |cmd: &str, args: &[&str]| -> bool {
+        Command::new(cmd)
+            .args(args)
+            .stdin(Stdio::piped())
+            .spawn()
+            .and_then(|mut c| {
+                c.stdin.as_mut().unwrap().write_all(text.as_bytes())?;
+                c.wait()
+            })
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+
+    // macOS
+    if cfg!(target_os = "macos") {
+        return pipe_cmd("pbcopy", &[]);
+    }
+
+    // Windows
+    if cfg!(target_os = "windows") {
+        return pipe_cmd("clip", &[]);
+    }
+
+    // Wayland
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        if Command::new("wl-copy").arg(text).status().map(|s| s.success()).unwrap_or(false) {
+            return true;
+        }
+    }
+
+    // X11
+    if pipe_cmd("xclip", &["-selection", "clipboard"]) { return true; }
+    if pipe_cmd("xsel", &["--clipboard", "--input"])    { return true; }
+
+    false
 }
 
 fn truncate_msg(s: &str, max: usize) -> String {
