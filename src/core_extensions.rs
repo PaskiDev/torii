@@ -379,6 +379,25 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Checkout a remote branch — creates local tracking branch then switches to it
+    pub fn checkout_remote_branch(&self, remote_name: &str) -> Result<()> {
+        // remote_name is e.g. "origin/feature-x", local name is "feature-x"
+        let local_name = remote_name
+            .splitn(2, '/')
+            .nth(1)
+            .unwrap_or(remote_name);
+        let repo = self.repository();
+        // Create local branch tracking the remote if it doesn't exist
+        if repo.find_branch(local_name, BranchType::Local).is_err() {
+            let obj = repo.revparse_single(&format!("refs/remotes/{}", remote_name))?;
+            let commit = obj.peel_to_commit()?;
+            let mut branch = repo.branch(local_name, &commit, false)?;
+            // Set upstream tracking
+            branch.set_upstream(Some(remote_name))?;
+        }
+        self.switch_branch(local_name)
+    }
+
     /// Clone a repository
     pub fn clone_repo(url: &str, directory: Option<&str>) -> Result<()> {
         let target = if let Some(dir) = directory {

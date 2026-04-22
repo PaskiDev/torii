@@ -145,14 +145,30 @@ pub struct BranchEntry {
     pub is_remote: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum BranchConfirm {
+    None,
+    Delete,
+    NewBranch,
+}
+
 pub struct BranchState {
     pub branches: Vec<BranchEntry>,
     pub idx: usize,
+    pub confirm: BranchConfirm,
+    pub new_name: String,
+    pub status: Option<String>,
 }
 
 impl Default for BranchState {
     fn default() -> Self {
-        Self { branches: vec![], idx: 0 }
+        Self {
+            branches: vec![],
+            idx: 0,
+            confirm: BranchConfirm::None,
+            new_name: String::new(),
+            status: None,
+        }
     }
 }
 

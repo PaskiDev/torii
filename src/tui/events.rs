@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, SnapshotFocus, BranchConfirm};
 
 
 pub enum Action {
@@ -14,6 +14,8 @@ pub enum Action {
     UnstageFile,
     CommitConfirm,
     BranchCheckout,
+    BranchDelete,
+    BranchCreate,
     SnapshotRestore,
     SnapshotCreate,
     SnapshotDelete,
@@ -66,6 +68,7 @@ impl EventHandler {
                     View::Commit    => app.commit_view.focus == CommitFocus::Input,
                     View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create,
                     View::Log       => app.log.search_mode,
+                    View::Branch    => app.branch_view.confirm == BranchConfirm::NewBranch,
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -114,6 +117,15 @@ impl EventHandler {
                                 app.log.search_mode = false;
                                 app.log.search_query.clear();
                                 app.log.filtered.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        View::Branch    => {
+                            if app.branch_view.confirm != BranchConfirm::None {
+                                app.branch_view.confirm = BranchConfirm::None;
+                                app.branch_view.new_name.clear();
                                 true
                             } else {
                                 false
@@ -268,11 +280,61 @@ fn handle_log(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_branch(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    match app.branch_view.confirm.clone() {
+        BranchConfirm::Delete => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.branch_view.confirm = BranchConfirm::None;
+                    return Some(Action::BranchDelete);
+                }
+                _ => {
+                    app.branch_view.confirm = BranchConfirm::None;
+                    app.branch_view.status = Some("cancelled".to_string());
+                }
+            }
+            return None;
+        }
+        BranchConfirm::NewBranch => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.branch_view.confirm = BranchConfirm::None;
+                    app.branch_view.new_name.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    app.branch_view.confirm = BranchConfirm::None;
+                    return Some(Action::BranchCreate);
+                }
+                (_, KeyCode::Backspace) => { app.branch_view.new_name.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.branch_view.new_name.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        BranchConfirm::None => {}
+    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
-        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.branch_move_up(),
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.branch_move_down(),
-        (_, KeyCode::Enter)                          => return Some(Action::BranchCheckout),
+        (_, KeyCode::Up)    | (_, KeyCode::Char('k')) => app.branch_move_up(),
+        (_, KeyCode::Down)  | (_, KeyCode::Char('j')) => app.branch_move_down(),
+        (_, KeyCode::Enter)                           => return Some(Action::BranchCheckout),
+        (_, KeyCode::Char('n'))                       => {
+            app.branch_view.new_name.clear();
+            app.branch_view.confirm = BranchConfirm::NewBranch;
+        }
+        (_, KeyCode::Char('d'))                       => {
+            if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
+                if !b.is_current && !b.is_remote {
+                    app.branch_view.confirm = BranchConfirm::Delete;
+                } else if b.is_remote {
+                    app.branch_view.status = Some("cannot delete remote branch".to_string());
+                } else {
+                    app.branch_view.status = Some("cannot delete current branch".to_string());
+                }
+            }
+        }
         _ => {}
     }
     None

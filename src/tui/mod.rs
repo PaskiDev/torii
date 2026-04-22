@@ -121,11 +121,61 @@ fn run_loop(
                 }
 
                 Action::BranchCheckout => {
-                    checkout_selected(app)?;
-                    app.go_back();
-                    app.refresh()?;
                     if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
-                        app.log_event(format!("checkout: {}", b.name), EventKind::Success);
+                        let name = b.name.clone();
+                        let is_remote = b.is_remote;
+                        let repo = crate::core::GitRepo::open(&app.repo_path);
+                        let result = match repo {
+                            Ok(r) => if is_remote {
+                                r.checkout_remote_branch(&name)
+                            } else {
+                                r.switch_branch(&name)
+                            },
+                            Err(e) => Err(e),
+                        };
+                        let msg = match result {
+                            Ok(_)  => format!("checkout: {}", name),
+                            Err(e) => format!("checkout failed: {}", e),
+                        };
+                        let kind = if msg.starts_with("checkout:") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.branch_view.status = Some(msg);
+                        app.go_to(View::Branch);
+                        app.refresh()?;
+                    }
+                }
+
+                Action::BranchDelete => {
+                    if let Some(b) = app.branch_view.branches.get(app.branch_view.idx) {
+                        let name = b.name.clone();
+                        let result = crate::core::GitRepo::open(&app.repo_path)
+                            .and_then(|r| r.delete_branch(&name));
+                        let msg = match result {
+                            Ok(_)  => format!("deleted: {}", name),
+                            Err(e) => format!("delete failed: {}", e),
+                        };
+                        let kind = if msg.starts_with("deleted") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.branch_view.status = Some(msg);
+                        app.go_to(View::Branch);
+                    }
+                }
+
+                Action::BranchCreate => {
+                    let name = app.branch_view.new_name.trim().to_string();
+                    if !name.is_empty() {
+                        let result = crate::core::GitRepo::open(&app.repo_path)
+                            .and_then(|r| r.create_branch(&name).and_then(|_| r.switch_branch(&name)));
+                        let msg = match result {
+                            Ok(_)  => format!("created and switched to: {}", name),
+                            Err(e) => format!("create failed: {}", e),
+                        };
+                        let kind = if msg.starts_with("created") { EventKind::Success } else { EventKind::Error };
+                        app.log_event(&msg, kind);
+                        app.branch_view.new_name.clear();
+                        app.branch_view.status = Some(msg);
+                        app.go_to(View::Branch);
+                        app.refresh()?;
                     }
                 }
 
@@ -430,26 +480,6 @@ fn commit_staged(app: &App, message: &str) -> crate::error::Result<()> {
     Ok(())
 }
 
-fn checkout_selected(app: &mut App) -> crate::error::Result<()> {
-    use git2::Repository;
-
-    let repo = Repository::discover(&app.repo_path).map_err(crate::error::ToriiError::Git)?;
-    let branch = app.branch_view.branches.get(app.branch_view.idx);
-
-    if let Some(b) = branch {
-        if b.is_remote {
-            app.set_status(format!("cannot checkout remote directly: {}", b.name));
-            return Ok(());
-        }
-        let obj = repo.revparse_single(&format!("refs/heads/{}", b.name))
-            .map_err(crate::error::ToriiError::Git)?;
-        repo.checkout_tree(&obj, None).map_err(crate::error::ToriiError::Git)?;
-        repo.set_head(&format!("refs/heads/{}", b.name))
-            .map_err(crate::error::ToriiError::Git)?;
-        app.set_status(format!("switched to: {}", b.name));
-    }
-    Ok(())
-}
 
 fn snapshot_dir(app: &App) -> std::path::PathBuf {
     std::path::Path::new(&app.repo_path).join(".git/torii-snapshots")

@@ -320,7 +320,11 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             Span::styled("[↑↓/jk]", Style::default().fg(bc)),
             Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Enter]", Style::default().fg(bc)),
-            Span::styled(" checkout", Style::default().fg(C_SUBTLE)),
+            Span::styled(" checkout  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[n]", Style::default().fg(bc)),
+            Span::styled(" new  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[d]", Style::default().fg(bc)),
+            Span::styled(" delete", Style::default().fg(C_SUBTLE)),
         ]),
         View::Snapshot => Line::from(vec![
             Span::raw(" "),
