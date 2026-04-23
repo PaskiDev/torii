@@ -268,7 +268,6 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             ("close ⚠",      true),
             ("checkout",     false),
             ("open browser", false),
-            ("refresh",      false),
         ];
 
         let dropdown_w = 18u16;
@@ -283,7 +282,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let drop_items: Vec<ListItem> = ops.iter().enumerate().map(|(i, (label, danger))| {
             let is_sel = i == pr.ops_idx;
-            let dimmed = i == 1 && current_state != "open"; // merge only for open PRs
+            let dimmed = i == 1 && current_state != "open" && current_state != "opened";
             let color = if dimmed { C_DIM }
                 else if *danger { C_RED }
                 else if is_sel { C_WHITE }

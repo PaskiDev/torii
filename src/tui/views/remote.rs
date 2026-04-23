@@ -182,6 +182,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 ("fetch",           false),
                 ("add remote",      false),
                 ("rename",          false),
+                ("edit url",        false),
                 ("remove ⚠",       true),
                 ("open in browser", false),
             ], 22)
@@ -220,6 +221,27 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         f.render_widget(Clear, drop_area);
         f.render_stateful_widget(List::new(drop_items).block(drop_block), drop_area, &mut drop_state);
+    }
+
+    // ── Edit URL overlay ──────────────────────────────────────────────────────
+    use crate::tui::app::RemoteConfirm;
+    if app.remote_view.confirm == RemoteConfirm::EditUrl {
+        let bc = app.brand_color();
+        let ow = 60u16;
+        let oh = 3u16;
+        let ox = area.x + area.width.saturating_sub(ow) / 2;
+        let oy = area.y + area.height.saturating_sub(oh) / 2;
+        let overlay = Rect::new(ox, oy, ow, oh);
+        f.render_widget(Clear, overlay);
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("  new url: ", Style::default().fg(C_SUBTLE)),
+                Span::styled(format!("{}█", app.remote_view.new_url), Style::default().fg(C_WHITE)),
+            ])).block(Block::default().borders(Borders::ALL)
+                .border_style(Style::default().fg(bc))
+                .border_type(app.border_type())),
+            overlay,
+        );
     }
 }
 

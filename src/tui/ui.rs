@@ -696,6 +696,18 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                             Span::styled("█", Style::default().fg(bc)),
                         ])
                     }
+                    RemoteConfirm::EditUrl => {
+                        let name = app.remote_view.remotes.get(app.remote_view.idx)
+                            .map(|r| r.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("edit url for ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(name.to_string(), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
+                            Span::styled(": ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.remote_view.new_url.clone(), Style::default().fg(C_WHITE)),
+                            Span::styled("█", Style::default().fg(bc)),
+                        ])
+                    }
                     RemoteConfirm::MirrorRename => {
                         let old = app.remote_view.selected_mirror()
                             .map(|m| m.name.as_str()).unwrap_or("?");

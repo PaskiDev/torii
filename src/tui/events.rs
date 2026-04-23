@@ -39,6 +39,7 @@ pub enum Action {
     RemoteAdd,
     RemoteRemove,
     RemoteRename,
+    RemoteEditUrl,
     RemoteOpenBrowser,
     MirrorSync,
     MirrorSyncOne,
@@ -144,6 +145,7 @@ impl EventHandler {
                         HistoryConfirm::Blame),
                     View::Remote    => matches!(app.remote_view.confirm,
                         RemoteConfirm::AddName | RemoteConfirm::AddUrl | RemoteConfirm::Rename |
+                        RemoteConfirm::EditUrl |
                         RemoteConfirm::MirrorRename | RemoteConfirm::MirrorAddPlatform |
                         RemoteConfirm::MirrorAddAccount | RemoteConfirm::MirrorAddRepo),
                     View::Workspace => matches!(app.workspace_view.confirm,
@@ -1223,6 +1225,25 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             }
             return None;
         }
+        RemoteConfirm::EditUrl => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_url.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_url.is_empty() {
+                        return Some(Action::RemoteEditUrl);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_url.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_url.push(c),
+                _ => {}
+            }
+            return None;
+        }
         RemoteConfirm::MirrorRename => {
             match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
@@ -1364,7 +1385,7 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         _ => None,
                     };
                 } else {
-                    // git remote ops: fetch(0), add remote(1), rename(2), remove(3), open(4)
+                    // git remote ops: fetch(0), add remote(1), rename(2), edit url(3), remove(4), open(5)
                     return match idx {
                         0 => Some(Action::RemoteFetch),
                         1 => {
@@ -1378,10 +1399,15 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                             None
                         }
                         3 => {
+                            app.remote_view.new_url.clear();
+                            app.remote_view.confirm = RemoteConfirm::EditUrl;
+                            None
+                        }
+                        4 => {
                             app.remote_view.confirm = RemoteConfirm::Remove;
                             None
                         }
-                        4 => Some(Action::RemoteOpenBrowser),
+                        5 => Some(Action::RemoteOpenBrowser),
                         _ => None,
                     };
                 }
@@ -1715,7 +1741,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 if app.pr_view.ops_idx > 0 { app.pr_view.ops_idx -= 1; }
             }
             (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                if app.pr_view.ops_idx < 5 { app.pr_view.ops_idx += 1; }
+                if app.pr_view.ops_idx < 4 { app.pr_view.ops_idx += 1; }
             }
             (_, KeyCode::Enter) => {
                 let idx = app.pr_view.ops_idx;
@@ -1737,7 +1763,6 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     2 => { app.pr_view.confirm = PrConfirm::Close; }
                     3 => return Some(Action::PrCheckout),
                     4 => return Some(Action::PrOpenBrowser),
-                    5 => return Some(Action::PrRefresh),
                     _ => {}
                 }
             }

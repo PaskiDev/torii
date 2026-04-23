@@ -518,6 +518,24 @@ fn run_loop(
                     if is_ok { app.reload_remotes(); } else { app.remote_view.status = Some(msg); }
                 }
 
+                Action::RemoteEditUrl => {
+                    let name = app.remote_view.remotes.get(app.remote_view.idx)
+                        .map(|r| r.git_name.clone())
+                        .unwrap_or_default();
+                    let new_url = app.remote_view.new_url.clone();
+                    app.remote_view.new_url.clear();
+                    app.remote_view.confirm = app::RemoteConfirm::None;
+                    if name.is_empty() || new_url.is_empty() { break; }
+                    let Ok(mut repo) = git2::Repository::discover(&app.repo_path) else { break; };
+                    let msg = match repo.remote_set_url(&name, &new_url) {
+                        Ok(_)  => format!("url updated: {}", new_url),
+                        Err(e) => format!("edit url failed: {}", e.message()),
+                    };
+                    let is_ok = msg.starts_with("url updated");
+                    app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                    if is_ok { app.reload_remotes(); } else { app.remote_view.status = Some(msg); }
+                }
+
                 Action::RemoteRemove => {
                     let name = app.remote_view.remotes.get(app.remote_view.idx)
                         .map(|r| r.git_name.clone())

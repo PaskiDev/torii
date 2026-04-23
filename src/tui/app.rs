@@ -439,6 +439,7 @@ pub enum RemoteConfirm {
     AddName,
     AddUrl,
     Rename,
+    EditUrl,
     MirrorRename,
     MirrorAddPlatform,
     MirrorAddAccount,
