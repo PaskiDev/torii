@@ -47,7 +47,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("");
 
     let bc = app.brand_color();
-    let focused = true;
+    let focused = !app.sidebar_focused;
     let sections = ["appearance", "views"];
     let items: Vec<ListItem> = sections.iter().map(|s| {
         let is_active = *s == current_section;
@@ -64,16 +64,16 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     }).collect();
 
     let block = Block::default()
-        .title(Span::styled(" sections ", Style::default().fg(C_WHITE)))
+        .title(Span::styled(" sections ", if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) }))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(C_WHITE));
+        .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_widget(List::new(items).block(block), area);
 }
 
 fn render_items(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.settings;
     let bc = app.brand_color();
-    let focused = true;
+    let focused = !app.sidebar_focused;
 
     let items: Vec<ListItem> = ITEMS.iter().enumerate().map(|(i, item)| {
         let is_sel = i == app.settings_view.idx;
