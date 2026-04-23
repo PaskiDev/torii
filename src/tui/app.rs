@@ -2084,29 +2084,70 @@ impl App {
     // ── Config helpers ───────────────────────────────────────────────────────
 
     fn load_config(&mut self) {
+        // All known torii config keys in order
+        const ALL_KEYS: &[&str] = &[
+            "user.name",
+            "user.email",
+            "user.editor",
+            "auth.github_token",
+            "auth.gitlab_token",
+            "auth.gitea_token",
+            "auth.forgejo_token",
+            "auth.codeberg_token",
+            "git.default_branch",
+            "git.sign_commits",
+            "git.pull_rebase",
+            "mirror.default_protocol",
+            "mirror.autofetch_enabled",
+            "snapshot.auto_enabled",
+            "snapshot.auto_interval_minutes",
+            "ui.colors",
+            "ui.emoji",
+            "ui.verbose",
+            "ui.date_format",
+        ];
+
+        // Sensitive keys — show masked
+        const SENSITIVE: &[&str] = &[
+            "auth.github_token",
+            "auth.gitlab_token",
+            "auth.gitea_token",
+            "auth.forgejo_token",
+            "auth.codeberg_token",
+        ];
+
         self.config_view.entries.clear();
         let scope_flag = if self.config_view.scope == ConfigScope::Local { "--local" } else { "--global" };
-        let out = std::process::Command::new("torii")
+
+        // Fetch all current values from torii config list
+        let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Ok(out) = std::process::Command::new("torii")
             .args(["config", "list", scope_flag])
-            .output();
-        let Ok(out) = out else { return };
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut current_section = String::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('⚙') || line.starts_with("Global") || line.starts_with("Local") { continue; }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim().to_string();
-                let value = value.trim().to_string();
-                let section = key.split('.').next().unwrap_or("").to_string();
-                if section != current_section { current_section = section.clone(); }
-                self.config_view.entries.push(ConfigEntry {
-                    key,
-                    value,
-                    scope: self.config_view.scope.clone(),
-                    section,
-                });
+            .output()
+        {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let line = line.trim();
+                if let Some((k, v)) = line.split_once('=') {
+                    values.insert(k.trim().to_string(), v.trim().to_string());
+                }
             }
+        }
+
+        for &key in ALL_KEYS {
+            let section = key.split('.').next().unwrap_or("").to_string();
+            let is_sensitive = SENSITIVE.contains(&key);
+            let value = match values.get(key) {
+                Some(v) if v.is_empty() => "[not set]".to_string(),
+                Some(v) if is_sensitive => "[set]".to_string(),
+                Some(v) => v.clone(),
+                None => "[not set]".to_string(),
+            };
+            self.config_view.entries.push(ConfigEntry {
+                key: key.to_string(),
+                value,
+                scope: self.config_view.scope.clone(),
+                section,
+            });
         }
         self.config_view.idx = 0;
     }
@@ -2123,8 +2164,13 @@ impl App {
 
     pub fn config_start_edit(&mut self) {
         if let Some(entry) = self.config_view.entries.get(self.config_view.idx) {
-            self.config_view.edit_buf = entry.value.clone();
-            self.config_view.edit_cursor = entry.value.len();
+            let initial = if entry.value == "[not set]" || entry.value == "[set]" {
+                String::new()
+            } else {
+                entry.value.clone()
+            };
+            self.config_view.edit_buf = initial.clone();
+            self.config_view.edit_cursor = initial.len();
             self.config_view.editing = true;
         }
     }
