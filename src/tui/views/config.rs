@@ -52,9 +52,9 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     }).collect();
 
     let block = Block::default()
-        .title(Span::styled(" sections ", Style::default().fg(bc)))
+        .title(Span::styled(" sections ", Style::default().fg(C_WHITE)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(if focused { C_WHITE } else { bc }));
+        .border_style(Style::default().fg(C_WHITE));
     f.render_widget(List::new(items).block(block), area);
 }
 
