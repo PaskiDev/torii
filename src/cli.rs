@@ -2047,17 +2047,17 @@ impl Cli {
                         }
                     }
                     IssueCommands::Create { title, description } => {
-                        let opts = CreateIssueOptions { title, body: description };
+                        let opts = CreateIssueOptions { title: title.clone(), body: description.clone() };
                         let issue = client.create(&owner, &repo_name, opts)?;
                         println!("Created issue #{}: {}", issue.number, issue.title);
                         println!("{}", issue.url);
                     }
                     IssueCommands::Close { number } => {
-                        client.close(&owner, &repo_name, number)?;
+                        client.close(&owner, &repo_name, *number)?;
                         println!("✅ Closed issue #{}", number);
                     }
                     IssueCommands::Comment { number, message } => {
-                        client.comment(&owner, &repo_name, number, &message)?;
+                        client.comment(&owner, &repo_name, *number, message)?;
                         println!("✅ Comment added to issue #{}", number);
                     }
                 }
