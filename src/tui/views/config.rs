@@ -35,7 +35,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("");
 
     let bc = app.brand_color();
-    let focused = !app.sidebar_focused;
+    let focused = true;
     let items: Vec<ListItem> = SECTIONS.iter().enumerate().map(|(i, s)| {
         let is_active = *s == current_section;
         let color = SECTION_COLORS.get(i).copied().unwrap_or(C_SUBTLE);
@@ -60,7 +60,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_entries(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
-    let focused = !app.sidebar_focused;
+    let focused = true;
     let scope_label = if app.config_view.scope == ConfigScope::Global { "global" } else { "local" };
 
     let items: Vec<ListItem> = if app.config_view.entries.is_empty() {

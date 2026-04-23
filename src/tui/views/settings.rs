@@ -47,7 +47,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("");
 
     let bc = app.brand_color();
-    let focused = !app.sidebar_focused;
+    let focused = true;
     let sections = ["appearance", "views"];
     let items: Vec<ListItem> = sections.iter().map(|s| {
         let is_active = *s == current_section;
@@ -73,7 +73,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
 fn render_items(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.settings;
     let bc = app.brand_color();
-    let focused = !app.sidebar_focused;
+    let focused = true;
 
     let items: Vec<ListItem> = ITEMS.iter().enumerate().map(|(i, item)| {
         let is_sel = i == app.settings_view.idx;
