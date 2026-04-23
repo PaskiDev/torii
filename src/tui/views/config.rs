@@ -35,6 +35,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("");
 
     let bc = app.brand_color();
+    let focused = !app.sidebar_focused;
     let items: Vec<ListItem> = SECTIONS.iter().enumerate().map(|(i, s)| {
         let is_active = *s == current_section;
         let color = SECTION_COLORS.get(i).copied().unwrap_or(C_SUBTLE);
@@ -53,12 +54,13 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(" sections ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(bc));
+        .border_style(Style::default().fg(if focused { C_WHITE } else { bc }));
     f.render_widget(List::new(items).block(block), area);
 }
 
 fn render_entries(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();
+    let focused = !app.sidebar_focused;
     let scope_label = if app.config_view.scope == ConfigScope::Global { "global" } else { "local" };
 
     let items: Vec<ListItem> = if app.config_view.entries.is_empty() {
@@ -120,9 +122,12 @@ fn render_entries(f: &mut Frame, app: &App, area: Rect) {
 
     let title = format!(" config ({}) ", scope_label);
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(bc)))
+        .title(Span::styled(title,
+            if focused { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) }
+            else { Style::default().fg(bc) }
+        ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(bc));
+        .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 

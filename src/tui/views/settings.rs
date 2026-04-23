@@ -47,6 +47,7 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("");
 
     let bc = app.brand_color();
+    let focused = !app.sidebar_focused;
     let sections = ["appearance", "views"];
     let items: Vec<ListItem> = sections.iter().map(|s| {
         let is_active = *s == current_section;
@@ -65,13 +66,14 @@ fn render_sections(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(Span::styled(" sections ", Style::default().fg(bc)))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(bc));
+        .border_style(Style::default().fg(if focused { C_WHITE } else { bc }));
     f.render_widget(List::new(items).block(block), area);
 }
 
 fn render_items(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.settings;
     let bc = app.brand_color();
+    let focused = !app.sidebar_focused;
 
     let items: Vec<ListItem> = ITEMS.iter().enumerate().map(|(i, item)| {
         let is_sel = i == app.settings_view.idx;
@@ -96,9 +98,12 @@ fn render_items(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.settings_view.idx));
 
     let block = Block::default()
-        .title(Span::styled(" settings ", Style::default().fg(bc)))
+        .title(Span::styled(" settings ",
+            if focused { Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD) }
+            else { Style::default().fg(bc) }
+        ))
         .borders(Borders::ALL).border_type(app.border_type())
-        .border_style(Style::default().fg(bc));
+        .border_style(if focused { Style::default().fg(C_WHITE) } else { Style::default().fg(bc) });
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
