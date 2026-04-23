@@ -1032,28 +1032,20 @@ fn run_loop(
                                     .current_dir(&repo_path)
                                     .output();
                                 // 3. delete head branch on all remotes
-                                let remotes_out = std::process::Command::new("git")
-                                    .args(["-C", &repo_path, "remote"])
+                                let del_remote = std::process::Command::new("torii")
+                                    .args(["branch", "--delete-remote", &head_branch])
+                                    .current_dir(&repo_path)
                                     .output();
-                                let mut deleted_remotes: Vec<String> = vec![];
-                                if let Ok(out) = remotes_out {
-                                    for remote in String::from_utf8_lossy(&out.stdout).lines() {
-                                        let del = std::process::Command::new("git")
-                                            .args(["-C", &repo_path, "push", remote, "--delete", &head_branch])
-                                            .output();
-                                        if matches!(&del, Ok(o) if o.status.success()) {
-                                            deleted_remotes.push(remote.to_string());
-                                        }
-                                    }
-                                }
-                                // 4. delete local branch
-                                let _ = std::process::Command::new("git")
-                                    .args(["-C", &repo_path, "branch", "-d", &head_branch])
+                                let remote_ok = matches!(&del_remote, Ok(o) if o.status.success());
+                                // 4. force delete local branch (already on base, so -d might fail if not merged locally)
+                                let _ = std::process::Command::new("torii")
+                                    .args(["branch", "-d", &head_branch, "--force"])
+                                    .current_dir(&repo_path)
                                     .output();
-                                let del_msg = if deleted_remotes.is_empty() {
-                                    format!("branch '{}' — no remote deleted", head_branch)
+                                let del_msg = if remote_ok {
+                                    format!("branch '{}' deleted on all remotes", head_branch)
                                 } else {
-                                    format!("branch '{}' deleted on: {}", head_branch, deleted_remotes.join(", "))
+                                    format!("branch '{}' — remote delete failed (may not exist)", head_branch)
                                 };
                                 app.log_event(&format!("merged #{} → {} — {}", number, base_branch, del_msg), EventKind::Success);
                                 app.refresh().ok();
