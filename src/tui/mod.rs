@@ -1008,6 +1008,7 @@ fn run_loop(
                     if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
                         let number = pr.number;
                         let head_branch = pr.head.clone();
+                        let base_branch = pr.base.clone();
                         let method = match app.pr_view.merge_method {
                             1 => MergeMethod::Squash,
                             2 => MergeMethod::Rebase,
@@ -1020,7 +1021,17 @@ fn run_loop(
                         use crate::pr::{get_pr_client, MergeMethod};
                         match get_pr_client(&platform).and_then(|c| c.merge(&owner, &repo_name, number, method)) {
                             Ok(_) => {
-                                // delete branch on all remotes via git push --delete
+                                // 1. checkout base branch
+                                let _ = std::process::Command::new("torii")
+                                    .args(["branch", &base_branch])
+                                    .current_dir(&repo_path)
+                                    .output();
+                                // 2. pull to get the merge commit locally
+                                let _ = std::process::Command::new("torii")
+                                    .args(["sync", "--pull"])
+                                    .current_dir(&repo_path)
+                                    .output();
+                                // 3. delete head branch on all remotes
                                 let remotes_out = std::process::Command::new("git")
                                     .args(["-C", &repo_path, "remote"])
                                     .output();
@@ -1035,7 +1046,7 @@ fn run_loop(
                                         }
                                     }
                                 }
-                                // delete local branch
+                                // 4. delete local branch
                                 let _ = std::process::Command::new("git")
                                     .args(["-C", &repo_path, "branch", "-d", &head_branch])
                                     .output();
@@ -1044,7 +1055,8 @@ fn run_loop(
                                 } else {
                                     format!("branch '{}' deleted on: {}", head_branch, deleted_remotes.join(", "))
                                 };
-                                app.log_event(&format!("merged #{} — {}", number, del_msg), EventKind::Success);
+                                app.log_event(&format!("merged #{} → {} — {}", number, base_branch, del_msg), EventKind::Success);
+                                app.refresh().ok();
                                 app.load_prs();
                             }
                             Err(e) => app.log_event(&format!("merge failed: {}", e), EventKind::Error),
