@@ -961,6 +961,54 @@ fn run_loop(
                     }
                 }
 
+                Action::PrCreateMulti => {
+                    let title  = app.pr_view.create_title.clone();
+                    let base   = app.pr_view.create_base.clone();
+                    let desc   = app.pr_view.create_desc.clone();
+                    let draft  = app.pr_view.create_draft;
+                    let head   = {
+                        let Ok(repo) = git2::Repository::discover(&app.repo_path) else { break; };
+                        repo.head().ok()
+                            .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                            .unwrap_or_default()
+                    };
+                    if title.is_empty() {
+                        app.log_event("create failed: title required", EventKind::Error);
+                        break;
+                    }
+                    let platforms: Vec<_> = app.pr_view.available_platforms.iter()
+                        .zip(app.pr_view.create_platform_selected.iter())
+                        .filter(|(_, &sel)| sel)
+                        .map(|(p, _)| p.clone())
+                        .collect();
+                    if platforms.is_empty() {
+                        app.log_event("create failed: select at least one platform", EventKind::Error);
+                        break;
+                    }
+                    use crate::pr::{get_pr_client, CreatePrOptions};
+                    let mut any_ok = false;
+                    for entry in &platforms {
+                        let opts = CreatePrOptions {
+                            title: title.clone(),
+                            body:  if desc.is_empty() { None } else { Some(desc.clone()) },
+                            head:  head.clone(),
+                            base:  base.clone(),
+                            draft,
+                        };
+                        match get_pr_client(&entry.platform).and_then(|c| c.create(&entry.owner, &entry.repo, opts)) {
+                            Ok(pr) => {
+                                app.log_event(&format!("created {} #{} on {}: {}", if entry.platform == "gitlab" { "MR" } else { "PR" }, pr.number, entry.platform, title), EventKind::Success);
+                                any_ok = true;
+                            }
+                            Err(e) => app.log_event(&format!("create failed on {}: {}", entry.platform, e), EventKind::Error),
+                        }
+                    }
+                    app.pr_view.create_title.clear();
+                    app.pr_view.create_desc.clear();
+                    app.pr_view.create_input.clear();
+                    if any_ok { app.load_prs(); }
+                }
+
                 Action::PrMerge => {
                     if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
                         let number = pr.number;
@@ -1052,6 +1100,16 @@ fn run_loop(
                             Err(e) => app.log_event(&format!("update failed: {}", e), EventKind::Error),
                         }
                     }
+                }
+
+                Action::PrSwitchPlatform => {
+                    if let Some(entry) = app.pr_view.available_platforms.get(app.pr_view.platform_idx) {
+                        app.pr_view.platform  = entry.platform.clone();
+                        app.pr_view.owner     = entry.owner.clone();
+                        app.pr_view.repo_name = entry.repo.clone();
+                    }
+                    app.pr_view.confirm = app::PrConfirm::None;
+                    app.load_prs();
                 }
 
                 Action::PrRefresh => {

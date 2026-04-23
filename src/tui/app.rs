@@ -552,9 +552,19 @@ pub enum PrConfirm {
     CreateTitle,
     CreateBase,
     CreateDesc,
+    CreatePlatforms,
     EditTitle,
     EditDesc,
     EditBase,
+    SwitchPlatform,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrPlatformEntry {
+    pub platform: String,  // "github" / "gitlab"
+    pub owner: String,
+    pub repo: String,
+    pub label: String,     // display: "github — paskidev/gitorii"
 }
 
 pub struct PrState {
@@ -582,6 +592,12 @@ pub struct PrState {
     // branch dropdown (edit base)
     pub branches: Vec<String>,
     pub branch_idx: usize,
+    // platform switcher
+    pub available_platforms: Vec<PrPlatformEntry>,
+    pub platform_idx: usize,
+    // create — platform multi-select
+    pub create_platform_idx: usize,
+    pub create_platform_selected: Vec<bool>,
 }
 
 impl Default for PrState {
@@ -608,6 +624,10 @@ impl Default for PrState {
             edit_desc: String::new(),
             branches: vec![],
             branch_idx: 0,
+            available_platforms: vec![],
+            platform_idx: 0,
+            create_platform_idx: 0,
+            create_platform_selected: vec![],
         }
     }
 }
@@ -1842,6 +1862,60 @@ impl App {
             });
             let _ = tx.send(result);
         });
+    }
+
+    pub fn load_pr_platforms(&mut self) {
+        use crate::pr::detect_platform_from_remote;
+        let Ok(repo) = git2::Repository::discover(&self.repo_path) else { return };
+        let Ok(remotes) = repo.remotes() else { return };
+        let mut seen = std::collections::HashSet::new();
+        self.pr_view.available_platforms = remotes.iter()
+            .filter_map(|name| {
+                let name = name?;
+                let remote = repo.find_remote(name).ok()?;
+                let url = remote.url()?.to_string();
+                let platform = if url.contains("github.com") { "github" }
+                    else if url.contains("gitlab.com") { "gitlab" }
+                    else { return None };
+                // parse owner/repo from url
+                let path = if url.contains('@') {
+                    url.splitn(2, ':').nth(1)?
+                } else {
+                    url.trim_start_matches("https://")
+                        .trim_start_matches("http://")
+                        .splitn(2, '/').nth(1)?
+                };
+                let path = path.trim_end_matches(".git");
+                let mut parts = path.splitn(2, '/');
+                let owner = parts.next()?.to_string();
+                let repo_name = parts.next()?.to_string();
+                let key = format!("{}/{}/{}", platform, owner, repo_name);
+                if !seen.insert(key) { return None; }
+                Some(PrPlatformEntry {
+                    label: format!("{} — {}/{}", platform, owner, repo_name),
+                    platform: platform.to_string(),
+                    owner,
+                    repo: repo_name,
+                })
+            })
+            .collect();
+        // set platform_idx to current active platform
+        let current = &self.pr_view.platform;
+        let current_owner = &self.pr_view.owner;
+        self.pr_view.platform_idx = self.pr_view.available_platforms.iter()
+            .position(|p| &p.platform == current && &p.owner == current_owner)
+            .unwrap_or(0);
+        // also try detect_platform_from_remote as fallback if list empty
+        if self.pr_view.available_platforms.is_empty() {
+            if let Some((platform, owner, repo_name)) = detect_platform_from_remote(&self.repo_path) {
+                self.pr_view.available_platforms.push(PrPlatformEntry {
+                    label: format!("{} — {}/{}", platform, owner, repo_name),
+                    platform,
+                    owner,
+                    repo: repo_name,
+                });
+            }
+        }
     }
 
     pub fn load_pr_branches(&mut self) {

@@ -63,6 +63,8 @@ pub enum Action {
     PrOpenBrowser,
     PrRefresh,
     PrUpdate,
+    PrSwitchPlatform,
+    PrCreateMulti,
     IssueClose,
     IssueCreate,
     IssueComment,
@@ -181,14 +183,13 @@ impl EventHandler {
                         || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'));
                     // when typing in an overlay, block sidebar nav entirely
                     if typing {
-                        let view_result = match app.view {
+                        return Ok(match app.view {
                             View::Pr        => handle_pr(key, app),
                             View::Issue     => handle_issue(key, app),
                             View::Branch    => handle_branch(key, app),
                             View::Tag       => handle_tag(key, app),
                             _ => None,
-                        };
-                        return Ok(view_result);
+                        });
                     }
                     if is_nav || is_enter || is_quit {
                         return Ok(handle_sidebar(key, app));
@@ -1712,13 +1713,16 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 match app.pr_view.confirm.clone() {
                     PrConfirm::CreateTitle => {
                         app.pr_view.create_title = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input = app.pr_view.create_base.clone();
+                        app.pr_view.create_input.clear();
+                        // load branches for dropdown
+                        app.load_pr_branches();
+                        let base = app.pr_view.create_base.clone();
+                        app.pr_view.branch_idx = app.pr_view.branches.iter()
+                            .position(|b| b == &base).unwrap_or(0);
                         app.pr_view.confirm = PrConfirm::CreateBase;
                     }
                     PrConfirm::CreateBase => {
-                        app.pr_view.create_base = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input = app.pr_view.create_desc.clone();
-                        app.pr_view.confirm = PrConfirm::CreateDesc;
+                        // handled below by dropdown — Enter confirms selection
                     }
                     PrConfirm::CreateDesc => {
                         // Enter adds a newline to description
@@ -1738,9 +1742,8 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             (_, KeyCode::Tab) if app.pr_view.confirm == PrConfirm::CreateDesc => {
                 app.pr_view.create_draft = !app.pr_view.create_draft;
             }
-            (_, KeyCode::Char('c')) if app.pr_view.confirm == PrConfirm::CreateDesc
-                                    && key.modifiers == KeyModifiers::NONE => {
-                // 'c' submits — flush current line first
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) if app.pr_view.confirm == PrConfirm::CreateDesc => {
+                // Ctrl+S submits — flush current line first
                 if !app.pr_view.create_input.is_empty() {
                     if !app.pr_view.create_desc.is_empty() {
                         app.pr_view.create_desc.push('\n');
@@ -1748,11 +1751,29 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     app.pr_view.create_desc.push_str(&app.pr_view.create_input);
                     app.pr_view.create_input.clear();
                 }
-                app.pr_view.confirm = PrConfirm::None;
-                return Some(Action::PrCreate);
+                // advance to platform selection
+                app.load_pr_platforms();
+                // pre-select current platform
+                let n = app.pr_view.available_platforms.len();
+                app.pr_view.create_platform_selected = vec![false; n];
+                if n > 0 {
+                    let cur_platform = app.pr_view.platform.clone();
+                    let cur_owner = app.pr_view.owner.clone();
+                    let idx = app.pr_view.available_platforms.iter()
+                        .position(|p| p.platform == cur_platform && p.owner == cur_owner)
+                        .unwrap_or(0);
+                    if let Some(s) = app.pr_view.create_platform_selected.get_mut(idx) { *s = true; }
+                }
+                app.pr_view.create_platform_idx = 0;
+                app.pr_view.confirm = PrConfirm::CreatePlatforms;
             }
             (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
                                   || key.modifiers == KeyModifiers::SHIFT => {
+                // enforce title limit
+                if app.pr_view.confirm == PrConfirm::CreateTitle
+                    && app.pr_view.create_input.chars().count() >= 255 {
+                    return None;
+                }
                 app.pr_view.create_input.push(c);
                 // auto-wrap at 56 chars (overlay inner width)
                 if app.pr_view.create_input.chars().count() >= 56 {
@@ -1762,6 +1783,86 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     app.pr_view.create_desc.push_str(&app.pr_view.create_input);
                     app.pr_view.create_input.clear();
                 }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create base branch — dropdown
+    if app.pr_view.confirm == PrConfirm::CreateBase {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.create_input.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(branch) = app.pr_view.branches.get(app.pr_view.branch_idx) {
+                    app.pr_view.create_base = branch.clone();
+                }
+                app.pr_view.create_input.clear();
+                app.pr_view.confirm = PrConfirm::CreateDesc;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create — platform multi-select
+    if app.pr_view.confirm == PrConfirm::CreatePlatforms {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.create_platform_idx > 0 { app.pr_view.create_platform_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                let n = app.pr_view.available_platforms.len();
+                if app.pr_view.create_platform_idx + 1 < n { app.pr_view.create_platform_idx += 1; }
+            }
+            (_, KeyCode::Char(' ')) => {
+                let idx = app.pr_view.create_platform_idx;
+                if let Some(s) = app.pr_view.create_platform_selected.get_mut(idx) { *s = !*s; }
+            }
+            (_, KeyCode::Char('a')) if key.modifiers == KeyModifiers::NONE => {
+                let all = app.pr_view.create_platform_selected.iter().all(|&s| s);
+                app.pr_view.create_platform_selected.iter_mut().for_each(|s| *s = !all);
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrCreateMulti);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Switch platform dropdown
+    if app.pr_view.confirm == PrConfirm::SwitchPlatform {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => { app.pr_view.confirm = PrConfirm::None; }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.platform_idx > 0 { app.pr_view.platform_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.platform_idx + 1 < app.pr_view.available_platforms.len() {
+                    app.pr_view.platform_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                return Some(Action::PrSwitchPlatform);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
             _ => {}
@@ -1803,8 +1904,8 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 app.pr_view.edit_desc.push('\n');
             }
             (_, KeyCode::Backspace) => { app.pr_view.edit_desc.pop(); }
-            (_, KeyCode::Char('c')) if key.modifiers == KeyModifiers::NONE => {
-                // 'c' advances to base branch selection
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                // Ctrl+S advances to base branch selection
                 app.pr_view.confirm = PrConfirm::EditBase;
             }
             (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
@@ -1890,7 +1991,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 if app.pr_view.ops_idx > 0 { app.pr_view.ops_idx -= 1; }
             }
             (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                if app.pr_view.ops_idx < 5 { app.pr_view.ops_idx += 1; }
+                if app.pr_view.ops_idx < 6 { app.pr_view.ops_idx += 1; }
             }
             (_, KeyCode::Enter) => {
                 let idx = app.pr_view.ops_idx;
@@ -1924,6 +2025,10 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     3 => { app.pr_view.confirm = PrConfirm::Close; }
                     4 => return Some(Action::PrCheckout),
                     5 => return Some(Action::PrOpenBrowser),
+                    6 => {
+                        app.load_pr_platforms();
+                        app.pr_view.confirm = PrConfirm::SwitchPlatform;
+                    }
                     _ => {}
                 }
             }

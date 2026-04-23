@@ -222,25 +222,32 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     // ── Create overlays ───────────────────────────────────────────────────────
     let pr_label = if pr.platform == "gitlab" { "MR" } else { "PR" };
-    if matches!(pr.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase) {
-        let (step, label) = match &pr.confirm {
-            PrConfirm::CreateTitle => (1, "title"),
-            PrConfirm::CreateBase  => (2, "base branch"),
-            _ => (0, ""),
-        };
-        let ow = 52u16;
-        let oh = 5u16;
+    if pr.confirm == PrConfirm::CreateTitle {
+        const TITLE_MAX: usize = 255;
+        let ow = (area.width.saturating_sub(6)).min(80).max(52);
+        let oh = 6u16;
         let ox = area.x + area.width.saturating_sub(ow) / 2;
         let oy = area.y + area.height.saturating_sub(oh) / 2;
         let overlay = Rect::new(ox, oy, ow, oh);
-        let cursor = format!("{}█", pr.create_input);
+        let len = pr.create_input.chars().count();
+        let inner_w = (ow as usize).saturating_sub(4);
+        // show last inner_w chars so cursor is always visible
+        let display: String = pr.create_input.chars()
+            .rev().take(inner_w.saturating_sub(1)).collect::<Vec<_>>()
+            .into_iter().rev().collect();
+        let at_limit = len >= TITLE_MAX;
+        let counter_color = if len > 230 { C_RED } else { C_DIM };
         let lines = vec![
             Line::from(vec![
-                Span::styled(format!("  create {} — step {}/3: ", pr_label, step), Style::default().fg(C_SUBTLE)),
-                Span::styled(label, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  create {} — step 1/4: ", pr_label), Style::default().fg(C_SUBTLE)),
+                Span::styled("title", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled(format!("  > {}", cursor), Style::default().fg(C_CYAN)),
+                Span::styled(format!("  {}█", display), Style::default().fg(C_CYAN)),
+            ]),
+            Line::from(vec![
+                Span::styled(format!("  {}/{}", len, TITLE_MAX), Style::default().fg(counter_color)),
+                if at_limit { Span::styled("  limit reached", Style::default().fg(C_RED)) } else { Span::raw("") },
             ]),
             Line::from(vec![
                 Span::styled("  [Enter]", Style::default().fg(bc)),
@@ -250,13 +257,36 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             ]),
         ];
         f.render_widget(Clear, overlay);
-        f.render_widget(
-            Paragraph::new(lines).block(
-                Block::default().borders(Borders::ALL)
+        f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(bc)).border_type(app.border_type())), overlay);
+    }
+
+    if pr.confirm == PrConfirm::CreateBase {
+        let dw = 32u16;
+        let dh = (pr.branches.len().min(10) + 2) as u16;
+        let ox = area.x + area.width.saturating_sub(dw) / 2;
+        let oy = area.y + area.height.saturating_sub(dh) / 2;
+        let drop_area = Rect::new(ox, oy, dw, dh);
+        let drop_items: Vec<ListItem> = pr.branches.iter().enumerate().map(|(i, branch)| {
+            let is_sel = i == pr.branch_idx;
+            let color = if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(branch.clone(), Style::default().fg(color)),
+            ])).style(if is_sel { Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD) } else { Style::default() })
+        }).collect();
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(pr.branch_idx));
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(
+            List::new(drop_items).block(
+                Block::default()
+                    .title(Span::styled(format!(" create {} — step 2/4: base branch ", pr_label), Style::default().fg(C_SUBTLE)))
+                    .borders(Borders::ALL).border_type(app.border_type())
                     .border_style(Style::default().fg(bc))
-                    .border_type(app.border_type())
             ),
-            overlay,
+            drop_area,
+            &mut drop_state,
         );
     }
 
@@ -271,7 +301,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let draft_hint = if pr.create_draft { "  [draft ✓]" } else { "  [Tab] draft" };
         let mut lines = vec![
             Line::from(vec![
-                Span::styled(format!("  create {} — step 3/3: ", pr_label), Style::default().fg(C_SUBTLE)),
+                Span::styled(format!("  create {} — step 3/4: ", pr_label), Style::default().fg(C_SUBTLE)),
                 Span::styled("description", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
                 Span::styled(" (optional)", Style::default().fg(C_DIM)),
             ]),
@@ -294,7 +324,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled("  [Enter]", Style::default().fg(bc)),
             Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[c]", Style::default().fg(bc)),
+            Span::styled("[^S]", Style::default().fg(bc)),
             Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" cancel  ", Style::default().fg(C_SUBTLE)),
@@ -358,7 +388,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled("  [Enter]", Style::default().fg(bc)),
             Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
-            Span::styled("[c]", Style::default().fg(bc)),
+            Span::styled("[^S]", Style::default().fg(bc)),
             Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
             Span::styled("[Esc]", Style::default().fg(bc)),
             Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
@@ -391,7 +421,100 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_stateful_widget(
             List::new(drop_items).block(
                 Block::default()
-                    .title(Span::styled(format!(" step 3/3: base branch "), Style::default().fg(C_SUBTLE)))
+                    .title(Span::styled(format!(" step 4/4: base branch (edit) "), Style::default().fg(C_SUBTLE)))
+                    .borders(Borders::ALL).border_type(app.border_type())
+                    .border_style(Style::default().fg(bc))
+            ),
+            drop_area,
+            &mut drop_state,
+        );
+    }
+
+    // ── Create — platform multi-select ───────────────────────────────────────
+    if pr.confirm == PrConfirm::CreatePlatforms {
+        let entries = &pr.available_platforms;
+        let max_label = entries.iter().map(|e| e.label.len()).max().unwrap_or(20);
+        let dw = (max_label + 10).max(62).min(area.width.saturating_sub(4) as usize) as u16;
+        let dh = (entries.len() + 4).min(14) as u16;
+        let ox = area.x + area.width.saturating_sub(dw) / 2;
+        let oy = area.y + area.height.saturating_sub(dh) / 2;
+        let drop_area = Rect::new(ox, oy, dw, dh);
+
+        let drop_items: Vec<ListItem> = entries.iter().enumerate().map(|(i, entry)| {
+            let is_sel = i == pr.create_platform_idx;
+            let checked = pr.create_platform_selected.get(i).copied().unwrap_or(false);
+            let checkbox = if checked { "[✓] " } else { "[ ] " };
+            let color = if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(checkbox, Style::default().fg(if checked { C_GREEN } else { C_DIM })),
+                Span::styled(entry.label.clone(), Style::default().fg(color)),
+            ])).style(if is_sel { Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD) } else { Style::default() })
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(pr.create_platform_idx));
+
+        let all_selected = !pr.create_platform_selected.is_empty()
+            && pr.create_platform_selected.iter().all(|&s| s);
+        let hint_a = if all_selected { "[a] deselect all" } else { "[a] select all" };
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(
+            List::new(drop_items).block(
+                Block::default()
+                    .title(Span::styled(" select platforms ", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL).border_type(app.border_type())
+                    .border_style(Style::default().fg(bc))
+            ),
+            Rect::new(drop_area.x, drop_area.y, drop_area.width, drop_area.height - 1),
+            &mut drop_state,
+        );
+        // hint line at bottom
+        let hint_area = Rect::new(drop_area.x + 1, drop_area.y + drop_area.height - 2, drop_area.width - 2, 1);
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("[Space]", Style::default().fg(bc)),
+                Span::styled(" toggle  ", Style::default().fg(C_SUBTLE)),
+                Span::styled(hint_a, Style::default().fg(bc)),
+                Span::styled("  [Enter]", Style::default().fg(bc)),
+                Span::styled(" create", Style::default().fg(C_SUBTLE)),
+            ])),
+            hint_area,
+        );
+    }
+
+    // ── Switch platform dropdown ──────────────────────────────────────────────
+    if pr.confirm == PrConfirm::SwitchPlatform {
+        let entries = &pr.available_platforms;
+        let max_label = entries.iter().map(|e| e.label.len()).max().unwrap_or(20);
+        let dw = (max_label + 6).min(50) as u16;
+        let dh = (entries.len() + 2).min(12) as u16;
+        let ox = area.x + area.width.saturating_sub(dw) / 2;
+        let oy = area.y + area.height.saturating_sub(dh) / 2;
+        let drop_area = Rect::new(ox, oy, dw, dh);
+
+        let drop_items: Vec<ListItem> = entries.iter().enumerate().map(|(i, entry)| {
+            let is_sel = i == pr.platform_idx;
+            let is_active = entry.platform == pr.platform && entry.owner == pr.owner;
+            let color = if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            let active_marker = if is_active { " ✓" } else { "" };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(format!("{}{}", entry.label, active_marker), Style::default().fg(color)),
+            ])).style(if is_sel { Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD) } else { Style::default() })
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(pr.platform_idx));
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(
+            List::new(drop_items).block(
+                Block::default()
+                    .title(Span::styled(" switch platform ", Style::default().fg(C_SUBTLE)))
                     .borders(Borders::ALL).border_type(app.border_type())
                     .border_style(Style::default().fg(bc))
             ),
@@ -405,15 +528,16 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let current_state = pr.prs.get(pr.idx).map(|p| p.state.as_str()).unwrap_or("open");
         let create_label = if pr.platform == "gitlab" { "create MR" } else { "create PR" };
         let ops: &[(&str, bool)] = &[
-            (create_label,   false),
-            ("edit",         false),
-            ("merge",        false),
-            ("close ⚠",      true),
-            ("checkout",     false),
-            ("open browser", false),
+            (create_label,      false),
+            ("edit",            false),
+            ("merge",           false),
+            ("close ⚠",         true),
+            ("checkout",        false),
+            ("open browser",    false),
+            ("switch platform", false),
         ];
 
-        let dropdown_w = 20u16;
+        let dropdown_w = 22u16;
         let dropdown_h = ops.len() as u16 + 2;
         let entry_y = cols[0].y + 1 + pr.idx as u16 + 1;
         let drop_y = if entry_y + dropdown_h < cols[0].y + cols[0].height {
