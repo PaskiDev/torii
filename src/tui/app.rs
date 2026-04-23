@@ -2171,21 +2171,26 @@ impl App {
                 entry.value.clone()
             };
             self.config_view.edit_buf = initial.clone();
-            self.config_view.edit_cursor = initial.len();
+            self.config_view.edit_cursor = initial.chars().count();
             self.config_view.editing = true;
         }
     }
 
+    fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
+        s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
+    }
+
     pub fn config_type_char(&mut self, c: char) {
-        let cur = self.config_view.edit_cursor;
-        self.config_view.edit_buf.insert(cur, c);
+        let byte_idx = Self::char_to_byte_idx(&self.config_view.edit_buf, self.config_view.edit_cursor);
+        self.config_view.edit_buf.insert(byte_idx, c);
         self.config_view.edit_cursor += 1;
     }
 
     pub fn config_backspace(&mut self) {
         let cur = self.config_view.edit_cursor;
         if cur > 0 {
-            self.config_view.edit_buf.remove(cur - 1);
+            let byte_idx = Self::char_to_byte_idx(&self.config_view.edit_buf, cur - 1);
+            self.config_view.edit_buf.remove(byte_idx);
             self.config_view.edit_cursor -= 1;
         }
     }
@@ -2195,7 +2200,7 @@ impl App {
     }
 
     pub fn config_cursor_right(&mut self) {
-        let len = self.config_view.edit_buf.len();
+        let len = self.config_view.edit_buf.chars().count();
         if self.config_view.edit_cursor < len { self.config_view.edit_cursor += 1; }
     }
 

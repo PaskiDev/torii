@@ -82,10 +82,13 @@ fn render_entries(f: &mut Frame, app: &App, area: Rect) {
 
             let value_span = if is_editing {
                 let buf = &app.config_view.edit_buf;
-                let cur = app.config_view.edit_cursor.min(buf.len());
-                let before = &buf[..cur];
-                let cursor_char = buf[cur..].chars().next().unwrap_or(' ');
-                let after = if buf[cur..].is_empty() { "" } else { &buf[cur + cursor_char.len_utf8()..] };
+                let char_cur = app.config_view.edit_cursor;
+                // convert char index to byte index safely
+                let byte_cur = buf.char_indices().nth(char_cur).map(|(b, _)| b).unwrap_or(buf.len());
+                let before = &buf[..byte_cur];
+                let cursor_char = buf[byte_cur..].chars().next().unwrap_or(' ');
+                let after_start = byte_cur + if buf[byte_cur..].is_empty() { 0 } else { cursor_char.len_utf8() };
+                let after = &buf[after_start..];
                 Line::from(vec![
                     Span::styled(prefix, Style::default().fg(bc)),
                     Span::styled(format!("{:<32}", &e.key), Style::default().fg(C_CYAN)),
