@@ -1351,7 +1351,7 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     // ops dropdown
     if app.remote_view.ops_mode {
         let is_mirror = app.remote_view.selected_is_mirror();
-        let ops_len = if is_mirror { 6 } else { 5 };
+        let ops_len = if is_mirror { 6 } else { 6 };
         match (key.modifiers, key.code) {
             (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
                 if app.remote_view.ops_idx > 0 { app.remote_view.ops_idx -= 1; }
