@@ -1021,14 +1021,35 @@ fn run_loop(
                         let platform = app.pr_view.platform.clone();
                         let owner = app.pr_view.owner.clone();
                         let repo_name = app.pr_view.repo_name.clone();
+                        let repo_path = app.repo_path.clone();
                         use crate::pr::{get_pr_client, MergeMethod};
-                        match get_pr_client(&platform).and_then(|c| {
-                            c.merge(&owner, &repo_name, number, method)?;
-                            let _ = c.delete_branch(&owner, &repo_name, &head_branch);
-                            Ok(())
-                        }) {
+                        match get_pr_client(&platform).and_then(|c| c.merge(&owner, &repo_name, number, method)) {
                             Ok(_) => {
-                                app.log_event(&format!("merged PR #{} — branch '{}' deleted", number, head_branch), EventKind::Success);
+                                // delete branch on all remotes via git push --delete
+                                let remotes_out = std::process::Command::new("git")
+                                    .args(["-C", &repo_path, "remote"])
+                                    .output();
+                                let mut deleted_remotes: Vec<String> = vec![];
+                                if let Ok(out) = remotes_out {
+                                    for remote in String::from_utf8_lossy(&out.stdout).lines() {
+                                        let del = std::process::Command::new("git")
+                                            .args(["-C", &repo_path, "push", remote, "--delete", &head_branch])
+                                            .output();
+                                        if matches!(&del, Ok(o) if o.status.success()) {
+                                            deleted_remotes.push(remote.to_string());
+                                        }
+                                    }
+                                }
+                                // delete local branch
+                                let _ = std::process::Command::new("git")
+                                    .args(["-C", &repo_path, "branch", "-d", &head_branch])
+                                    .output();
+                                let del_msg = if deleted_remotes.is_empty() {
+                                    format!("branch '{}' — no remote deleted", head_branch)
+                                } else {
+                                    format!("branch '{}' deleted on: {}", head_branch, deleted_remotes.join(", "))
+                                };
+                                app.log_event(&format!("merged #{} — {}", number, del_msg), EventKind::Success);
                                 app.load_prs();
                             }
                             Err(e) => app.log_event(&format!("merge failed: {}", e), EventKind::Error),
