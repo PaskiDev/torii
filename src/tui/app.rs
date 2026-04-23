@@ -802,18 +802,6 @@ pub struct TuiSettings {
     pub show_mirror_view: bool,
     pub show_workspace_view: bool,
     pub show_remote_view: bool,
-    pub keybind_files: char,
-    pub keybind_save: char,
-    pub keybind_sync: char,
-    pub keybind_snapshot: char,
-    pub keybind_log: char,
-    pub keybind_branch: char,
-    pub keybind_tag: char,
-    pub keybind_history: char,
-    pub keybind_remote: char,
-    pub keybind_mirror: char,
-    pub keybind_workspace: char,
-    pub keybind_config: char,
     pub brand_color: (u8, u8, u8),
     pub selected_bg: (u8, u8, u8),
     pub event_log_max: usize,
@@ -828,18 +816,6 @@ impl Default for TuiSettings {
             show_mirror_view: true,
             show_workspace_view: true,
             show_remote_view: true,
-            keybind_files: 'f',
-            keybind_save: 'c',
-            keybind_sync: 's',
-            keybind_snapshot: 'p',
-            keybind_log: 'l',
-            keybind_branch: 'b',
-            keybind_tag: 't',
-            keybind_history: 'h',
-            keybind_remote: 'r',
-            keybind_mirror: 'm',
-            keybind_workspace: 'w',
-            keybind_config: 'g',
             brand_color: (255, 76, 76),
             selected_bg: (40, 40, 60),
             event_log_max: 50,
@@ -867,18 +843,6 @@ impl TuiSettings {
                 "show_mirror_view"   => s.show_mirror_view = val != "false",
                 "show_workspace_view"=> s.show_workspace_view = val != "false",
                 "show_remote_view"   => s.show_remote_view = val != "false",
-                "keybind_files"      => if let Some(c) = val.chars().next() { s.keybind_files = c; }
-                "keybind_save"       => if let Some(c) = val.chars().next() { s.keybind_save = c; }
-                "keybind_sync"       => if let Some(c) = val.chars().next() { s.keybind_sync = c; }
-                "keybind_snapshot"   => if let Some(c) = val.chars().next() { s.keybind_snapshot = c; }
-                "keybind_log"        => if let Some(c) = val.chars().next() { s.keybind_log = c; }
-                "keybind_branch"     => if let Some(c) = val.chars().next() { s.keybind_branch = c; }
-                "keybind_tag"        => if let Some(c) = val.chars().next() { s.keybind_tag = c; }
-                "keybind_history"    => if let Some(c) = val.chars().next() { s.keybind_history = c; }
-                "keybind_remote"     => if let Some(c) = val.chars().next() { s.keybind_remote = c; }
-                "keybind_mirror"     => if let Some(c) = val.chars().next() { s.keybind_mirror = c; }
-                "keybind_workspace"  => if let Some(c) = val.chars().next() { s.keybind_workspace = c; }
-                "keybind_config"     => if let Some(c) = val.chars().next() { s.keybind_config = c; }
                 "brand_color"        => { if let Some(rgb) = parse_rgb(val) { s.brand_color = rgb; } }
                 "selected_bg"        => { if let Some(rgb) = parse_rgb(val) { s.selected_bg = rgb; } }
                 "event_log_max"      => { if let Ok(n) = val.parse::<usize>() { s.event_log_max = n; } }
@@ -896,14 +860,10 @@ impl TuiSettings {
             let _ = std::fs::create_dir_all(parent);
         }
         let content = format!(
-            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nkeybind_files = \"{}\"\nkeybind_save = \"{}\"\nkeybind_sync = \"{}\"\nkeybind_snapshot = \"{}\"\nkeybind_log = \"{}\"\nkeybind_branch = \"{}\"\nkeybind_tag = \"{}\"\nkeybind_history = \"{}\"\nkeybind_remote = \"{}\"\nkeybind_mirror = \"{}\"\nkeybind_workspace = \"{}\"\nkeybind_config = \"{}\"\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
+            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
             if self.border_style == BorderStyle::Rounded { "rounded" } else { "sharp" },
             self.show_help_view, self.show_history_view, self.show_mirror_view,
             self.show_workspace_view, self.show_remote_view,
-            self.keybind_files, self.keybind_save, self.keybind_sync,
-            self.keybind_snapshot, self.keybind_log, self.keybind_branch,
-            self.keybind_tag, self.keybind_history, self.keybind_remote,
-            self.keybind_mirror, self.keybind_workspace, self.keybind_config,
             self.brand_color.0, self.brand_color.1, self.brand_color.2,
             self.selected_bg.0, self.selected_bg.1, self.selected_bg.2,
             self.event_log_max,
@@ -924,12 +884,11 @@ fn parse_rgb(s: &str) -> Option<(u8, u8, u8)> {
 
 pub struct SettingsState {
     pub idx: usize,
-    pub editing_keybind: Option<usize>,
     pub status: Option<String>,
 }
 
 impl Default for SettingsState {
-    fn default() -> Self { Self { idx: 0, editing_keybind: None, status: None } }
+    fn default() -> Self { Self { idx: 0, status: None } }
 }
 
 #[derive(Clone, PartialEq)]

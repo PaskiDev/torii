@@ -751,7 +751,6 @@ fn run_loop(
                         5 => app.settings.show_mirror_view    = !app.settings.show_mirror_view,
                         6 => app.settings.show_workspace_view = !app.settings.show_workspace_view,
                         7 => app.settings.show_help_view      = !app.settings.show_help_view,
-                        8..=19 => { app.settings_view.editing_keybind = Some(idx); }
                         _ => {}
                     }
                 }
@@ -761,7 +760,6 @@ fn run_loop(
                     app.settings_view.status = Some("settings saved".to_string());
                 }
 
-                Action::SettingsEditKeybind => {}
 
                 Action::WorkspaceSync => {
                     if let Some(ws) = app.workspace_view.workspaces.get(app.workspace_view.ws_idx) {

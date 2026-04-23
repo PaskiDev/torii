@@ -75,7 +75,6 @@ pub enum Action {
     ConfigToggleScope,
     SettingsToggle,
     SettingsSave,
-    SettingsEditKeybind,
 }
 
 pub struct EventHandler;
@@ -224,7 +223,7 @@ impl EventHandler {
                         View::Diff      => { app.go_back(); true }
                         View::Commit    => app.commit_view.focus == CommitFocus::Input,
                         View::Config    => app.config_view.editing,
-                        View::Settings  => app.settings_view.editing_keybind.is_some(),
+                        View::Settings  => false,
                         View::Log       => {
                             if app.log.ops_mode {
                                 app.log.ops_mode = false;
@@ -2134,19 +2133,6 @@ fn handle_config(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_settings(key: event::KeyEvent, app: &mut App) -> Option<Action> {
-    if let Some(editing_idx) = app.settings_view.editing_keybind {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => { app.settings_view.editing_keybind = None; }
-            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
-                                      key.modifiers == KeyModifiers::SHIFT => {
-                apply_keybind(app, editing_idx, c);
-                app.settings_view.editing_keybind = None;
-                app.settings_view.status = Some(format!("keybind updated"));
-            }
-            _ => {}
-        }
-        return None;
-    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.settings_move_up(),
@@ -2289,20 +2275,3 @@ fn handle_issue(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     None
 }
 
-fn apply_keybind(app: &mut App, idx: usize, c: char) {
-    match idx {
-        8  => app.settings.keybind_files = c,
-        9  => app.settings.keybind_save = c,
-        10 => app.settings.keybind_sync = c,
-        11 => app.settings.keybind_snapshot = c,
-        12 => app.settings.keybind_log = c,
-        13 => app.settings.keybind_branch = c,
-        14 => app.settings.keybind_tag = c,
-        15 => app.settings.keybind_history = c,
-        16 => app.settings.keybind_remote = c,
-        17 => app.settings.keybind_mirror = c,
-        18 => app.settings.keybind_workspace = c,
-        19 => app.settings.keybind_config = c,
-        _  => {}
-    }
-}
