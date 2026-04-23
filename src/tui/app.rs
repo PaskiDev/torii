@@ -16,6 +16,7 @@ pub enum View {
     Mirror,
     Workspace,
     Pr,
+    Issue,
     Config,
     Settings,
     Help,
@@ -598,6 +599,68 @@ impl Default for PrState {
     }
 }
 
+// ── Issue state ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct IssueEntry {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub url: String,
+    pub labels: Vec<String>,
+    pub comments: u64,
+    pub created_at: String,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IssueConfirm {
+    None,
+    Close,
+    CreateTitle,
+    CreateDesc,
+    Comment,
+}
+
+pub struct IssueState {
+    pub issues: Vec<IssueEntry>,
+    pub idx: usize,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub ops_mode: bool,
+    pub ops_idx: usize,
+    pub confirm: IssueConfirm,
+    pub platform: String,
+    pub owner: String,
+    pub repo_name: String,
+    pub create_title: String,
+    pub create_desc: String,
+    pub create_input: String,
+    pub comment_input: String,
+}
+
+impl Default for IssueState {
+    fn default() -> Self {
+        Self {
+            issues: vec![],
+            idx: 0,
+            loading: false,
+            error: None,
+            ops_mode: false,
+            ops_idx: 0,
+            confirm: IssueConfirm::None,
+            platform: String::new(),
+            owner: String::new(),
+            repo_name: String::new(),
+            create_title: String::new(),
+            create_desc: String::new(),
+            create_input: String::new(),
+            comment_input: String::new(),
+        }
+    }
+}
+
 // ── Workspace state ───────────────────────────────────────────────────────────
 
 pub struct WorkspaceRepo {
@@ -880,6 +943,7 @@ pub struct App {
     pub mirror_view: MirrorState,
     pub workspace_view: WorkspaceState,
     pub pr_view: PrState,
+    pub issue_view: IssueState,
     pub config_view: ConfigState,
     pub settings_view: SettingsState,
     pub settings: TuiSettings,
@@ -888,6 +952,7 @@ pub struct App {
     pub show_event_log: bool,
     pub sync_rx: Option<std::sync::mpsc::Receiver<Result<String>>>,
     pub pr_rx: Option<std::sync::mpsc::Receiver<Result<Vec<PrEntry>>>>,
+    pub issue_rx: Option<std::sync::mpsc::Receiver<Result<Vec<IssueEntry>>>>,
 
     pub repo_picker_open: bool,
     pub repo_picker_idx: usize,
@@ -925,6 +990,7 @@ impl App {
             mirror_view: MirrorState::default(),
             workspace_view: WorkspaceState::default(),
             pr_view: PrState::default(),
+            issue_view: IssueState::default(),
             config_view: ConfigState::default(),
             settings_view: SettingsState::default(),
             settings: TuiSettings::load(),
@@ -932,6 +998,7 @@ impl App {
             show_event_log: false,
             sync_rx: None,
             pr_rx: None,
+            issue_rx: None,
             repo_picker_open: false,
             repo_picker_idx: 0,
             active_workspace: None,
@@ -954,8 +1021,9 @@ impl App {
             8  => View::Remote,
             9  => View::Workspace,
             10 => View::Pr,
-            11 => View::Config,
-            12 => View::Settings,
+            11 => View::Issue,
+            12 => View::Config,
+            13 => View::Settings,
             _  => View::Dashboard,
         }
     }
@@ -970,7 +1038,7 @@ impl App {
     }
 
     pub fn sidebar_down(&mut self) {
-        if self.sidebar_idx < 12 {
+        if self.sidebar_idx < 13 {
             self.sidebar_idx += 1;
             let view = Self::view_for_idx(self.sidebar_idx);
             self.go_to(view);
@@ -1013,6 +1081,7 @@ impl App {
             View::Remote    => self.load_remotes(),
             View::Workspace => self.load_workspaces(),
             View::Pr        => self.load_prs(),
+            View::Issue     => self.load_issues(),
             View::Config    => self.load_config(),
             _ => {}
         }
@@ -1029,8 +1098,9 @@ impl App {
             View::Mirror    => 8,
             View::Workspace => 9,
             View::Pr        => 10,
-            View::Config    => 11,
-            View::Settings  => 12,
+            View::Issue     => 11,
+            View::Config    => 12,
+            View::Settings  => 13,
             _               => self.sidebar_idx,
         };
         self.view = view;
@@ -1706,6 +1776,55 @@ impl App {
                     mergeable:  p.mergeable,
                     created_at: p.created_at,
                     body:       p.body,
+                }).collect()
+            });
+            let _ = tx.send(result);
+        });
+    }
+
+    pub fn load_issues(&mut self) {
+        use crate::pr::detect_platform_from_remote;
+        use crate::issue::get_issue_client;
+
+        self.issue_view.issues.clear();
+        self.issue_view.error = None;
+        self.issue_view.loading = true;
+        self.issue_rx = None;
+
+        let Some((platform, owner, repo_name)) = detect_platform_from_remote(&self.repo_path)
+        else {
+            self.issue_view.loading = false;
+            self.issue_view.error = Some("no github/gitlab remote detected".to_string());
+            return;
+        };
+        self.issue_view.platform  = platform.clone();
+        self.issue_view.owner     = owner.clone();
+        self.issue_view.repo_name = repo_name.clone();
+
+        let client = match get_issue_client(&platform) {
+            Err(e) => {
+                self.issue_view.loading = false;
+                self.issue_view.error = Some(e.to_string());
+                return;
+            }
+            Ok(c) => c,
+        };
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.issue_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = client.list(&owner, &repo_name, "open").map(|issues| {
+                issues.into_iter().map(|i| IssueEntry {
+                    number:     i.number,
+                    title:      i.title,
+                    state:      i.state,
+                    author:     i.author,
+                    url:        i.url,
+                    labels:     i.labels,
+                    comments:   i.comments,
+                    created_at: i.created_at,
+                    body:       i.body,
                 }).collect()
             });
             let _ = tx.send(result);

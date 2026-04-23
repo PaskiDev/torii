@@ -113,6 +113,24 @@ fn run_loop(
             }
         }
 
+        // Poll Issue load result from background thread
+        if let Some(rx) = &app.issue_rx {
+            if let Ok(result) = rx.try_recv() {
+                app.issue_rx = None;
+                match result {
+                    Ok(issues) => {
+                        app.issue_view.issues = issues;
+                        app.issue_view.idx = 0;
+                        app.issue_view.loading = false;
+                    }
+                    Err(e) => {
+                        app.issue_view.error = Some(e.to_string());
+                        app.issue_view.loading = false;
+                    }
+                }
+            }
+        }
+
         // Auto-snapshot check
         if let Some(interval_secs) = app.snapshot_view.auto_interval.secs() {
             let now = std::time::SystemTime::now()
@@ -1003,6 +1021,85 @@ fn run_loop(
 
                 Action::PrRefresh => {
                     app.load_prs();
+                }
+
+                Action::IssueClose => {
+                    let iv = &app.issue_view;
+                    let Some(issue) = iv.issues.get(iv.idx) else { break; };
+                    let number = issue.number;
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    use crate::issue::get_issue_client;
+                    match get_issue_client(&platform).and_then(|c| c.close(&owner, &repo_name, number)) {
+                        Ok(_) => {
+                            app.log_event(&format!("closed issue #{}", number), EventKind::Success);
+                            app.load_issues();
+                        }
+                        Err(e) => app.log_event(&format!("close failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueCreate => {
+                    let iv = &app.issue_view;
+                    let title = iv.create_title.trim().to_string();
+                    let desc = iv.create_desc.trim().to_string();
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    if title.is_empty() { break; }
+                    app.issue_view.confirm = app::IssueConfirm::None;
+                    use crate::issue::{get_issue_client, CreateIssueOptions};
+                    let opts = CreateIssueOptions {
+                        title: title.clone(),
+                        body: if desc.is_empty() { None } else { Some(desc) },
+                    };
+                    match get_issue_client(&platform).and_then(|c| c.create(&owner, &repo_name, opts)) {
+                        Ok(i) => {
+                            app.log_event(&format!("created issue #{}: {}", i.number, title), EventKind::Success);
+                            app.issue_view.create_title.clear();
+                            app.issue_view.create_desc.clear();
+                            app.load_issues();
+                        }
+                        Err(e) => app.log_event(&format!("create failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueComment => {
+                    let iv = &app.issue_view;
+                    let Some(issue) = iv.issues.get(iv.idx) else { break; };
+                    let number = issue.number;
+                    let body = iv.comment_input.trim().to_string();
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    if body.is_empty() { break; }
+                    app.issue_view.confirm = app::IssueConfirm::None;
+                    app.issue_view.comment_input.clear();
+                    use crate::issue::get_issue_client;
+                    match get_issue_client(&platform).and_then(|c| c.comment(&owner, &repo_name, number, &body)) {
+                        Ok(_) => app.log_event(&format!("comment added to #{}", number), EventKind::Success),
+                        Err(e) => app.log_event(&format!("comment failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueOpenBrowser => {
+                    if let Some(issue) = app.issue_view.issues.get(app.issue_view.idx) {
+                        let url = issue.url.clone();
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&url)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                        app.log_event(&format!("opened: {}", url), EventKind::Info);
+                    }
+                }
+
+                Action::IssueRefresh => {
+                    app.load_issues();
                 }
 
             }

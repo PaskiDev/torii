@@ -19,6 +19,7 @@ mod tag;
 mod toriignore;
 mod versioning;
 mod pr;
+mod issue;
 mod tui;
 mod workspace;
 
