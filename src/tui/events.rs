@@ -75,7 +75,6 @@ pub enum Action {
     ConfigToggleScope,
     SettingsToggle,
     SettingsSave,
-    SettingsEditKeybind,
 }
 
 pub struct EventHandler;
@@ -165,6 +164,7 @@ impl EventHandler {
                     View::Tag       => app.tag_view.search_mode,
                     View::Issue     => matches!(app.issue_view.confirm,
                         IssueConfirm::CreateTitle | IssueConfirm::CreateDesc | IssueConfirm::Comment),
+                    View::Config    => app.config_view.editing,
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -223,7 +223,7 @@ impl EventHandler {
                         View::Diff      => { app.go_back(); true }
                         View::Commit    => app.commit_view.focus == CommitFocus::Input,
                         View::Config    => app.config_view.editing,
-                        View::Settings  => app.settings_view.editing_keybind.is_some(),
+                        View::Settings  => false,
                         View::Log       => {
                             if app.log.ops_mode {
                                 app.log.ops_mode = false;
@@ -1714,12 +1714,19 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     PrConfirm::CreateTitle => {
                         app.pr_view.create_title = app.pr_view.create_input.trim().to_string();
                         app.pr_view.create_input.clear();
-                        // load branches for dropdown
+                        // load branches for head dropdown
                         app.load_pr_branches();
-                        let base = app.pr_view.create_base.clone();
+                        // pre-select current branch as head
+                        let current = git2::Repository::discover(&app.repo_path).ok()
+                            .and_then(|r| {
+                                r.head().ok()
+                                    .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                            })
+                            .unwrap_or_default();
+                        app.pr_view.create_head = current.clone();
                         app.pr_view.branch_idx = app.pr_view.branches.iter()
-                            .position(|b| b == &base).unwrap_or(0);
-                        app.pr_view.confirm = PrConfirm::CreateBase;
+                            .position(|b| *b == current).unwrap_or(0);
+                        app.pr_view.confirm = PrConfirm::CreateHead;
                     }
                     PrConfirm::CreateBase => {}
                     PrConfirm::CreateDesc => {
@@ -1781,6 +1788,41 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     app.pr_view.create_desc.push_str(&app.pr_view.create_input);
                     app.pr_view.create_input.clear();
                 }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create head branch — dropdown
+    if app.pr_view.confirm == PrConfirm::CreateHead {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.create_input.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(branch) = app.pr_view.branches.get(app.pr_view.branch_idx) {
+                    app.pr_view.create_head = branch.clone();
+                }
+                // load branches again for base dropdown, pre-select main/master
+                app.load_pr_branches();
+                let base = app.pr_view.create_base.clone();
+                app.pr_view.branch_idx = app.pr_view.branches.iter()
+                    .position(|b| b == &base)
+                    .or_else(|| app.pr_view.branches.iter().position(|b| b == "main"))
+                    .or_else(|| app.pr_view.branches.iter().position(|b| b == "master"))
+                    .unwrap_or(0);
+                app.pr_view.confirm = PrConfirm::CreateBase;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
             _ => {}
@@ -2091,19 +2133,6 @@ fn handle_config(key: event::KeyEvent, app: &mut App) -> Option<Action> {
 }
 
 fn handle_settings(key: event::KeyEvent, app: &mut App) -> Option<Action> {
-    if let Some(editing_idx) = app.settings_view.editing_keybind {
-        match (key.modifiers, key.code) {
-            (_, KeyCode::Esc) => { app.settings_view.editing_keybind = None; }
-            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
-                                      key.modifiers == KeyModifiers::SHIFT => {
-                apply_keybind(app, editing_idx, c);
-                app.settings_view.editing_keybind = None;
-                app.settings_view.status = Some(format!("keybind updated"));
-            }
-            _ => {}
-        }
-        return None;
-    }
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
     match (key.modifiers, key.code) {
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.settings_move_up(),
@@ -2246,20 +2275,3 @@ fn handle_issue(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     None
 }
 
-fn apply_keybind(app: &mut App, idx: usize, c: char) {
-    match idx {
-        8  => app.settings.keybind_files = c,
-        9  => app.settings.keybind_save = c,
-        10 => app.settings.keybind_sync = c,
-        11 => app.settings.keybind_snapshot = c,
-        12 => app.settings.keybind_log = c,
-        13 => app.settings.keybind_branch = c,
-        14 => app.settings.keybind_tag = c,
-        15 => app.settings.keybind_history = c,
-        16 => app.settings.keybind_remote = c,
-        17 => app.settings.keybind_mirror = c,
-        18 => app.settings.keybind_workspace = c,
-        19 => app.settings.keybind_config = c,
-        _  => {}
-    }
-}

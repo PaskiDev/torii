@@ -706,20 +706,22 @@ fn run_loop(
                     if let Some(entry) = app.config_view.entries.get(idx) {
                         let key = entry.key.clone();
                         let val = app.config_view.edit_buf.clone();
-                        let scope_flag = if app.config_view.scope == app::ConfigScope::Local {
-                            "--local"
-                        } else {
-                            "--global"
-                        };
-                        let status = std::process::Command::new("torii")
-                            .args(["config", "set", &key, &val, scope_flag])
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .status();
+                        let mut cmd_args = vec!["config", "set", &key, &val];
+                        if app.config_view.scope == app::ConfigScope::Local {
+                            cmd_args.push("--local");
+                        }
+                        let output = std::process::Command::new("torii")
+                            .args(&cmd_args)
+                            .output();
                         app.config_view.editing = false;
-                        app.config_view.status = Some(match status {
-                            Ok(s) if s.success() => format!("saved: {} = {}", key, val),
-                            _ => format!("failed to save: {}", key),
+                        app.config_view.status = Some(match output {
+                            Ok(o) if o.status.success() => format!("saved: {} = {}", key, val),
+                            Ok(o) => {
+                                let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                                app.log_event(&format!("config save error: {}", err), EventKind::Error);
+                                format!("failed: {}", err.lines().next().unwrap_or("unknown error"))
+                            }
+                            Err(e) => format!("failed: {}", e),
                         });
                         app.go_to(View::Config);
                     }
@@ -749,7 +751,6 @@ fn run_loop(
                         5 => app.settings.show_mirror_view    = !app.settings.show_mirror_view,
                         6 => app.settings.show_workspace_view = !app.settings.show_workspace_view,
                         7 => app.settings.show_help_view      = !app.settings.show_help_view,
-                        8..=19 => { app.settings_view.editing_keybind = Some(idx); }
                         _ => {}
                     }
                 }
@@ -759,7 +760,6 @@ fn run_loop(
                     app.settings_view.status = Some("settings saved".to_string());
                 }
 
-                Action::SettingsEditKeybind => {}
 
                 Action::WorkspaceSync => {
                     if let Some(ws) = app.workspace_view.workspaces.get(app.workspace_view.ws_idx) {
@@ -966,12 +966,7 @@ fn run_loop(
                     let base   = app.pr_view.create_base.clone();
                     let desc   = app.pr_view.create_desc.clone();
                     let draft  = app.pr_view.create_draft;
-                    let head   = {
-                        let Ok(repo) = git2::Repository::discover(&app.repo_path) else { break; };
-                        repo.head().ok()
-                            .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                            .unwrap_or_default()
-                    };
+                    let head   = app.pr_view.create_head.clone();
                     if title.is_empty() {
                         app.log_event("create failed: title required", EventKind::Error);
                         break;
@@ -1013,6 +1008,7 @@ fn run_loop(
                     if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
                         let number = pr.number;
                         let head_branch = pr.head.clone();
+                        let base_branch = pr.base.clone();
                         let method = match app.pr_view.merge_method {
                             1 => MergeMethod::Squash,
                             2 => MergeMethod::Rebase,
@@ -1025,31 +1021,34 @@ fn run_loop(
                         use crate::pr::{get_pr_client, MergeMethod};
                         match get_pr_client(&platform).and_then(|c| c.merge(&owner, &repo_name, number, method)) {
                             Ok(_) => {
-                                // delete branch on all remotes via git push --delete
-                                let remotes_out = std::process::Command::new("git")
-                                    .args(["-C", &repo_path, "remote"])
+                                // 1. checkout base branch
+                                let _ = std::process::Command::new("torii")
+                                    .args(["branch", &base_branch])
+                                    .current_dir(&repo_path)
                                     .output();
-                                let mut deleted_remotes: Vec<String> = vec![];
-                                if let Ok(out) = remotes_out {
-                                    for remote in String::from_utf8_lossy(&out.stdout).lines() {
-                                        let del = std::process::Command::new("git")
-                                            .args(["-C", &repo_path, "push", remote, "--delete", &head_branch])
-                                            .output();
-                                        if matches!(&del, Ok(o) if o.status.success()) {
-                                            deleted_remotes.push(remote.to_string());
-                                        }
-                                    }
-                                }
-                                // delete local branch
-                                let _ = std::process::Command::new("git")
-                                    .args(["-C", &repo_path, "branch", "-d", &head_branch])
+                                // 2. pull to get the merge commit locally
+                                let _ = std::process::Command::new("torii")
+                                    .args(["sync", "--pull"])
+                                    .current_dir(&repo_path)
                                     .output();
-                                let del_msg = if deleted_remotes.is_empty() {
-                                    format!("branch '{}' — no remote deleted", head_branch)
+                                // 3. delete head branch on all remotes
+                                let del_remote = std::process::Command::new("torii")
+                                    .args(["branch", "--delete-remote", &head_branch])
+                                    .current_dir(&repo_path)
+                                    .output();
+                                let remote_ok = matches!(&del_remote, Ok(o) if o.status.success());
+                                // 4. force delete local branch (already on base, so -d might fail if not merged locally)
+                                let _ = std::process::Command::new("torii")
+                                    .args(["branch", "-d", &head_branch, "--force"])
+                                    .current_dir(&repo_path)
+                                    .output();
+                                let del_msg = if remote_ok {
+                                    format!("branch '{}' deleted on all remotes", head_branch)
                                 } else {
-                                    format!("branch '{}' deleted on: {}", head_branch, deleted_remotes.join(", "))
+                                    format!("branch '{}' — remote delete failed (may not exist)", head_branch)
                                 };
-                                app.log_event(&format!("merged #{} — {}", number, del_msg), EventKind::Success);
+                                app.log_event(&format!("merged #{} → {} — {}", number, base_branch, del_msg), EventKind::Success);
+                                app.refresh().ok();
                                 app.load_prs();
                             }
                             Err(e) => app.log_event(&format!("merge failed: {}", e), EventKind::Error),

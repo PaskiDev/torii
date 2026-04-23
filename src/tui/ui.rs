@@ -171,7 +171,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(Line::from(spans))
             .block(Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(app.border_type())
                 .border_style(Style::default().fg(bc))),
         area,
     );
@@ -220,7 +220,7 @@ fn render_repo_picker(f: &mut Frame, app: &App, header_area: Rect) {
 
     let block = Block::default()
         .title(Span::styled(" switch repo ", Style::default().fg(bc).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded)
+        .borders(Borders::ALL).border_type(app.border_type())
         .border_style(Style::default().fg(bc));
 
     f.render_widget(Clear, drop_area);
@@ -879,6 +879,15 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                         Span::styled("[Esc]", Style::default().fg(bc)),
                         Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
                     ]),
+                    PrConfirm::CreateHead => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" select source branch  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
                     PrConfirm::CreateBase => Line::from(vec![
                         Span::raw(" "),
                         Span::styled("[↑↓/jk]", Style::default().fg(bc)),
@@ -1090,7 +1099,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
 
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(app.border_type())
         .border_style(Style::default().fg(border_color));
     let inner_area = outer.inner(area);
     f.render_widget(outer, area);

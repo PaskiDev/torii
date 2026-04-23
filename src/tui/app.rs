@@ -550,6 +550,7 @@ pub enum PrConfirm {
     Merge,
     Close,
     CreateTitle,
+    CreateHead,
     CreateBase,
     CreateDesc,
     CreatePlatforms,
@@ -582,6 +583,7 @@ pub struct PrState {
     pub repo_name: String,
     // create flow
     pub create_title: String,
+    pub create_head: String,
     pub create_base: String,
     pub create_desc: String,
     pub create_draft: bool,
@@ -616,6 +618,7 @@ impl Default for PrState {
             owner: String::new(),
             repo_name: String::new(),
             create_title: String::new(),
+            create_head: String::new(),
             create_base: String::new(),
             create_desc: String::new(),
             create_draft: false,
@@ -799,18 +802,6 @@ pub struct TuiSettings {
     pub show_mirror_view: bool,
     pub show_workspace_view: bool,
     pub show_remote_view: bool,
-    pub keybind_files: char,
-    pub keybind_save: char,
-    pub keybind_sync: char,
-    pub keybind_snapshot: char,
-    pub keybind_log: char,
-    pub keybind_branch: char,
-    pub keybind_tag: char,
-    pub keybind_history: char,
-    pub keybind_remote: char,
-    pub keybind_mirror: char,
-    pub keybind_workspace: char,
-    pub keybind_config: char,
     pub brand_color: (u8, u8, u8),
     pub selected_bg: (u8, u8, u8),
     pub event_log_max: usize,
@@ -825,18 +816,6 @@ impl Default for TuiSettings {
             show_mirror_view: true,
             show_workspace_view: true,
             show_remote_view: true,
-            keybind_files: 'f',
-            keybind_save: 'c',
-            keybind_sync: 's',
-            keybind_snapshot: 'p',
-            keybind_log: 'l',
-            keybind_branch: 'b',
-            keybind_tag: 't',
-            keybind_history: 'h',
-            keybind_remote: 'r',
-            keybind_mirror: 'm',
-            keybind_workspace: 'w',
-            keybind_config: 'g',
             brand_color: (255, 76, 76),
             selected_bg: (40, 40, 60),
             event_log_max: 50,
@@ -864,18 +843,6 @@ impl TuiSettings {
                 "show_mirror_view"   => s.show_mirror_view = val != "false",
                 "show_workspace_view"=> s.show_workspace_view = val != "false",
                 "show_remote_view"   => s.show_remote_view = val != "false",
-                "keybind_files"      => if let Some(c) = val.chars().next() { s.keybind_files = c; }
-                "keybind_save"       => if let Some(c) = val.chars().next() { s.keybind_save = c; }
-                "keybind_sync"       => if let Some(c) = val.chars().next() { s.keybind_sync = c; }
-                "keybind_snapshot"   => if let Some(c) = val.chars().next() { s.keybind_snapshot = c; }
-                "keybind_log"        => if let Some(c) = val.chars().next() { s.keybind_log = c; }
-                "keybind_branch"     => if let Some(c) = val.chars().next() { s.keybind_branch = c; }
-                "keybind_tag"        => if let Some(c) = val.chars().next() { s.keybind_tag = c; }
-                "keybind_history"    => if let Some(c) = val.chars().next() { s.keybind_history = c; }
-                "keybind_remote"     => if let Some(c) = val.chars().next() { s.keybind_remote = c; }
-                "keybind_mirror"     => if let Some(c) = val.chars().next() { s.keybind_mirror = c; }
-                "keybind_workspace"  => if let Some(c) = val.chars().next() { s.keybind_workspace = c; }
-                "keybind_config"     => if let Some(c) = val.chars().next() { s.keybind_config = c; }
                 "brand_color"        => { if let Some(rgb) = parse_rgb(val) { s.brand_color = rgb; } }
                 "selected_bg"        => { if let Some(rgb) = parse_rgb(val) { s.selected_bg = rgb; } }
                 "event_log_max"      => { if let Ok(n) = val.parse::<usize>() { s.event_log_max = n; } }
@@ -893,14 +860,10 @@ impl TuiSettings {
             let _ = std::fs::create_dir_all(parent);
         }
         let content = format!(
-            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nkeybind_files = \"{}\"\nkeybind_save = \"{}\"\nkeybind_sync = \"{}\"\nkeybind_snapshot = \"{}\"\nkeybind_log = \"{}\"\nkeybind_branch = \"{}\"\nkeybind_tag = \"{}\"\nkeybind_history = \"{}\"\nkeybind_remote = \"{}\"\nkeybind_mirror = \"{}\"\nkeybind_workspace = \"{}\"\nkeybind_config = \"{}\"\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
+            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
             if self.border_style == BorderStyle::Rounded { "rounded" } else { "sharp" },
             self.show_help_view, self.show_history_view, self.show_mirror_view,
             self.show_workspace_view, self.show_remote_view,
-            self.keybind_files, self.keybind_save, self.keybind_sync,
-            self.keybind_snapshot, self.keybind_log, self.keybind_branch,
-            self.keybind_tag, self.keybind_history, self.keybind_remote,
-            self.keybind_mirror, self.keybind_workspace, self.keybind_config,
             self.brand_color.0, self.brand_color.1, self.brand_color.2,
             self.selected_bg.0, self.selected_bg.1, self.selected_bg.2,
             self.event_log_max,
@@ -921,12 +884,11 @@ fn parse_rgb(s: &str) -> Option<(u8, u8, u8)> {
 
 pub struct SettingsState {
     pub idx: usize,
-    pub editing_keybind: Option<usize>,
     pub status: Option<String>,
 }
 
 impl Default for SettingsState {
-    fn default() -> Self { Self { idx: 0, editing_keybind: None, status: None } }
+    fn default() -> Self { Self { idx: 0, status: None } }
 }
 
 #[derive(Clone, PartialEq)]
@@ -2081,29 +2043,71 @@ impl App {
     // ── Config helpers ───────────────────────────────────────────────────────
 
     fn load_config(&mut self) {
+        // All known torii config keys in order
+        const ALL_KEYS: &[&str] = &[
+            "user.name",
+            "user.email",
+            "user.editor",
+            "auth.github_token",
+            "auth.gitlab_token",
+            "auth.gitea_token",
+            "auth.forgejo_token",
+            "auth.codeberg_token",
+            "git.default_branch",
+            "git.sign_commits",
+            "git.pull_rebase",
+            "mirror.default_protocol",
+            "mirror.autofetch_enabled",
+            "snapshot.auto_enabled",
+            "snapshot.auto_interval_minutes",
+            "ui.colors",
+            "ui.emoji",
+            "ui.verbose",
+            "ui.date_format",
+        ];
+
+        // Sensitive keys — show masked
+        const SENSITIVE: &[&str] = &[
+            "auth.github_token",
+            "auth.gitlab_token",
+            "auth.gitea_token",
+            "auth.forgejo_token",
+            "auth.codeberg_token",
+        ];
+
         self.config_view.entries.clear();
-        let scope_flag = if self.config_view.scope == ConfigScope::Local { "--local" } else { "--global" };
-        let out = std::process::Command::new("torii")
-            .args(["config", "list", scope_flag])
-            .output();
-        let Ok(out) = out else { return };
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut current_section = String::new();
-        for line in text.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('⚙') || line.starts_with("Global") || line.starts_with("Local") { continue; }
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim().to_string();
-                let value = value.trim().to_string();
-                let section = key.split('.').next().unwrap_or("").to_string();
-                if section != current_section { current_section = section.clone(); }
-                self.config_view.entries.push(ConfigEntry {
-                    key,
-                    value,
-                    scope: self.config_view.scope.clone(),
-                    section,
-                });
+
+        // Fetch all current values from torii config list
+        let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut list_args = vec!["config", "list"];
+        if self.config_view.scope == ConfigScope::Local { list_args.push("--local"); }
+        if let Ok(out) = std::process::Command::new("torii")
+            .args(&list_args)
+            .output()
+        {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let line = line.trim();
+                if let Some((k, v)) = line.split_once('=') {
+                    values.insert(k.trim().to_string(), v.trim().to_string());
+                }
             }
+        }
+
+        for &key in ALL_KEYS {
+            let section = key.split('.').next().unwrap_or("").to_string();
+            let is_sensitive = SENSITIVE.contains(&key);
+            let value = match values.get(key) {
+                Some(v) if v.is_empty() => "[not set]".to_string(),
+                Some(v) if is_sensitive => "[set]".to_string(),
+                Some(v) => v.clone(),
+                None => "[not set]".to_string(),
+            };
+            self.config_view.entries.push(ConfigEntry {
+                key: key.to_string(),
+                value,
+                scope: self.config_view.scope.clone(),
+                section,
+            });
         }
         self.config_view.idx = 0;
     }
@@ -2120,22 +2124,32 @@ impl App {
 
     pub fn config_start_edit(&mut self) {
         if let Some(entry) = self.config_view.entries.get(self.config_view.idx) {
-            self.config_view.edit_buf = entry.value.clone();
-            self.config_view.edit_cursor = entry.value.len();
+            let initial = if entry.value == "[not set]" || entry.value == "[set]" {
+                String::new()
+            } else {
+                entry.value.clone()
+            };
+            self.config_view.edit_buf = initial.clone();
+            self.config_view.edit_cursor = initial.chars().count();
             self.config_view.editing = true;
         }
     }
 
+    fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
+        s.char_indices().nth(char_idx).map(|(b, _)| b).unwrap_or(s.len())
+    }
+
     pub fn config_type_char(&mut self, c: char) {
-        let cur = self.config_view.edit_cursor;
-        self.config_view.edit_buf.insert(cur, c);
+        let byte_idx = Self::char_to_byte_idx(&self.config_view.edit_buf, self.config_view.edit_cursor);
+        self.config_view.edit_buf.insert(byte_idx, c);
         self.config_view.edit_cursor += 1;
     }
 
     pub fn config_backspace(&mut self) {
         let cur = self.config_view.edit_cursor;
         if cur > 0 {
-            self.config_view.edit_buf.remove(cur - 1);
+            let byte_idx = Self::char_to_byte_idx(&self.config_view.edit_buf, cur - 1);
+            self.config_view.edit_buf.remove(byte_idx);
             self.config_view.edit_cursor -= 1;
         }
     }
@@ -2145,7 +2159,7 @@ impl App {
     }
 
     pub fn config_cursor_right(&mut self) {
-        let len = self.config_view.edit_buf.len();
+        let len = self.config_view.edit_buf.chars().count();
         if self.config_view.edit_cursor < len { self.config_view.edit_cursor += 1; }
     }
 

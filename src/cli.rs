@@ -226,8 +226,10 @@ enum Commands {
   torii branch --all                List local and remote branches
   torii branch feature/auth -c      Create and switch to branch
   torii branch main                 Switch to existing branch
-  torii branch -d feature/auth      Delete branch
-  torii branch --rename new-name    Rename current branch")]
+  torii branch -d feature/auth              Delete local branch
+  torii branch -d feature/auth --force      Force delete (not merged)
+  torii branch --delete-remote feature/auth Delete branch on all remotes
+  torii branch --rename new-name            Rename current branch")]
     Branch {
         /// Branch name to switch to or create with -c
         name: Option<String>,
@@ -236,9 +238,17 @@ enum Commands {
         #[arg(short, long)]
         create: bool,
 
-        /// Delete branch by name
+        /// Delete local branch by name
         #[arg(short, long)]
         delete: Option<String>,
+
+        /// Force delete local branch even if not merged
+        #[arg(long)]
+        force: bool,
+
+        /// Delete branch on all configured remotes
+        #[arg(long)]
+        delete_remote: Option<String>,
 
         /// List local branches
         #[arg(short, long)]
@@ -1184,9 +1194,9 @@ impl Cli {
                 repo.diff(*staged, *last)?;
             }
 
-            Commands::Branch { name, create, delete, list, rename, all } => {
+            Commands::Branch { name, create, delete, force, delete_remote, list, rename, all } => {
                 let repo = GitRepo::open(".")?;
-                
+
                 if *list || *all {
                     let branches = repo.list_branches()?;
                     println!("📋 Branches:");
@@ -1204,8 +1214,38 @@ impl Cli {
                             }
                         }
                     }
+                } else if let Some(branch_name) = delete_remote {
+                    let git_repo = git2::Repository::discover(".")?;
+                    let remotes = git_repo.remotes()?;
+                    let mut deleted = vec![];
+                    let mut errors = vec![];
+                    for remote_name in remotes.iter().flatten() {
+                        let result = std::process::Command::new("git")
+                            .args(["push", remote_name, "--delete", branch_name])
+                            .output();
+                        match result {
+                            Ok(o) if o.status.success() => deleted.push(remote_name.to_string()),
+                            Ok(o) => errors.push(format!("{}: {}", remote_name, String::from_utf8_lossy(&o.stderr).trim().to_string())),
+                            Err(e) => errors.push(format!("{}: {}", remote_name, e)),
+                        }
+                    }
+                    if !deleted.is_empty() {
+                        println!("✅ Deleted '{}' on: {}", branch_name, deleted.join(", "));
+                    }
+                    if !errors.is_empty() {
+                        for e in &errors { eprintln!("⚠️  {}", e); }
+                    }
+                    if deleted.is_empty() {
+                        anyhow::bail!("Could not delete '{}' on any remote", branch_name);
+                    }
                 } else if let Some(branch_name) = delete {
-                    repo.delete_branch(branch_name)?;
+                    if *force {
+                        let git_repo = git2::Repository::discover(".")?;
+                        let mut branch = git_repo.find_branch(branch_name, git2::BranchType::Local)?;
+                        branch.delete()?;
+                    } else {
+                        repo.delete_branch(branch_name)?;
+                    }
                     println!("✅ Deleted branch: {}", branch_name);
                 } else if let Some(new_name) = rename {
                     let current = repo.get_current_branch()?;
