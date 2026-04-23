@@ -879,6 +879,15 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                         Span::styled("[Esc]", Style::default().fg(bc)),
                         Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
                     ]),
+                    PrConfirm::CreateHead => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" select source branch  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
                     PrConfirm::CreateBase => Line::from(vec![
                         Span::raw(" "),
                         Span::styled("[↑↓/jk]", Style::default().fg(bc)),

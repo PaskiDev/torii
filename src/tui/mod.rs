@@ -966,12 +966,7 @@ fn run_loop(
                     let base   = app.pr_view.create_base.clone();
                     let desc   = app.pr_view.create_desc.clone();
                     let draft  = app.pr_view.create_draft;
-                    let head   = {
-                        let Ok(repo) = git2::Repository::discover(&app.repo_path) else { break; };
-                        repo.head().ok()
-                            .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                            .unwrap_or_default()
-                    };
+                    let head   = app.pr_view.create_head.clone();
                     if title.is_empty() {
                         app.log_event("create failed: title required", EventKind::Error);
                         break;

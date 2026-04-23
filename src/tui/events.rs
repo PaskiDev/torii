@@ -1714,12 +1714,19 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     PrConfirm::CreateTitle => {
                         app.pr_view.create_title = app.pr_view.create_input.trim().to_string();
                         app.pr_view.create_input.clear();
-                        // load branches for dropdown
+                        // load branches for head dropdown
                         app.load_pr_branches();
-                        let base = app.pr_view.create_base.clone();
+                        // pre-select current branch as head
+                        let current = {
+                            git2::Repository::discover(&app.repo_path).ok()
+                                .and_then(|r| r.head().ok())
+                                .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                                .unwrap_or_default()
+                        };
+                        app.pr_view.create_head = current.clone();
                         app.pr_view.branch_idx = app.pr_view.branches.iter()
-                            .position(|b| b == &base).unwrap_or(0);
-                        app.pr_view.confirm = PrConfirm::CreateBase;
+                            .position(|b| *b == current).unwrap_or(0);
+                        app.pr_view.confirm = PrConfirm::CreateHead;
                     }
                     PrConfirm::CreateBase => {}
                     PrConfirm::CreateDesc => {
@@ -1781,6 +1788,41 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                     app.pr_view.create_desc.push_str(&app.pr_view.create_input);
                     app.pr_view.create_input.clear();
                 }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create head branch — dropdown
+    if app.pr_view.confirm == PrConfirm::CreateHead {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.create_input.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(branch) = app.pr_view.branches.get(app.pr_view.branch_idx) {
+                    app.pr_view.create_head = branch.clone();
+                }
+                // load branches again for base dropdown, pre-select main/master
+                app.load_pr_branches();
+                let base = app.pr_view.create_base.clone();
+                app.pr_view.branch_idx = app.pr_view.branches.iter()
+                    .position(|b| b == &base)
+                    .or_else(|| app.pr_view.branches.iter().position(|b| b == "main"))
+                    .or_else(|| app.pr_view.branches.iter().position(|b| b == "master"))
+                    .unwrap_or(0);
+                app.pr_view.confirm = PrConfirm::CreateBase;
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
             _ => {}

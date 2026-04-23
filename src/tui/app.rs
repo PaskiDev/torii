@@ -550,6 +550,7 @@ pub enum PrConfirm {
     Merge,
     Close,
     CreateTitle,
+    CreateHead,
     CreateBase,
     CreateDesc,
     CreatePlatforms,
@@ -582,6 +583,7 @@ pub struct PrState {
     pub repo_name: String,
     // create flow
     pub create_title: String,
+    pub create_head: String,
     pub create_base: String,
     pub create_desc: String,
     pub create_draft: bool,
@@ -616,6 +618,7 @@ impl Default for PrState {
             owner: String::new(),
             repo_name: String::new(),
             create_title: String::new(),
+            create_head: String::new(),
             create_base: String::new(),
             create_desc: String::new(),
             create_draft: false,

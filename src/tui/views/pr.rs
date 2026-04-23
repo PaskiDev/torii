@@ -239,7 +239,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let counter_color = if len > 230 { C_RED } else { C_DIM };
         let lines = vec![
             Line::from(vec![
-                Span::styled(format!("  create {} — step 1/4: ", pr_label), Style::default().fg(C_SUBTLE)),
+                Span::styled(format!("  create {} — step 1/5: ", pr_label), Style::default().fg(C_SUBTLE)),
                 Span::styled("title", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
@@ -258,6 +258,35 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         ];
         f.render_widget(Clear, overlay);
         f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(bc)).border_type(app.border_type())), overlay);
+    }
+
+    if pr.confirm == PrConfirm::CreateHead {
+        let dw = 32u16;
+        let dh = (pr.branches.len().min(10) + 2) as u16;
+        let ox = area.x + area.width.saturating_sub(dw) / 2;
+        let oy = area.y + area.height.saturating_sub(dh) / 2;
+        let drop_area = Rect::new(ox, oy, dw, dh);
+        let drop_items: Vec<ListItem> = pr.branches.iter().enumerate().map(|(i, branch)| {
+            let is_sel = i == pr.branch_idx;
+            let color = if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(branch.clone(), Style::default().fg(color)),
+            ])).style(if is_sel { Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD) } else { Style::default() })
+        }).collect();
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(pr.branch_idx));
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(
+            List::new(drop_items).block(
+                Block::default()
+                    .title(Span::styled(format!(" create {} — step 2/5: source branch ", pr_label), Style::default().fg(C_SUBTLE)))
+                    .borders(Borders::ALL).border_type(app.border_type())
+                    .border_style(Style::default().fg(bc))
+            ),
+            drop_area, &mut drop_state,
+        );
     }
 
     if pr.confirm == PrConfirm::CreateBase {
@@ -281,7 +310,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_stateful_widget(
             List::new(drop_items).block(
                 Block::default()
-                    .title(Span::styled(format!(" create {} — step 2/4: base branch ", pr_label), Style::default().fg(C_SUBTLE)))
+                    .title(Span::styled(format!(" create {} — step 3/5: base branch ", pr_label), Style::default().fg(C_SUBTLE)))
                     .borders(Borders::ALL).border_type(app.border_type())
                     .border_style(Style::default().fg(bc))
             ),
@@ -301,7 +330,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let draft_hint = if pr.create_draft { "  [draft ✓]" } else { "  [Tab] draft" };
         let mut lines = vec![
             Line::from(vec![
-                Span::styled(format!("  create {} — step 3/4: ", pr_label), Style::default().fg(C_SUBTLE)),
+                Span::styled(format!("  create {} — step 4/5: ", pr_label), Style::default().fg(C_SUBTLE)),
                 Span::styled("description", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
                 Span::styled(" (optional)", Style::default().fg(C_DIM)),
             ]),
