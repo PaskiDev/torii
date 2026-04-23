@@ -165,6 +165,7 @@ impl EventHandler {
                     View::Tag       => app.tag_view.search_mode,
                     View::Issue     => matches!(app.issue_view.confirm,
                         IssueConfirm::CreateTitle | IssueConfirm::CreateDesc | IssueConfirm::Comment),
+                    View::Config    => app.config_view.editing,
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
