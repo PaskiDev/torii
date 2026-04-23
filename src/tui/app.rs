@@ -552,6 +552,9 @@ pub enum PrConfirm {
     CreateTitle,
     CreateBase,
     CreateDesc,
+    EditTitle,
+    EditDesc,
+    EditBase,
 }
 
 pub struct PrState {
@@ -573,6 +576,12 @@ pub struct PrState {
     pub create_desc: String,
     pub create_draft: bool,
     pub create_input: String,
+    // edit flow
+    pub edit_input: String,
+    pub edit_desc: String,
+    // branch dropdown (edit base)
+    pub branches: Vec<String>,
+    pub branch_idx: usize,
 }
 
 impl Default for PrState {
@@ -595,6 +604,10 @@ impl Default for PrState {
             create_desc: String::new(),
             create_draft: false,
             create_input: String::new(),
+            edit_input: String::new(),
+            edit_desc: String::new(),
+            branches: vec![],
+            branch_idx: 0,
         }
     }
 }
@@ -1829,6 +1842,16 @@ impl App {
             });
             let _ = tx.send(result);
         });
+    }
+
+    pub fn load_pr_branches(&mut self) {
+        let Ok(repo) = git2::Repository::discover(&self.repo_path) else { return };
+        let Ok(branches) = repo.branches(None) else { return };
+        self.pr_view.branches = branches
+            .filter_map(|b| b.ok())
+            .filter_map(|(b, _)| b.name().ok().flatten().map(|s| s.to_string()))
+            .collect();
+        self.pr_view.branches.sort();
     }
 
     pub fn pr_move_up(&mut self) {

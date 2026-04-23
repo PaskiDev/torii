@@ -62,6 +62,7 @@ pub enum Action {
     PrCheckout,
     PrOpenBrowser,
     PrRefresh,
+    PrUpdate,
     IssueClose,
     IssueCreate,
     IssueComment,
@@ -156,7 +157,8 @@ impl EventHandler {
                     View::Workspace => matches!(app.workspace_view.confirm,
                         WorkspaceConfirm::SaveMessage | WorkspaceConfirm::AddRepoPath),
                     View::Pr        => matches!(app.pr_view.confirm,
-                        PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc),
+                        PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc |
+                        PrConfirm::EditTitle | PrConfirm::EditDesc),
                     View::Branch    => app.branch_view.search_mode,
                     View::Tag       => app.tag_view.search_mode,
                     View::Issue     => matches!(app.issue_view.confirm,
@@ -177,6 +179,17 @@ impl EventHandler {
                     let is_enter = key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE;
                     let is_quit = matches!(key.code, KeyCode::Char('q'))
                         || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'));
+                    // when typing in an overlay, block sidebar nav entirely
+                    if typing {
+                        let view_result = match app.view {
+                            View::Pr        => handle_pr(key, app),
+                            View::Issue     => handle_issue(key, app),
+                            View::Branch    => handle_branch(key, app),
+                            View::Tag       => handle_tag(key, app),
+                            _ => None,
+                        };
+                        return Ok(view_result);
+                    }
                     if is_nav || is_enter || is_quit {
                         return Ok(handle_sidebar(key, app));
                     }
@@ -190,6 +203,7 @@ impl EventHandler {
                         View::Mirror    => handle_mirror(key, app),
                         View::Snapshot  => handle_snapshot(key, app),
                         View::Workspace => handle_workspace(key, app),
+                        View::Pr        => handle_pr(key, app),
                         View::Issue     => handle_issue(key, app),
                         _ => None,
                     };
@@ -1684,8 +1698,16 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             (_, KeyCode::Esc) => {
                 app.pr_view.confirm = PrConfirm::None;
                 app.pr_view.create_input.clear();
+                app.pr_view.create_desc.clear();
             }
-            (_, KeyCode::Backspace) => { app.pr_view.create_input.pop(); }
+            (_, KeyCode::Backspace) => {
+                if app.pr_view.create_input.is_empty() && app.pr_view.confirm == PrConfirm::CreateDesc {
+                    // remove last char from accumulated desc
+                    app.pr_view.create_desc.pop();
+                } else {
+                    app.pr_view.create_input.pop();
+                }
+            }
             (_, KeyCode::Enter) => {
                 match app.pr_view.confirm.clone() {
                     PrConfirm::CreateTitle => {
@@ -1699,10 +1721,16 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         app.pr_view.confirm = PrConfirm::CreateDesc;
                     }
                     PrConfirm::CreateDesc => {
-                        app.pr_view.create_desc = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input.clear();
-                        app.pr_view.confirm = PrConfirm::None;
-                        return Some(Action::PrCreate);
+                        // Enter adds a newline to description
+                        if !app.pr_view.create_input.is_empty() {
+                            if !app.pr_view.create_desc.is_empty() {
+                                app.pr_view.create_desc.push('\n');
+                            }
+                            app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                            app.pr_view.create_input.clear();
+                        } else {
+                            app.pr_view.create_desc.push('\n');
+                        }
                     }
                     _ => {}
                 }
@@ -1710,9 +1738,107 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             (_, KeyCode::Tab) if app.pr_view.confirm == PrConfirm::CreateDesc => {
                 app.pr_view.create_draft = !app.pr_view.create_draft;
             }
+            (_, KeyCode::Char('c')) if app.pr_view.confirm == PrConfirm::CreateDesc
+                                    && key.modifiers == KeyModifiers::NONE => {
+                // 'c' submits — flush current line first
+                if !app.pr_view.create_input.is_empty() {
+                    if !app.pr_view.create_desc.is_empty() {
+                        app.pr_view.create_desc.push('\n');
+                    }
+                    app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                    app.pr_view.create_input.clear();
+                }
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrCreate);
+            }
             (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
                                   || key.modifiers == KeyModifiers::SHIFT => {
                 app.pr_view.create_input.push(c);
+                // auto-wrap at 56 chars (overlay inner width)
+                if app.pr_view.create_input.chars().count() >= 56 {
+                    if !app.pr_view.create_desc.is_empty() {
+                        app.pr_view.create_desc.push('\n');
+                    }
+                    app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                    app.pr_view.create_input.clear();
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit title
+    if app.pr_view.confirm == PrConfirm::EditTitle {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::EditDesc;
+            }
+            (_, KeyCode::Backspace) => { app.pr_view.edit_input.pop(); }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                  || key.modifiers == KeyModifiers::SHIFT => {
+                app.pr_view.edit_input.push(c);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit description
+    if app.pr_view.confirm == PrConfirm::EditDesc {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.edit_desc.push('\n');
+            }
+            (_, KeyCode::Backspace) => { app.pr_view.edit_desc.pop(); }
+            (_, KeyCode::Char('c')) if key.modifiers == KeyModifiers::NONE => {
+                // 'c' advances to base branch selection
+                app.pr_view.confirm = PrConfirm::EditBase;
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                  || key.modifiers == KeyModifiers::SHIFT => {
+                app.pr_view.edit_desc.push(c);
+                if app.pr_view.edit_desc.chars().rev().take_while(|&ch| ch != '\n').count() >= 56 {
+                    app.pr_view.edit_desc.push('\n');
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit base branch — dropdown
+    if app.pr_view.confirm == PrConfirm::EditBase {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrUpdate);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
             _ => {}
@@ -1764,7 +1890,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 if app.pr_view.ops_idx > 0 { app.pr_view.ops_idx -= 1; }
             }
             (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                if app.pr_view.ops_idx < 4 { app.pr_view.ops_idx += 1; }
+                if app.pr_view.ops_idx < 5 { app.pr_view.ops_idx += 1; }
             }
             (_, KeyCode::Enter) => {
                 let idx = app.pr_view.ops_idx;
@@ -1780,12 +1906,24 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         app.pr_view.confirm = PrConfirm::CreateTitle;
                     }
                     1 => {
+                        // edit PR/MR — pre-fill from selected
+                        let (title, desc, base) = app.pr_view.prs.get(app.pr_view.idx)
+                            .map(|pr| (pr.title.clone(), pr.body.clone().unwrap_or_default(), pr.base.clone()))
+                            .unwrap_or_default();
+                        app.pr_view.edit_input = title;
+                        app.pr_view.edit_desc = desc;
+                        app.load_pr_branches();
+                        app.pr_view.branch_idx = app.pr_view.branches.iter()
+                            .position(|b| *b == base).unwrap_or(0);
+                        app.pr_view.confirm = PrConfirm::EditTitle;
+                    }
+                    2 => {
                         app.pr_view.merge_method = 0;
                         app.pr_view.confirm = PrConfirm::Merge;
                     }
-                    2 => { app.pr_view.confirm = PrConfirm::Close; }
-                    3 => return Some(Action::PrCheckout),
-                    4 => return Some(Action::PrOpenBrowser),
+                    3 => { app.pr_view.confirm = PrConfirm::Close; }
+                    4 => return Some(Action::PrCheckout),
+                    5 => return Some(Action::PrOpenBrowser),
                     _ => {}
                 }
             }

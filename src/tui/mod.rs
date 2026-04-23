@@ -963,20 +963,28 @@ fn run_loop(
 
                 Action::PrMerge => {
                     if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
-                        let number = pr.number.to_string();
+                        let number = pr.number;
+                        let head_branch = pr.head.clone();
                         let method = match app.pr_view.merge_method {
-                            1 => "squash",
-                            2 => "rebase",
-                            _ => "merge",
+                            1 => MergeMethod::Squash,
+                            2 => MergeMethod::Rebase,
+                            _ => MergeMethod::Merge,
                         };
-                        let output = std::process::Command::new("torii")
-                            .args(["pr", "merge", &number, "--method", method])
-                            .output();
-                        let is_ok = matches!(&output, Ok(o) if o.status.success());
-                        let msg = if is_ok { format!("merged PR #{}", number) }
-                                  else { format!("merge failed: PR #{}", number) };
-                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
-                        if is_ok { app.load_prs(); }
+                        let platform = app.pr_view.platform.clone();
+                        let owner = app.pr_view.owner.clone();
+                        let repo_name = app.pr_view.repo_name.clone();
+                        use crate::pr::{get_pr_client, MergeMethod};
+                        match get_pr_client(&platform).and_then(|c| {
+                            c.merge(&owner, &repo_name, number, method)?;
+                            let _ = c.delete_branch(&owner, &repo_name, &head_branch);
+                            Ok(())
+                        }) {
+                            Ok(_) => {
+                                app.log_event(&format!("merged PR #{} — branch '{}' deleted", number, head_branch), EventKind::Success);
+                                app.load_prs();
+                            }
+                            Err(e) => app.log_event(&format!("merge failed: {}", e), EventKind::Error),
+                        }
                     }
                 }
 
@@ -1016,6 +1024,33 @@ fn run_loop(
                             .stdout(std::process::Stdio::null())
                             .stderr(std::process::Stdio::null())
                             .status();
+                    }
+                }
+
+                Action::PrUpdate => {
+                    if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
+                        let number = pr.number;
+                        let platform = app.pr_view.platform.clone();
+                        let owner = app.pr_view.owner.clone();
+                        let repo_name = app.pr_view.repo_name.clone();
+                        let new_title = app.pr_view.edit_input.trim().to_string();
+                        let new_desc = app.pr_view.edit_desc.trim().to_string();
+                        let new_base = app.pr_view.branches.get(app.pr_view.branch_idx).cloned();
+                        app.pr_view.edit_input.clear();
+                        app.pr_view.edit_desc.clear();
+                        use crate::pr::{get_pr_client, UpdatePrOptions};
+                        let opts = UpdatePrOptions {
+                            title: if new_title.is_empty() { None } else { Some(new_title) },
+                            body:  if new_desc.is_empty()  { None } else { Some(new_desc) },
+                            base:  new_base,
+                        };
+                        match get_pr_client(&platform).and_then(|c| c.update(&owner, &repo_name, number, opts)) {
+                            Ok(_) => {
+                                app.log_event(&format!("updated PR #{}", number), EventKind::Success);
+                                app.load_prs();
+                            }
+                            Err(e) => app.log_event(&format!("update failed: {}", e), EventKind::Error),
+                        }
                     }
                 }
 

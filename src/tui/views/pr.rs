@@ -186,10 +186,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     if pr.confirm == PrConfirm::Merge {
         let methods = ["merge", "squash", "rebase"];
+        let head_branch = pr.prs.get(pr.idx).map(|p| p.head.as_str()).unwrap_or("?");
         let overlay = Rect::new(
             cols[0].x + 2,
-            cols[0].y + 2 + pr.idx.min(cols[0].height as usize - 7) as u16,
-            30, 5,
+            cols[0].y + 2 + pr.idx.min(cols[0].height as usize - 8) as u16,
+            34, 6,
         );
         f.render_widget(Clear, overlay);
         let method_spans: Vec<Span> = methods.iter().enumerate().map(|(i, m)| {
@@ -202,6 +203,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let lines = vec![
             Line::from(vec![Span::styled("  merge method:", Style::default().fg(C_SUBTLE))]),
             Line::from(method_spans),
+            Line::from(vec![
+                Span::styled("  branch '", Style::default().fg(C_SUBTLE)),
+                Span::styled(head_branch.to_string(), Style::default().fg(C_YELLOW)),
+                Span::styled("' will be deleted", Style::default().fg(C_SUBTLE)),
+            ]),
             Line::from(vec![
                 Span::styled("  [←→]", Style::default().fg(bc)),
                 Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
@@ -216,20 +222,17 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     // ── Create overlays ───────────────────────────────────────────────────────
     let pr_label = if pr.platform == "gitlab" { "MR" } else { "PR" };
-    if matches!(pr.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc) {
-        let (step, label, extra) = match &pr.confirm {
-            PrConfirm::CreateTitle => (1, format!("title"), String::new()),
-            PrConfirm::CreateBase  => (2, format!("base branch"), String::new()),
-            PrConfirm::CreateDesc  => (3, format!("description (optional)"),
-                if pr.create_draft { "  [draft ✓]".to_string() } else { "  [Tab] draft".to_string() }),
-            _ => (0, String::new(), String::new()),
+    if matches!(pr.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase) {
+        let (step, label) = match &pr.confirm {
+            PrConfirm::CreateTitle => (1, "title"),
+            PrConfirm::CreateBase  => (2, "base branch"),
+            _ => (0, ""),
         };
-        let ow = 46u16;
+        let ow = 52u16;
         let oh = 5u16;
         let ox = area.x + area.width.saturating_sub(ow) / 2;
         let oy = area.y + area.height.saturating_sub(oh) / 2;
         let overlay = Rect::new(ox, oy, ow, oh);
-
         let cursor = format!("{}█", pr.create_input);
         let lines = vec![
             Line::from(vec![
@@ -244,7 +247,6 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
                 Span::styled("[Esc]", Style::default().fg(bc)),
                 Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
-                Span::styled(extra, Style::default().fg(C_YELLOW)),
             ]),
         ];
         f.render_widget(Clear, overlay);
@@ -258,19 +260,160 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         );
     }
 
+    if pr.confirm == PrConfirm::CreateDesc {
+        let ow = 74u16;
+        let oh = 14u16;
+        // centre within the content area (excludes sidebar)
+        let ox = area.x + area.width.saturating_sub(ow) / 2;
+        let oy = area.y + area.height.saturating_sub(oh) / 2;
+        let overlay = Rect::new(ox, oy, ow, oh);
+
+        let draft_hint = if pr.create_draft { "  [draft ✓]" } else { "  [Tab] draft" };
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled(format!("  create {} — step 3/3: ", pr_label), Style::default().fg(C_SUBTLE)),
+                Span::styled("description", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+                Span::styled(" (optional)", Style::default().fg(C_DIM)),
+            ]),
+        ];
+        // accumulated lines
+        for l in pr.create_desc.lines() {
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(l.to_string(), Style::default().fg(C_SUBTLE)),
+            ]));
+        }
+        // current input line with cursor
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {}█", pr.create_input), Style::default().fg(C_CYAN)),
+        ]));
+        // fill remaining space
+        while lines.len() < (oh as usize - 3) {
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(vec![
+            Span::styled("  [Enter]", Style::default().fg(bc)),
+            Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[c]", Style::default().fg(bc)),
+            Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Esc]", Style::default().fg(bc)),
+            Span::styled(" cancel  ", Style::default().fg(C_SUBTLE)),
+            Span::styled(draft_hint, Style::default().fg(C_YELLOW)),
+        ]));
+
+        f.render_widget(Clear, overlay);
+        f.render_widget(
+            Paragraph::new(lines).block(
+                Block::default().borders(Borders::ALL)
+                    .border_style(Style::default().fg(bc))
+                    .border_type(app.border_type())
+            ),
+            overlay,
+        );
+    }
+
+    // ── Edit overlays ────────────────────────────────────────────────────────
+    let edit_label = if pr.platform == "gitlab" { "MR" } else { "PR" };
+
+    if pr.confirm == PrConfirm::EditTitle {
+        let ow = 60u16; let oh = 5u16;
+        let ox = area.x + area.width.saturating_sub(ow) / 2;
+        let oy = area.y + area.height.saturating_sub(oh) / 2;
+        let overlay = Rect::new(ox, oy, ow, oh);
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(format!("  edit {} — step 1/3: ", edit_label), Style::default().fg(C_SUBTLE)),
+                Span::styled("title", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled(format!("  {}█", pr.edit_input), Style::default().fg(C_CYAN)),
+            ]),
+            Line::from(vec![
+                Span::styled("  [Enter]", Style::default().fg(bc)),
+                Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                Span::styled("[Esc]", Style::default().fg(bc)),
+                Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+            ]),
+        ];
+        f.render_widget(Clear, overlay);
+        f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(bc)).border_type(app.border_type())), overlay);
+    }
+
+    if pr.confirm == PrConfirm::EditDesc {
+        let ow = 74u16; let oh = 14u16;
+        let ox = area.x + area.width.saturating_sub(ow) / 2;
+        let oy = area.y + area.height.saturating_sub(oh) / 2;
+        let overlay = Rect::new(ox, oy, ow, oh);
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled(format!("  edit {} — step 2/3: ", edit_label), Style::default().fg(C_SUBTLE)),
+                Span::styled("description", Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+        for l in pr.edit_desc.lines() {
+            lines.push(Line::from(vec![Span::raw("  "), Span::styled(l.to_string(), Style::default().fg(C_SUBTLE))]));
+        }
+        lines.push(Line::from(vec![Span::styled(format!("  █"), Style::default().fg(C_CYAN))]));
+        while lines.len() < (oh as usize - 3) { lines.push(Line::from("")); }
+        lines.push(Line::from(vec![
+            Span::styled("  [Enter]", Style::default().fg(bc)),
+            Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[c]", Style::default().fg(bc)),
+            Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+            Span::styled("[Esc]", Style::default().fg(bc)),
+            Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+        ]));
+        f.render_widget(Clear, overlay);
+        f.render_widget(Paragraph::new(lines).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(bc)).border_type(app.border_type())), overlay);
+    }
+
+    if pr.confirm == PrConfirm::EditBase {
+        let dw = 30u16;
+        let dh = (pr.branches.len().min(10) + 2) as u16;
+        let ox = area.x + area.width.saturating_sub(dw) / 2;
+        let oy = area.y + area.height.saturating_sub(dh) / 2;
+        let drop_area = Rect::new(ox, oy, dw, dh);
+
+        let drop_items: Vec<ListItem> = pr.branches.iter().enumerate().map(|(i, branch)| {
+            let is_sel = i == pr.branch_idx;
+            let color = if is_sel { C_WHITE } else { C_SUBTLE };
+            let prefix = if is_sel { "▶ " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(prefix, Style::default().fg(bc)),
+                Span::styled(branch.clone(), Style::default().fg(color)),
+            ])).style(if is_sel { Style::default().bg(app.selected_bg()).add_modifier(Modifier::BOLD) } else { Style::default() })
+        }).collect();
+
+        let mut drop_state = ListState::default();
+        drop_state.select(Some(pr.branch_idx));
+
+        f.render_widget(Clear, drop_area);
+        f.render_stateful_widget(
+            List::new(drop_items).block(
+                Block::default()
+                    .title(Span::styled(format!(" step 3/3: base branch "), Style::default().fg(C_SUBTLE)))
+                    .borders(Borders::ALL).border_type(app.border_type())
+                    .border_style(Style::default().fg(bc))
+            ),
+            drop_area,
+            &mut drop_state,
+        );
+    }
+
     // ── Ops dropdown ──────────────────────────────────────────────────────────
     if pr.ops_mode {
         let current_state = pr.prs.get(pr.idx).map(|p| p.state.as_str()).unwrap_or("open");
         let create_label = if pr.platform == "gitlab" { "create MR" } else { "create PR" };
         let ops: &[(&str, bool)] = &[
             (create_label,   false),
+            ("edit",         false),
             ("merge",        false),
             ("close ⚠",      true),
             ("checkout",     false),
             ("open browser", false),
         ];
 
-        let dropdown_w = 18u16;
+        let dropdown_w = 20u16;
         let dropdown_h = ops.len() as u16 + 2;
         let entry_y = cols[0].y + 1 + pr.idx as u16 + 1;
         let drop_y = if entry_y + dropdown_h < cols[0].y + cols[0].height {
@@ -282,7 +425,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let drop_items: Vec<ListItem> = ops.iter().enumerate().map(|(i, (label, danger))| {
             let is_sel = i == pr.ops_idx;
-            let dimmed = i == 1 && current_state != "open" && current_state != "opened";
+            let dimmed = i == 2 && current_state != "open" && current_state != "opened";
             let color = if dimmed { C_DIM }
                 else if *danger { C_RED }
                 else if is_sel { C_WHITE }
