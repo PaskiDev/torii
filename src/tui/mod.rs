@@ -711,15 +711,18 @@ fn run_loop(
                         } else {
                             "--global"
                         };
-                        let status = std::process::Command::new("torii")
+                        let output = std::process::Command::new("torii")
                             .args(["config", "set", &key, &val, scope_flag])
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .status();
+                            .output();
                         app.config_view.editing = false;
-                        app.config_view.status = Some(match status {
-                            Ok(s) if s.success() => format!("saved: {} = {}", key, val),
-                            _ => format!("failed to save: {}", key),
+                        app.config_view.status = Some(match output {
+                            Ok(o) if o.status.success() => format!("saved: {} = {}", key, val),
+                            Ok(o) => {
+                                let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                                app.log_event(&format!("config save error: {}", err), EventKind::Error);
+                                format!("failed: {}", err.lines().next().unwrap_or("unknown error"))
+                            }
+                            Err(e) => format!("failed: {}", e),
                         });
                         app.go_to(View::Config);
                     }
