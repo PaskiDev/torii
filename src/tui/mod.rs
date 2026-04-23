@@ -706,13 +706,12 @@ fn run_loop(
                     if let Some(entry) = app.config_view.entries.get(idx) {
                         let key = entry.key.clone();
                         let val = app.config_view.edit_buf.clone();
-                        let scope_flag = if app.config_view.scope == app::ConfigScope::Local {
-                            "--local"
-                        } else {
-                            "--global"
-                        };
+                        let mut cmd_args = vec!["config", "set", &key, &val];
+                        if app.config_view.scope == app::ConfigScope::Local {
+                            cmd_args.push("--local");
+                        }
                         let output = std::process::Command::new("torii")
-                            .args(["config", "set", &key, &val, scope_flag])
+                            .args(&cmd_args)
                             .output();
                         app.config_view.editing = false;
                         app.config_view.status = Some(match output {

@@ -2117,12 +2117,13 @@ impl App {
         ];
 
         self.config_view.entries.clear();
-        let scope_flag = if self.config_view.scope == ConfigScope::Local { "--local" } else { "--global" };
 
         // Fetch all current values from torii config list
         let mut values: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut list_args = vec!["config", "list"];
+        if self.config_view.scope == ConfigScope::Local { list_args.push("--local"); }
         if let Ok(out) = std::process::Command::new("torii")
-            .args(["config", "list", scope_flag])
+            .args(&list_args)
             .output()
         {
             for line in String::from_utf8_lossy(&out.stdout).lines() {
