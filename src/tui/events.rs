@@ -159,7 +159,7 @@ impl EventHandler {
                     View::Workspace => matches!(app.workspace_view.confirm,
                         WorkspaceConfirm::SaveMessage | WorkspaceConfirm::AddRepoPath),
                     View::Pr        => matches!(app.pr_view.confirm,
-                        PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc |
+                        PrConfirm::CreateTitle | PrConfirm::CreateDesc |
                         PrConfirm::EditTitle | PrConfirm::EditDesc),
                     View::Branch    => app.branch_view.search_mode,
                     View::Tag       => app.tag_view.search_mode,
@@ -1694,7 +1694,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     use crate::tui::app::PrConfirm;
 
     // Create flow — multi-step text input
-    if matches!(app.pr_view.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc) {
+    if matches!(app.pr_view.confirm, PrConfirm::CreateTitle | PrConfirm::CreateDesc) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 app.pr_view.confirm = PrConfirm::None;
@@ -1721,9 +1721,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                             .position(|b| b == &base).unwrap_or(0);
                         app.pr_view.confirm = PrConfirm::CreateBase;
                     }
-                    PrConfirm::CreateBase => {
-                        // handled below by dropdown — Enter confirms selection
-                    }
+                    PrConfirm::CreateBase => {}
                     PrConfirm::CreateDesc => {
                         // Enter adds a newline to description
                         if !app.pr_view.create_input.is_empty() {
