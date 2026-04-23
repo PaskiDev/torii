@@ -1717,12 +1717,12 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         // load branches for head dropdown
                         app.load_pr_branches();
                         // pre-select current branch as head
-                        let current = {
-                            git2::Repository::discover(&app.repo_path).ok()
-                                .and_then(|r| r.head().ok())
-                                .and_then(|h| h.shorthand().map(|s| s.to_string()))
-                                .unwrap_or_default()
-                        };
+                        let current = git2::Repository::discover(&app.repo_path).ok()
+                            .and_then(|r| {
+                                r.head().ok()
+                                    .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                            })
+                            .unwrap_or_default();
                         app.pr_view.create_head = current.clone();
                         app.pr_view.branch_idx = app.pr_view.branches.iter()
                             .position(|b| *b == current).unwrap_or(0);
