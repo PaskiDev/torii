@@ -1,5 +1,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use dirs;
 use crossterm::{
     execute,
     event::{self, Event, KeyCode, KeyModifiers},
@@ -67,9 +68,26 @@ fn load_saved_workspaces() -> Vec<SavedWorkspace> {
     out
 }
 
+fn load_border_type() -> ratatui::widgets::BorderType {
+    let path = dirs::home_dir()
+        .map(|h| h.join(".torii/tui-settings.toml"))
+        .unwrap_or_default();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        for line in content.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                if k.trim() == "border_style" && v.trim().trim_matches('"') == "sharp" {
+                    return ratatui::widgets::BorderType::Plain;
+                }
+            }
+        }
+    }
+    ratatui::widgets::BorderType::Rounded
+}
+
 pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
     let repos = find_git_repos(start_dir, 3);
     let saved_ws = load_saved_workspaces();
+    let border_type = load_border_type();
 
     if repos.is_empty() && saved_ws.is_empty() {
         return Ok(PickerResult::Cancelled);
@@ -126,7 +144,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                     Paragraph::new(line)
                         .block(Block::default()
                             .borders(Borders::ALL)
-                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_type(border_type)
                             .border_style(Style::default().fg(BRAND_COLOR))),
                     chunks[0],
                 );
@@ -152,7 +170,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
             f.render_widget(
                 Paragraph::new(tab_line).block(
                     Block::default().borders(Borders::ALL)
-                        .border_type(ratatui::widgets::BorderType::Rounded)
+                        .border_type(border_type)
                         .border_style(Style::default().fg(BRAND_COLOR))
                 ),
                 chunks[1],
@@ -196,7 +214,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                         List::new(items).block(Block::default()
                             .title(Span::styled(list_title, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)))
                             .borders(Borders::ALL)
-                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_type(border_type)
                             .border_style(Style::default().fg(C_WHITE))),
                         sub[0],
                         &mut list_state,
@@ -237,7 +255,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                         Paragraph::new(name_content).block(Block::default()
                             .title(Span::styled(ws_label, ws_style))
                             .borders(Borders::ALL)
-                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_type(border_type)
                             .border_style(ws_border)),
                         sub[1],
                     );
@@ -250,7 +268,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                                 "  no saved workspaces",
                                 Style::default().fg(C_DIM),
                             )).block(Block::default().borders(Borders::ALL)
-                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_type(border_type)
                                 .border_style(Style::default().fg(BRAND_COLOR))),
                             chunks[2],
                         );
@@ -280,7 +298,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                             List::new(ws_list_items).block(Block::default()
                                 .title(Span::styled(" workspaces ", Style::default().fg(left_border)))
                                 .borders(Borders::ALL)
-                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_type(border_type)
                                 .border_style(Style::default().fg(left_border))),
                             cols[0],
                             &mut left_state,
@@ -309,7 +327,7 @@ pub fn run_picker(start_dir: &Path) -> crate::error::Result<PickerResult> {
                             List::new(repo_items).block(Block::default()
                                 .title(Span::styled(ws_title, Style::default().fg(right_border)))
                                 .borders(Borders::ALL)
-                                .border_type(ratatui::widgets::BorderType::Rounded)
+                                .border_type(border_type)
                                 .border_style(Style::default().fg(right_border))),
                             cols[1],
                         );
