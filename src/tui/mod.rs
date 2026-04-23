@@ -113,6 +113,24 @@ fn run_loop(
             }
         }
 
+        // Poll Issue load result from background thread
+        if let Some(rx) = &app.issue_rx {
+            if let Ok(result) = rx.try_recv() {
+                app.issue_rx = None;
+                match result {
+                    Ok(issues) => {
+                        app.issue_view.issues = issues;
+                        app.issue_view.idx = 0;
+                        app.issue_view.loading = false;
+                    }
+                    Err(e) => {
+                        app.issue_view.error = Some(e.to_string());
+                        app.issue_view.loading = false;
+                    }
+                }
+            }
+        }
+
         // Auto-snapshot check
         if let Some(interval_secs) = app.snapshot_view.auto_interval.secs() {
             let now = std::time::SystemTime::now()
@@ -514,6 +532,24 @@ fn run_loop(
                         Err(e) => format!("rename failed: {}", e.message()),
                     };
                     let is_ok = msg.starts_with("renamed");
+                    app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
+                    if is_ok { app.reload_remotes(); } else { app.remote_view.status = Some(msg); }
+                }
+
+                Action::RemoteEditUrl => {
+                    let name = app.remote_view.remotes.get(app.remote_view.idx)
+                        .map(|r| r.git_name.clone())
+                        .unwrap_or_default();
+                    let new_url = app.remote_view.new_url.clone();
+                    app.remote_view.new_url.clear();
+                    app.remote_view.confirm = app::RemoteConfirm::None;
+                    if name.is_empty() || new_url.is_empty() { break; }
+                    let Ok(mut repo) = git2::Repository::discover(&app.repo_path) else { break; };
+                    let msg = match repo.remote_set_url(&name, &new_url) {
+                        Ok(_)  => format!("url updated: {}", new_url),
+                        Err(e) => format!("edit url failed: {}", e.message()),
+                    };
+                    let is_ok = msg.starts_with("url updated");
                     app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
                     if is_ok { app.reload_remotes(); } else { app.remote_view.status = Some(msg); }
                 }
@@ -925,22 +961,78 @@ fn run_loop(
                     }
                 }
 
+                Action::PrCreateMulti => {
+                    let title  = app.pr_view.create_title.clone();
+                    let base   = app.pr_view.create_base.clone();
+                    let desc   = app.pr_view.create_desc.clone();
+                    let draft  = app.pr_view.create_draft;
+                    let head   = {
+                        let Ok(repo) = git2::Repository::discover(&app.repo_path) else { break; };
+                        repo.head().ok()
+                            .and_then(|h| h.shorthand().map(|s| s.to_string()))
+                            .unwrap_or_default()
+                    };
+                    if title.is_empty() {
+                        app.log_event("create failed: title required", EventKind::Error);
+                        break;
+                    }
+                    let platforms: Vec<_> = app.pr_view.available_platforms.iter()
+                        .zip(app.pr_view.create_platform_selected.iter())
+                        .filter(|(_, &sel)| sel)
+                        .map(|(p, _)| p.clone())
+                        .collect();
+                    if platforms.is_empty() {
+                        app.log_event("create failed: select at least one platform", EventKind::Error);
+                        break;
+                    }
+                    use crate::pr::{get_pr_client, CreatePrOptions};
+                    let mut any_ok = false;
+                    for entry in &platforms {
+                        let opts = CreatePrOptions {
+                            title: title.clone(),
+                            body:  if desc.is_empty() { None } else { Some(desc.clone()) },
+                            head:  head.clone(),
+                            base:  base.clone(),
+                            draft,
+                        };
+                        match get_pr_client(&entry.platform).and_then(|c| c.create(&entry.owner, &entry.repo, opts)) {
+                            Ok(pr) => {
+                                app.log_event(&format!("created {} #{} on {}: {}", if entry.platform == "gitlab" { "MR" } else { "PR" }, pr.number, entry.platform, title), EventKind::Success);
+                                any_ok = true;
+                            }
+                            Err(e) => app.log_event(&format!("create failed on {}: {}", entry.platform, e), EventKind::Error),
+                        }
+                    }
+                    app.pr_view.create_title.clear();
+                    app.pr_view.create_desc.clear();
+                    app.pr_view.create_input.clear();
+                    if any_ok { app.load_prs(); }
+                }
+
                 Action::PrMerge => {
                     if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
-                        let number = pr.number.to_string();
+                        let number = pr.number;
+                        let head_branch = pr.head.clone();
                         let method = match app.pr_view.merge_method {
-                            1 => "squash",
-                            2 => "rebase",
-                            _ => "merge",
+                            1 => MergeMethod::Squash,
+                            2 => MergeMethod::Rebase,
+                            _ => MergeMethod::Merge,
                         };
-                        let output = std::process::Command::new("torii")
-                            .args(["pr", "merge", &number, "--method", method])
-                            .output();
-                        let is_ok = matches!(&output, Ok(o) if o.status.success());
-                        let msg = if is_ok { format!("merged PR #{}", number) }
-                                  else { format!("merge failed: PR #{}", number) };
-                        app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
-                        if is_ok { app.load_prs(); }
+                        let platform = app.pr_view.platform.clone();
+                        let owner = app.pr_view.owner.clone();
+                        let repo_name = app.pr_view.repo_name.clone();
+                        use crate::pr::{get_pr_client, MergeMethod};
+                        match get_pr_client(&platform).and_then(|c| {
+                            c.merge(&owner, &repo_name, number, method)?;
+                            let _ = c.delete_branch(&owner, &repo_name, &head_branch);
+                            Ok(())
+                        }) {
+                            Ok(_) => {
+                                app.log_event(&format!("merged PR #{} — branch '{}' deleted", number, head_branch), EventKind::Success);
+                                app.load_prs();
+                            }
+                            Err(e) => app.log_event(&format!("merge failed: {}", e), EventKind::Error),
+                        }
                     }
                 }
 
@@ -983,8 +1075,124 @@ fn run_loop(
                     }
                 }
 
+                Action::PrUpdate => {
+                    if let Some(pr) = app.pr_view.prs.get(app.pr_view.idx) {
+                        let number = pr.number;
+                        let platform = app.pr_view.platform.clone();
+                        let owner = app.pr_view.owner.clone();
+                        let repo_name = app.pr_view.repo_name.clone();
+                        let new_title = app.pr_view.edit_input.trim().to_string();
+                        let new_desc = app.pr_view.edit_desc.trim().to_string();
+                        let new_base = app.pr_view.branches.get(app.pr_view.branch_idx).cloned();
+                        app.pr_view.edit_input.clear();
+                        app.pr_view.edit_desc.clear();
+                        use crate::pr::{get_pr_client, UpdatePrOptions};
+                        let opts = UpdatePrOptions {
+                            title: if new_title.is_empty() { None } else { Some(new_title) },
+                            body:  if new_desc.is_empty()  { None } else { Some(new_desc) },
+                            base:  new_base,
+                        };
+                        match get_pr_client(&platform).and_then(|c| c.update(&owner, &repo_name, number, opts)) {
+                            Ok(_) => {
+                                app.log_event(&format!("updated PR #{}", number), EventKind::Success);
+                                app.load_prs();
+                            }
+                            Err(e) => app.log_event(&format!("update failed: {}", e), EventKind::Error),
+                        }
+                    }
+                }
+
+                Action::PrSwitchPlatform => {
+                    if let Some(entry) = app.pr_view.available_platforms.get(app.pr_view.platform_idx) {
+                        app.pr_view.platform  = entry.platform.clone();
+                        app.pr_view.owner     = entry.owner.clone();
+                        app.pr_view.repo_name = entry.repo.clone();
+                    }
+                    app.pr_view.confirm = app::PrConfirm::None;
+                    app.load_prs();
+                }
+
                 Action::PrRefresh => {
                     app.load_prs();
+                }
+
+                Action::IssueClose => {
+                    let iv = &app.issue_view;
+                    let Some(issue) = iv.issues.get(iv.idx) else { break; };
+                    let number = issue.number;
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    use crate::issue::get_issue_client;
+                    match get_issue_client(&platform).and_then(|c| c.close(&owner, &repo_name, number)) {
+                        Ok(_) => {
+                            app.log_event(&format!("closed issue #{}", number), EventKind::Success);
+                            app.load_issues();
+                        }
+                        Err(e) => app.log_event(&format!("close failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueCreate => {
+                    let iv = &app.issue_view;
+                    let title = iv.create_title.trim().to_string();
+                    let desc = iv.create_desc.trim().to_string();
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    if title.is_empty() { break; }
+                    app.issue_view.confirm = app::IssueConfirm::None;
+                    use crate::issue::{get_issue_client, CreateIssueOptions};
+                    let opts = CreateIssueOptions {
+                        title: title.clone(),
+                        body: if desc.is_empty() { None } else { Some(desc) },
+                    };
+                    match get_issue_client(&platform).and_then(|c| c.create(&owner, &repo_name, opts)) {
+                        Ok(i) => {
+                            app.log_event(&format!("created issue #{}: {}", i.number, title), EventKind::Success);
+                            app.issue_view.create_title.clear();
+                            app.issue_view.create_desc.clear();
+                            app.load_issues();
+                        }
+                        Err(e) => app.log_event(&format!("create failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueComment => {
+                    let iv = &app.issue_view;
+                    let Some(issue) = iv.issues.get(iv.idx) else { break; };
+                    let number = issue.number;
+                    let body = iv.comment_input.trim().to_string();
+                    let platform = iv.platform.clone();
+                    let owner = iv.owner.clone();
+                    let repo_name = iv.repo_name.clone();
+                    drop(iv);
+                    if body.is_empty() { break; }
+                    app.issue_view.confirm = app::IssueConfirm::None;
+                    app.issue_view.comment_input.clear();
+                    use crate::issue::get_issue_client;
+                    match get_issue_client(&platform).and_then(|c| c.comment(&owner, &repo_name, number, &body)) {
+                        Ok(_) => app.log_event(&format!("comment added to #{}", number), EventKind::Success),
+                        Err(e) => app.log_event(&format!("comment failed: {}", e), EventKind::Error),
+                    }
+                }
+
+                Action::IssueOpenBrowser => {
+                    if let Some(issue) = app.issue_view.issues.get(app.issue_view.idx) {
+                        let url = issue.url.clone();
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&url)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                        app.log_event(&format!("opened: {}", url), EventKind::Info);
+                    }
+                }
+
+                Action::IssueRefresh => {
+                    app.load_issues();
                 }
 
             }

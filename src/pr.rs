@@ -52,12 +52,20 @@ impl std::fmt::Display for MergeMethod {
 // Trait
 // ============================================================================
 
+pub struct UpdatePrOptions {
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub base: Option<String>,
+}
+
 pub trait PrClient: Send {
     fn create(&self, owner: &str, repo: &str, opts: CreatePrOptions) -> Result<PullRequest>;
     fn list(&self, owner: &str, repo: &str, state: &str) -> Result<Vec<PullRequest>>;
     fn get(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest>;
     fn merge(&self, owner: &str, repo: &str, number: u64, method: MergeMethod) -> Result<()>;
     fn close(&self, owner: &str, repo: &str, number: u64) -> Result<()>;
+    fn update(&self, owner: &str, repo: &str, number: u64, opts: UpdatePrOptions) -> Result<()>;
+    fn delete_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<()>;
     fn checkout_branch(&self, pr: &PullRequest) -> String;
 }
 
@@ -180,6 +188,43 @@ impl PrClient for GitHubPrClient {
             let json: serde_json::Value = resp.json().unwrap_or_default();
             let msg = json["message"].as_str().unwrap_or("close failed");
             return Err(ToriiError::InvalidConfig(format!("Close failed: {}", msg)));
+        }
+        Ok(())
+    }
+
+    fn update(&self, owner: &str, repo: &str, number: u64, opts: UpdatePrOptions) -> Result<()> {
+        let url = format!("https://api.github.com/repos/{}/{}/pulls/{}", owner, repo, number);
+        let mut body = serde_json::Map::new();
+        if let Some(t) = opts.title { body.insert("title".into(), t.into()); }
+        if let Some(b) = opts.body  { body.insert("body".into(), b.into()); }
+        if let Some(b) = opts.base  { body.insert("base".into(), b.into()); }
+        let resp = self.client()
+            .patch(&url)
+            .header("Authorization", self.auth())
+            .header("Accept", "application/vnd.github.v3+json")
+            .json(&serde_json::Value::Object(body))
+            .send()
+            .map_err(|e| ToriiError::InvalidConfig(format!("GitHub API error: {}", e)))?;
+        if !resp.status().is_success() {
+            let json: serde_json::Value = resp.json().unwrap_or_default();
+            let msg = json["message"].as_str().unwrap_or("update failed");
+            return Err(ToriiError::InvalidConfig(format!("Update failed: {}", msg)));
+        }
+        Ok(())
+    }
+
+    fn delete_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<()> {
+        let url = format!("https://api.github.com/repos/{}/{}/git/refs/heads/{}", owner, repo, branch);
+        let resp = self.client()
+            .delete(&url)
+            .header("Authorization", self.auth())
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .map_err(|e| ToriiError::InvalidConfig(format!("GitHub API error: {}", e)))?;
+        if !resp.status().is_success() {
+            let json: serde_json::Value = resp.json().unwrap_or_default();
+            let msg = json["message"].as_str().unwrap_or("delete branch failed");
+            return Err(ToriiError::InvalidConfig(format!("Delete branch failed: {}", msg)));
         }
         Ok(())
     }
@@ -342,6 +387,48 @@ impl PrClient for GitLabPrClient {
             let json: serde_json::Value = resp.json().unwrap_or_default();
             let msg = json["message"].as_str().unwrap_or("close failed");
             return Err(ToriiError::InvalidConfig(format!("Close failed: {}", msg)));
+        }
+        Ok(())
+    }
+
+    fn update(&self, owner: &str, repo: &str, number: u64, opts: UpdatePrOptions) -> Result<()> {
+        let url = format!(
+            "{}/projects/{}/merge_requests/{}",
+            self.base_url, Self::project_path(owner, repo), number
+        );
+        let mut body = serde_json::Map::new();
+        if let Some(t) = opts.title { body.insert("title".into(), t.into()); }
+        if let Some(b) = opts.body  { body.insert("description".into(), b.into()); }
+        if let Some(b) = opts.base  { body.insert("target_branch".into(), b.into()); }
+        let resp = self.client()
+            .put(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .json(&serde_json::Value::Object(body))
+            .send()
+            .map_err(|e| ToriiError::InvalidConfig(format!("GitLab API error: {}", e)))?;
+        if !resp.status().is_success() {
+            let json: serde_json::Value = resp.json().unwrap_or_default();
+            let msg = json["message"].as_str().unwrap_or("update failed");
+            return Err(ToriiError::InvalidConfig(format!("Update failed: {}", msg)));
+        }
+        Ok(())
+    }
+
+    fn delete_branch(&self, owner: &str, repo: &str, branch: &str) -> Result<()> {
+        let url = format!(
+            "{}/projects/{}/repository/branches/{}",
+            self.base_url, Self::project_path(owner, repo),
+            urlencoding::encode(branch)
+        );
+        let resp = self.client()
+            .delete(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .map_err(|e| ToriiError::InvalidConfig(format!("GitLab API error: {}", e)))?;
+        if !resp.status().is_success() {
+            let json: serde_json::Value = resp.json().unwrap_or_default();
+            let msg = json["message"].as_str().unwrap_or("delete branch failed");
+            return Err(ToriiError::InvalidConfig(format!("Delete branch failed: {}", msg)));
         }
         Ok(())
     }

@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm};
+use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm, IssueConfirm};
 
 
 pub enum Action {
@@ -39,6 +39,7 @@ pub enum Action {
     RemoteAdd,
     RemoteRemove,
     RemoteRename,
+    RemoteEditUrl,
     RemoteOpenBrowser,
     MirrorSync,
     MirrorSyncOne,
@@ -61,6 +62,14 @@ pub enum Action {
     PrCheckout,
     PrOpenBrowser,
     PrRefresh,
+    PrUpdate,
+    PrSwitchPlatform,
+    PrCreateMulti,
+    IssueClose,
+    IssueCreate,
+    IssueComment,
+    IssueOpenBrowser,
+    IssueRefresh,
     ConfigEdit,
     ConfigSave,
     ConfigToggleScope,
@@ -144,14 +153,18 @@ impl EventHandler {
                         HistoryConfirm::Blame),
                     View::Remote    => matches!(app.remote_view.confirm,
                         RemoteConfirm::AddName | RemoteConfirm::AddUrl | RemoteConfirm::Rename |
+                        RemoteConfirm::EditUrl |
                         RemoteConfirm::MirrorRename | RemoteConfirm::MirrorAddPlatform |
                         RemoteConfirm::MirrorAddAccount | RemoteConfirm::MirrorAddRepo),
                     View::Workspace => matches!(app.workspace_view.confirm,
                         WorkspaceConfirm::SaveMessage | WorkspaceConfirm::AddRepoPath),
                     View::Pr        => matches!(app.pr_view.confirm,
-                        PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc),
+                        PrConfirm::CreateTitle | PrConfirm::CreateDesc |
+                        PrConfirm::EditTitle | PrConfirm::EditDesc),
                     View::Branch    => app.branch_view.search_mode,
                     View::Tag       => app.tag_view.search_mode,
+                    View::Issue     => matches!(app.issue_view.confirm,
+                        IssueConfirm::CreateTitle | IssueConfirm::CreateDesc | IssueConfirm::Comment),
                     _               => false,
                 };
                 if key.code == KeyCode::Char('e') && key.modifiers == KeyModifiers::NONE && !typing {
@@ -168,6 +181,16 @@ impl EventHandler {
                     let is_enter = key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE;
                     let is_quit = matches!(key.code, KeyCode::Char('q'))
                         || (key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c'));
+                    // when typing in an overlay, block sidebar nav entirely
+                    if typing {
+                        return Ok(match app.view {
+                            View::Pr        => handle_pr(key, app),
+                            View::Issue     => handle_issue(key, app),
+                            View::Branch    => handle_branch(key, app),
+                            View::Tag       => handle_tag(key, app),
+                            _ => None,
+                        });
+                    }
                     if is_nav || is_enter || is_quit {
                         return Ok(handle_sidebar(key, app));
                     }
@@ -181,6 +204,8 @@ impl EventHandler {
                         View::Mirror    => handle_mirror(key, app),
                         View::Snapshot  => handle_snapshot(key, app),
                         View::Workspace => handle_workspace(key, app),
+                        View::Pr        => handle_pr(key, app),
+                        View::Issue     => handle_issue(key, app),
                         _ => None,
                     };
                     if view_result.is_some() {
@@ -294,6 +319,19 @@ impl EventHandler {
                                 false
                             }
                         }
+                        View::Issue => {
+                            if app.issue_view.ops_mode {
+                                app.issue_view.ops_mode = false;
+                                true
+                            } else if app.issue_view.confirm != IssueConfirm::None {
+                                app.issue_view.confirm = IssueConfirm::None;
+                                app.issue_view.create_input.clear();
+                                app.issue_view.comment_input.clear();
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         View::Workspace => {
                             if app.workspace_view.ops_mode {
                                 app.workspace_view.ops_mode = false;
@@ -348,6 +386,7 @@ impl EventHandler {
                     View::Mirror    => handle_mirror(key, app),
                     View::Workspace => handle_workspace(key, app),
                     View::Pr        => handle_pr(key, app),
+                    View::Issue     => handle_issue(key, app),
                     View::Config    => handle_config(key, app),
                     View::Settings  => handle_settings(key, app),
                     View::Help      => handle_help(key, app),
@@ -415,6 +454,7 @@ fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Char('m')) => app.go_to(View::Mirror),
         (_, KeyCode::Char('w')) => app.go_to(View::Workspace),
         (_, KeyCode::Char('n')) => app.go_to(View::Pr),
+        (_, KeyCode::Char('i')) => app.go_to(View::Issue),
         (_, KeyCode::Char('g')) => app.go_to(View::Config),
         (_, KeyCode::Char('x')) => app.go_to(View::Settings),
         _ => return None,
@@ -1223,6 +1263,25 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             }
             return None;
         }
+        RemoteConfirm::EditUrl => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.remote_view.confirm = RemoteConfirm::None;
+                    app.remote_view.new_url.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.remote_view.new_url.is_empty() {
+                        return Some(Action::RemoteEditUrl);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.remote_view.new_url.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.remote_view.new_url.push(c),
+                _ => {}
+            }
+            return None;
+        }
         RemoteConfirm::MirrorRename => {
             match (key.modifiers, key.code) {
                 (_, KeyCode::Esc) => {
@@ -1330,7 +1389,7 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     // ops dropdown
     if app.remote_view.ops_mode {
         let is_mirror = app.remote_view.selected_is_mirror();
-        let ops_len = if is_mirror { 6 } else { 5 };
+        let ops_len = if is_mirror { 6 } else { 6 };
         match (key.modifiers, key.code) {
             (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
                 if app.remote_view.ops_idx > 0 { app.remote_view.ops_idx -= 1; }
@@ -1364,7 +1423,7 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         _ => None,
                     };
                 } else {
-                    // git remote ops: fetch(0), add remote(1), rename(2), remove(3), open(4)
+                    // git remote ops: fetch(0), add remote(1), rename(2), edit url(3), remove(4), open(5)
                     return match idx {
                         0 => Some(Action::RemoteFetch),
                         1 => {
@@ -1378,10 +1437,15 @@ fn handle_remote(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                             None
                         }
                         3 => {
+                            app.remote_view.new_url.clear();
+                            app.remote_view.confirm = RemoteConfirm::EditUrl;
+                            None
+                        }
+                        4 => {
                             app.remote_view.confirm = RemoteConfirm::Remove;
                             None
                         }
-                        4 => Some(Action::RemoteOpenBrowser),
+                        5 => Some(Action::RemoteOpenBrowser),
                         _ => None,
                     };
                 }
@@ -1630,30 +1694,45 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     use crate::tui::app::PrConfirm;
 
     // Create flow — multi-step text input
-    if matches!(app.pr_view.confirm, PrConfirm::CreateTitle | PrConfirm::CreateBase | PrConfirm::CreateDesc) {
+    if matches!(app.pr_view.confirm, PrConfirm::CreateTitle | PrConfirm::CreateDesc) {
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc) => {
                 app.pr_view.confirm = PrConfirm::None;
                 app.pr_view.create_input.clear();
+                app.pr_view.create_desc.clear();
             }
-            (_, KeyCode::Backspace) => { app.pr_view.create_input.pop(); }
+            (_, KeyCode::Backspace) => {
+                if app.pr_view.create_input.is_empty() && app.pr_view.confirm == PrConfirm::CreateDesc {
+                    // remove last char from accumulated desc
+                    app.pr_view.create_desc.pop();
+                } else {
+                    app.pr_view.create_input.pop();
+                }
+            }
             (_, KeyCode::Enter) => {
                 match app.pr_view.confirm.clone() {
                     PrConfirm::CreateTitle => {
                         app.pr_view.create_title = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input = app.pr_view.create_base.clone();
+                        app.pr_view.create_input.clear();
+                        // load branches for dropdown
+                        app.load_pr_branches();
+                        let base = app.pr_view.create_base.clone();
+                        app.pr_view.branch_idx = app.pr_view.branches.iter()
+                            .position(|b| b == &base).unwrap_or(0);
                         app.pr_view.confirm = PrConfirm::CreateBase;
                     }
-                    PrConfirm::CreateBase => {
-                        app.pr_view.create_base = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input = app.pr_view.create_desc.clone();
-                        app.pr_view.confirm = PrConfirm::CreateDesc;
-                    }
+                    PrConfirm::CreateBase => {}
                     PrConfirm::CreateDesc => {
-                        app.pr_view.create_desc = app.pr_view.create_input.trim().to_string();
-                        app.pr_view.create_input.clear();
-                        app.pr_view.confirm = PrConfirm::None;
-                        return Some(Action::PrCreate);
+                        // Enter adds a newline to description
+                        if !app.pr_view.create_input.is_empty() {
+                            if !app.pr_view.create_desc.is_empty() {
+                                app.pr_view.create_desc.push('\n');
+                            }
+                            app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                            app.pr_view.create_input.clear();
+                        } else {
+                            app.pr_view.create_desc.push('\n');
+                        }
                     }
                     _ => {}
                 }
@@ -1661,9 +1740,204 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             (_, KeyCode::Tab) if app.pr_view.confirm == PrConfirm::CreateDesc => {
                 app.pr_view.create_draft = !app.pr_view.create_draft;
             }
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) if app.pr_view.confirm == PrConfirm::CreateDesc => {
+                // Ctrl+S submits — flush current line first
+                if !app.pr_view.create_input.is_empty() {
+                    if !app.pr_view.create_desc.is_empty() {
+                        app.pr_view.create_desc.push('\n');
+                    }
+                    app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                    app.pr_view.create_input.clear();
+                }
+                // advance to platform selection
+                app.load_pr_platforms();
+                // pre-select current platform
+                let n = app.pr_view.available_platforms.len();
+                app.pr_view.create_platform_selected = vec![false; n];
+                if n > 0 {
+                    let cur_platform = app.pr_view.platform.clone();
+                    let cur_owner = app.pr_view.owner.clone();
+                    let idx = app.pr_view.available_platforms.iter()
+                        .position(|p| p.platform == cur_platform && p.owner == cur_owner)
+                        .unwrap_or(0);
+                    if let Some(s) = app.pr_view.create_platform_selected.get_mut(idx) { *s = true; }
+                }
+                app.pr_view.create_platform_idx = 0;
+                app.pr_view.confirm = PrConfirm::CreatePlatforms;
+            }
             (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
                                   || key.modifiers == KeyModifiers::SHIFT => {
+                // enforce title limit
+                if app.pr_view.confirm == PrConfirm::CreateTitle
+                    && app.pr_view.create_input.chars().count() >= 255 {
+                    return None;
+                }
                 app.pr_view.create_input.push(c);
+                // auto-wrap at 56 chars (overlay inner width)
+                if app.pr_view.create_input.chars().count() >= 56 {
+                    if !app.pr_view.create_desc.is_empty() {
+                        app.pr_view.create_desc.push('\n');
+                    }
+                    app.pr_view.create_desc.push_str(&app.pr_view.create_input);
+                    app.pr_view.create_input.clear();
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create base branch — dropdown
+    if app.pr_view.confirm == PrConfirm::CreateBase {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.create_input.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                if let Some(branch) = app.pr_view.branches.get(app.pr_view.branch_idx) {
+                    app.pr_view.create_base = branch.clone();
+                }
+                app.pr_view.create_input.clear();
+                app.pr_view.confirm = PrConfirm::CreateDesc;
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Create — platform multi-select
+    if app.pr_view.confirm == PrConfirm::CreatePlatforms {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.create_platform_idx > 0 { app.pr_view.create_platform_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                let n = app.pr_view.available_platforms.len();
+                if app.pr_view.create_platform_idx + 1 < n { app.pr_view.create_platform_idx += 1; }
+            }
+            (_, KeyCode::Char(' ')) => {
+                let idx = app.pr_view.create_platform_idx;
+                if let Some(s) = app.pr_view.create_platform_selected.get_mut(idx) { *s = !*s; }
+            }
+            (_, KeyCode::Char('a')) if key.modifiers == KeyModifiers::NONE => {
+                let all = app.pr_view.create_platform_selected.iter().all(|&s| s);
+                app.pr_view.create_platform_selected.iter_mut().for_each(|s| *s = !all);
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrCreateMulti);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Switch platform dropdown
+    if app.pr_view.confirm == PrConfirm::SwitchPlatform {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => { app.pr_view.confirm = PrConfirm::None; }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.platform_idx > 0 { app.pr_view.platform_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.platform_idx + 1 < app.pr_view.available_platforms.len() {
+                    app.pr_view.platform_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                return Some(Action::PrSwitchPlatform);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit title
+    if app.pr_view.confirm == PrConfirm::EditTitle {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::EditDesc;
+            }
+            (_, KeyCode::Backspace) => { app.pr_view.edit_input.pop(); }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                  || key.modifiers == KeyModifiers::SHIFT => {
+                app.pr_view.edit_input.push(c);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit description
+    if app.pr_view.confirm == PrConfirm::EditDesc {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.edit_desc.push('\n');
+            }
+            (_, KeyCode::Backspace) => { app.pr_view.edit_desc.pop(); }
+            (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                // Ctrl+S advances to base branch selection
+                app.pr_view.confirm = PrConfirm::EditBase;
+            }
+            (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE
+                                  || key.modifiers == KeyModifiers::SHIFT => {
+                app.pr_view.edit_desc.push(c);
+                if app.pr_view.edit_desc.chars().rev().take_while(|&ch| ch != '\n').count() >= 56 {
+                    app.pr_view.edit_desc.push('\n');
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+            _ => {}
+        }
+        return None;
+    }
+
+    // Edit base branch — dropdown
+    if app.pr_view.confirm == PrConfirm::EditBase {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Esc) => {
+                app.pr_view.confirm = PrConfirm::None;
+                app.pr_view.edit_input.clear();
+                app.pr_view.edit_desc.clear();
+            }
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.pr_view.branch_idx > 0 { app.pr_view.branch_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.pr_view.branch_idx + 1 < app.pr_view.branches.len() {
+                    app.pr_view.branch_idx += 1;
+                }
+            }
+            (_, KeyCode::Enter) => {
+                app.pr_view.confirm = PrConfirm::None;
+                return Some(Action::PrUpdate);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
             _ => {}
@@ -1715,7 +1989,7 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                 if app.pr_view.ops_idx > 0 { app.pr_view.ops_idx -= 1; }
             }
             (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
-                if app.pr_view.ops_idx < 5 { app.pr_view.ops_idx += 1; }
+                if app.pr_view.ops_idx < 6 { app.pr_view.ops_idx += 1; }
             }
             (_, KeyCode::Enter) => {
                 let idx = app.pr_view.ops_idx;
@@ -1731,13 +2005,28 @@ fn handle_pr(key: event::KeyEvent, app: &mut App) -> Option<Action> {
                         app.pr_view.confirm = PrConfirm::CreateTitle;
                     }
                     1 => {
+                        // edit PR/MR — pre-fill from selected
+                        let (title, desc, base) = app.pr_view.prs.get(app.pr_view.idx)
+                            .map(|pr| (pr.title.clone(), pr.body.clone().unwrap_or_default(), pr.base.clone()))
+                            .unwrap_or_default();
+                        app.pr_view.edit_input = title;
+                        app.pr_view.edit_desc = desc;
+                        app.load_pr_branches();
+                        app.pr_view.branch_idx = app.pr_view.branches.iter()
+                            .position(|b| *b == base).unwrap_or(0);
+                        app.pr_view.confirm = PrConfirm::EditTitle;
+                    }
+                    2 => {
                         app.pr_view.merge_method = 0;
                         app.pr_view.confirm = PrConfirm::Merge;
                     }
-                    2 => { app.pr_view.confirm = PrConfirm::Close; }
-                    3 => return Some(Action::PrCheckout),
-                    4 => return Some(Action::PrOpenBrowser),
-                    5 => return Some(Action::PrRefresh),
+                    3 => { app.pr_view.confirm = PrConfirm::Close; }
+                    4 => return Some(Action::PrCheckout),
+                    5 => return Some(Action::PrOpenBrowser),
+                    6 => {
+                        app.load_pr_platforms();
+                        app.pr_view.confirm = PrConfirm::SwitchPlatform;
+                    }
                     _ => {}
                 }
             }
@@ -1821,6 +2110,137 @@ fn handle_settings(key: event::KeyEvent, app: &mut App) -> Option<Action> {
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.settings_move_down(),
         (_, KeyCode::Enter)                          => return Some(Action::SettingsToggle),
         (_, KeyCode::Char('s'))                      => return Some(Action::SettingsSave),
+        _ => {}
+    }
+    None
+}
+
+fn handle_issue(key: event::KeyEvent, app: &mut App) -> Option<Action> {
+    // text input states
+    match &app.issue_view.confirm {
+        IssueConfirm::CreateTitle => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.issue_view.confirm = IssueConfirm::None;
+                    app.issue_view.create_title.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.issue_view.create_title.is_empty() {
+                        app.issue_view.create_desc.clear();
+                        app.issue_view.confirm = IssueConfirm::CreateDesc;
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.issue_view.create_title.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.issue_view.create_title.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        IssueConfirm::CreateDesc => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.issue_view.confirm = IssueConfirm::None;
+                    app.issue_view.create_title.clear();
+                    app.issue_view.create_desc.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    return Some(Action::IssueCreate);
+                }
+                (_, KeyCode::Backspace) => { app.issue_view.create_desc.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.issue_view.create_desc.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        IssueConfirm::Comment => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Esc) => {
+                    app.issue_view.confirm = IssueConfirm::None;
+                    app.issue_view.comment_input.clear();
+                }
+                (_, KeyCode::Enter) => {
+                    if !app.issue_view.comment_input.is_empty() {
+                        return Some(Action::IssueComment);
+                    }
+                }
+                (_, KeyCode::Backspace) => { app.issue_view.comment_input.pop(); }
+                (_, KeyCode::Char(c)) if key.modifiers == KeyModifiers::NONE ||
+                                          key.modifiers == KeyModifiers::SHIFT
+                                        => app.issue_view.comment_input.push(c),
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => {}
+            }
+            return None;
+        }
+        IssueConfirm::Close => {
+            match (key.modifiers, key.code) {
+                (_, KeyCode::Char('y')) => {
+                    app.issue_view.confirm = IssueConfirm::None;
+                    return Some(Action::IssueClose);
+                }
+                (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
+                _ => { app.issue_view.confirm = IssueConfirm::None; }
+            }
+            return None;
+        }
+        IssueConfirm::None => {}
+    }
+
+    // ops dropdown
+    if app.issue_view.ops_mode {
+        match (key.modifiers, key.code) {
+            (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
+                if app.issue_view.ops_idx > 0 { app.issue_view.ops_idx -= 1; }
+            }
+            (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+                if app.issue_view.ops_idx < 3 { app.issue_view.ops_idx += 1; }
+            }
+            (_, KeyCode::Enter) => {
+                let idx = app.issue_view.ops_idx;
+                app.issue_view.ops_mode = false;
+                match idx {
+                    0 => {
+                        app.issue_view.create_title.clear();
+                        app.issue_view.confirm = IssueConfirm::CreateTitle;
+                    }
+                    1 => {
+                        app.issue_view.comment_input.clear();
+                        app.issue_view.confirm = IssueConfirm::Comment;
+                    }
+                    2 => return Some(Action::IssueOpenBrowser),
+                    3 => { app.issue_view.confirm = IssueConfirm::Close; }
+                    _ => {}
+                }
+            }
+            (_, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                app.issue_view.ops_mode = false;
+            }
+            _ => {}
+        }
+        return None;
+    }
+
+    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('r') {
+        return Some(Action::IssueRefresh);
+    }
+    if let Some(a) = handle_global_nav(key, app) { return Some(a); }
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => {
+            if app.issue_view.idx > 0 { app.issue_view.idx -= 1; }
+        }
+        (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
+            if app.issue_view.idx + 1 < app.issue_view.issues.len() { app.issue_view.idx += 1; }
+        }
+        (_, KeyCode::Char('o')) => {
+            app.issue_view.ops_mode = true;
+            app.issue_view.ops_idx = 0;
+        }
         _ => {}
     }
     None

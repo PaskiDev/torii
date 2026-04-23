@@ -42,6 +42,7 @@ const TABS: &[Tab] = &[
     Tab { key: "r", label: "remote",    view: View::Remote     },
     Tab { key: "w", label: "workspace", view: View::Workspace  },
     Tab { key: "n", label: "pr/mr",      view: View::Pr         },
+    Tab { key: "i", label: "issues",    view: View::Issue      },
     Tab { key: "g", label: "config",    view: View::Config     },
     Tab { key: "x", label: "settings",  view: View::Settings   },
 ];
@@ -104,6 +105,7 @@ pub fn render(f: &mut Frame, app: &App) {
         View::Mirror    => views::remote::render(f, app, content_rows[0]),
         View::Workspace => views::workspace::render(f, app, content_rows[0]),
         View::Pr        => views::pr::render(f, app, content_rows[0]),
+        View::Issue     => views::issue::render(f, app, content_rows[0]),
         View::Config    => views::config::render(f, app, content_rows[0]),
         View::Settings  => views::settings::render(f, app, content_rows[0]),
         View::Diff | View::Help => {}
@@ -696,6 +698,18 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                             Span::styled("█", Style::default().fg(bc)),
                         ])
                     }
+                    RemoteConfirm::EditUrl => {
+                        let name = app.remote_view.remotes.get(app.remote_view.idx)
+                            .map(|r| r.name.as_str()).unwrap_or("?");
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::styled("edit url for ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(name.to_string(), Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD)),
+                            Span::styled(": ", Style::default().fg(C_SUBTLE)),
+                            Span::styled(app.remote_view.new_url.clone(), Style::default().fg(C_WHITE)),
+                            Span::styled("█", Style::default().fg(bc)),
+                        ])
+                    }
                     RemoteConfirm::MirrorRename => {
                         let old = app.remote_view.selected_mirror()
                             .map(|m| m.name.as_str()).unwrap_or("?");
@@ -771,6 +785,63 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             }
         },
         View::Mirror => Line::from(vec![]),
+        View::Issue => {
+            use crate::tui::app::IssueConfirm;
+            if app.issue_view.ops_mode {
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                    Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Enter]", Style::default().fg(bc)),
+                    Span::styled(" run  ", Style::default().fg(C_SUBTLE)),
+                    Span::styled("[Esc]", Style::default().fg(bc)),
+                    Span::styled(" close", Style::default().fg(C_SUBTLE)),
+                ])
+            } else {
+                match &app.issue_view.confirm {
+                    IssueConfirm::CreateTitle => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("title  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    IssueConfirm::CreateDesc => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("description  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    IssueConfirm::Comment => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("comment  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" send  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    IssueConfirm::Close => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[y]", Style::default().fg(bc)),
+                        Span::styled(" confirm close  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[any]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    IssueConfirm::None => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" navigate  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[o]", Style::default().fg(bc)),
+                        Span::styled(" operations  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[^r]", Style::default().fg(bc)),
+                        Span::styled(" refresh", Style::default().fg(C_SUBTLE)),
+                    ]),
+                }
+            }
+        },
         View::Pr => {
             use crate::tui::app::PrConfirm;
             if app.pr_view.ops_mode {
@@ -801,19 +872,75 @@ fn render_hint(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
                         Span::styled("[any]", Style::default().fg(bc)),
                         Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
                     ]),
-                    PrConfirm::CreateTitle | PrConfirm::CreateBase => Line::from(vec![
+                    PrConfirm::CreateTitle => Line::from(vec![
                         Span::raw(" "),
                         Span::styled("[Enter]", Style::default().fg(bc)),
-                        Span::styled(" next step  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::CreateBase => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" select base  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
                         Span::styled("[Esc]", Style::default().fg(bc)),
                         Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
                     ]),
                     PrConfirm::CreateDesc => Line::from(vec![
                         Span::raw(" "),
                         Span::styled("[Enter]", Style::default().fg(bc)),
-                        Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[^S]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
                         Span::styled("[Tab]", Style::default().fg(bc)),
-                        Span::styled(" toggle draft  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled(" draft  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::CreatePlatforms => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[Space]", Style::default().fg(bc)),
+                        Span::styled(" toggle  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[a]", Style::default().fg(bc)),
+                        Span::styled(" all  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" create  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::SwitchPlatform => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" select  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" switch  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::EditTitle => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::EditDesc => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" new line  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[^S]", Style::default().fg(bc)),
+                        Span::styled(" next  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Esc]", Style::default().fg(bc)),
+                        Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
+                    ]),
+                    PrConfirm::EditBase => Line::from(vec![
+                        Span::raw(" "),
+                        Span::styled("[↑↓/jk]", Style::default().fg(bc)),
+                        Span::styled(" select base  ", Style::default().fg(C_SUBTLE)),
+                        Span::styled("[Enter]", Style::default().fg(bc)),
+                        Span::styled(" confirm  ", Style::default().fg(C_SUBTLE)),
                         Span::styled("[Esc]", Style::default().fg(bc)),
                         Span::styled(" cancel", Style::default().fg(C_SUBTLE)),
                     ]),

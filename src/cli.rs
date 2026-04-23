@@ -11,6 +11,8 @@ use crate::ssh::SshHelper;
 use crate::duration::parse_duration;
 use crate::versioning::AutoTagger;
 use crate::scanner;
+use crate::issue::{get_issue_client, CreateIssueOptions};
+use crate::pr::detect_platform_from_remote;
 
 fn parse_account_type(s: &str) -> Result<AccountType> {
     match s.to_lowercase().as_str() {
@@ -502,6 +504,19 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
         action: PrCommands,
     },
 
+    /// Manage issues
+    #[command(after_help = "Examples:
+  torii issue list                        List open issues
+  torii issue list --state closed         List closed issues
+  torii issue create -t \"bug: crash\"      Create issue
+  torii issue create -t \"title\" -d \"desc\" Create with description
+  torii issue close 42                    Close issue #42
+  torii issue comment 42 -m \"Fixed in v2\" Add a comment")]
+    Issue {
+        #[command(subcommand)]
+        action: IssueCommands,
+    },
+
     /// Open the interactive TUI dashboard
     #[command(after_help = "Examples:
   torii tui   Open dashboard (status, log, file navigation)")]
@@ -556,6 +571,32 @@ enum PrCommands {
     Open {
         /// PR number
         number: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum IssueCommands {
+    /// List issues
+    List {
+        #[arg(long, default_value = "open")]
+        state: String,
+    },
+    /// Create an issue
+    Create {
+        #[arg(short, long)]
+        title: String,
+        #[arg(short = 'd', long)]
+        description: Option<String>,
+    },
+    /// Close an issue
+    Close {
+        number: u64,
+    },
+    /// Add a comment to an issue
+    Comment {
+        number: u64,
+        #[arg(short, long)]
+        message: String,
     },
 }
 
@@ -1978,6 +2019,46 @@ impl Cli {
                             .stderr(std::process::Stdio::null())
                             .spawn();
                         println!("Opening: {}", pr.url);
+                    }
+                }
+            }
+
+            Commands::Issue { action } => {
+                let repo_path = std::env::current_dir()?.to_string_lossy().to_string();
+                let (platform, owner, repo_name) = detect_platform_from_remote(&repo_path)
+                    .ok_or_else(|| anyhow::anyhow!("Could not detect platform from remote origin"))?;
+                let client = get_issue_client(&platform)?;
+                match action {
+                    IssueCommands::List { state } => {
+                        let issues = client.list(&owner, &repo_name, &state)?;
+                        if issues.is_empty() {
+                            println!("No {} issues.", state);
+                        } else {
+                            for i in &issues {
+                                let labels = if i.labels.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" [{}]", i.labels.join(", "))
+                                };
+                                let comments = if i.comments > 0 { format!(" 💬{}", i.comments) } else { String::new() };
+                                println!("#{:<6} {}{}{}", i.number, i.title, labels, comments);
+                                println!("       {} → {}  by {}  {}", i.state, i.url, i.author, &i.created_at[..10]);
+                            }
+                        }
+                    }
+                    IssueCommands::Create { title, description } => {
+                        let opts = CreateIssueOptions { title: title.clone(), body: description.clone() };
+                        let issue = client.create(&owner, &repo_name, opts)?;
+                        println!("Created issue #{}: {}", issue.number, issue.title);
+                        println!("{}", issue.url);
+                    }
+                    IssueCommands::Close { number } => {
+                        client.close(&owner, &repo_name, *number)?;
+                        println!("✅ Closed issue #{}", number);
+                    }
+                    IssueCommands::Comment { number, message } => {
+                        client.comment(&owner, &repo_name, *number, message)?;
+                        println!("✅ Comment added to issue #{}", number);
                     }
                 }
             }
