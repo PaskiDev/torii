@@ -24,6 +24,25 @@ pub struct ToriiConfig {
     /// Platform auth tokens
     #[serde(default)]
     pub auth: AuthConfig,
+
+    /// Update notifier settings
+    #[serde(default)]
+    pub update: UpdateConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UpdateConfig {
+    /// Check crates.io for newer versions on CLI exit
+    pub check: bool,
+
+    /// Hours between checks (cached locally)
+    pub interval_hours: u64,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { check: true, interval_hours: 24 }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -145,6 +164,7 @@ impl Default for ToriiConfig {
                 date_format: "%Y-%m-%d %H:%M".to_string(),
             },
             auth: AuthConfig::default(),
+            update: UpdateConfig::default(),
         }
     }
 }
