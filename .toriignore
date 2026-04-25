@@ -20,3 +20,6 @@ Thumbs.db
 
 # Torii local config
 .torii/
+
+# Personal notes
+feedback.md
