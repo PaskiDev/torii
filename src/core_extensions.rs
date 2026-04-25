@@ -203,6 +203,64 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Interactive rebase from the root commit (`git rebase -i --root`)
+    pub fn rebase_root_interactive(&self) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+            println!("🔄 Starting interactive rebase from root...");
+            let status = std::process::Command::new("git")
+                .args(["rebase", "-i", "--root"])
+                .current_dir(&repo_path)
+                .status()?;
+            if !status.success() {
+                eprintln!("⚠️  Interactive rebase ended with conflicts or was aborted.");
+            } else {
+                println!("✅ Interactive rebase complete");
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            return Err(crate::error::ToriiError::InvalidConfig(
+                "Interactive rebase requires a Unix terminal. Not supported on this platform.".to_string()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Rebase from the root commit using a pre-written todo file
+    pub fn rebase_root_with_todo(&self, todo_file: &std::path::Path) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+            let todo_abs = todo_file.canonicalize().map_err(|_| {
+                crate::error::ToriiError::InvalidConfig(
+                    format!("Todo file not found: {}", todo_file.display())
+                )
+            })?;
+            println!("🔄 Rebasing from root using todo file: {}", todo_abs.display());
+            let editor = format!("cp {}", todo_abs.display());
+            let status = std::process::Command::new("git")
+                .args(["rebase", "-i", "--root"])
+                .env("GIT_SEQUENCE_EDITOR", &editor)
+                .current_dir(&repo_path)
+                .status()?;
+            if !status.success() {
+                eprintln!("⚠️  Rebase ended with conflicts or was aborted.");
+            } else {
+                println!("✅ Rebase complete");
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = todo_file;
+            return Err(crate::error::ToriiError::InvalidConfig(
+                "Interactive rebase with todo file requires a Unix shell. Not supported on this platform.".to_string()
+            ));
+        }
+        Ok(())
+    }
+
     /// Continue an in-progress rebase
     pub fn rebase_continue(&self) -> Result<()> {
         let mut rebase = self.repo.open_rebase(None)
@@ -358,6 +416,24 @@ impl GitRepo {
     }
 
     /// Create a new branch
+    /// Create an orphan branch — sets HEAD to refs/heads/<name> without any parent.
+    /// The next commit will be a new root. Index and working tree are left intact
+    /// so the user can stage what they want before the first commit.
+    pub fn create_orphan_branch(&self, name: &str) -> Result<()> {
+        let refname = format!("refs/heads/{}", name);
+        // Reject if branch already exists
+        if self.repository().find_reference(&refname).is_ok() {
+            return Err(crate::error::ToriiError::InvalidConfig(
+                format!("Branch '{}' already exists", name)
+            ));
+        }
+        // Point HEAD at the (yet-unborn) ref. libgit2 allows symbolic HEAD
+        // pointing to a non-existent branch — the first commit will create it.
+        self.repository().set_head(&refname)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        Ok(())
+    }
+
     pub fn create_branch(&self, name: &str) -> Result<()> {
         let head = self.repository().head()?.peel_to_commit()?;
         self.repository().branch(name, &head, false)?;
@@ -616,6 +692,19 @@ impl GitRepo {
             if let Some(new_oid) = old_to_new.get(&old_oid) {
                 let refname = format!("refs/heads/{}", name);
                 let _ = self.repo.reference(&refname, *new_oid, true, "remove file from history");
+            }
+        }
+
+        // Sync working tree + index with the new HEAD so subsequent operations
+        // (notably `save --amend`) don't see the pre-rewrite state cached in the index.
+        if let Ok(head) = self.repo.head() {
+            if let Ok(commit) = head.peel_to_commit() {
+                let mut checkout = git2::build::CheckoutBuilder::default();
+                checkout.force();
+                let _ = self.repo.checkout_tree(commit.as_object(), Some(&mut checkout));
+                let mut index = self.repo.index().map_err(|e| crate::error::ToriiError::Git(e))?;
+                let _ = index.read_tree(&commit.tree().map_err(|e| crate::error::ToriiError::Git(e))?);
+                let _ = index.write();
             }
         }
 

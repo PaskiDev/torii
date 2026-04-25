@@ -81,9 +81,9 @@ enum Commands {
   torii save --revert abc1234 -m \"revert\"      Revert a specific commit
   torii save --reset HEAD~1 --reset-mode soft  Undo last commit, keep changes")]
     Save {
-        /// Commit message
-        #[arg(short, long)]
-        message: String,
+        /// Commit message (required for commit/amend; ignored with --reset/--revert)
+        #[arg(short, long, required_unless_present_any = ["reset", "revert"])]
+        message: Option<String>,
 
         /// Stage all changes before committing
         #[arg(short, long)]
@@ -101,12 +101,15 @@ enum Commands {
         #[arg(long, value_name = "HASH")]
         revert: Option<String>,
 
-        /// Reset to a specific commit (soft keeps changes staged, mixed unstages, hard discards)
+        /// Reset to a specific commit (no commit message needed)
         #[arg(long, value_name = "HASH")]
         reset: Option<String>,
 
-        /// Reset mode: soft, mixed, or hard (default: mixed)
-        #[arg(long, default_value = "mixed")]
+        /// Reset mode (default: mixed):
+        ///   soft  — keep changes staged
+        ///   mixed — keep changes in working tree, unstaged
+        ///   hard  — discard all changes
+        #[arg(long, default_value = "mixed", verbatim_doc_comment)]
         reset_mode: String,
     },
 
@@ -158,6 +161,21 @@ enum Commands {
     #[command(after_help = "Examples:
   torii status    Show staged, unstaged, and untracked files")]
     Status,
+
+    /// Unstage one or more paths (keeps file in working tree)
+    #[command(after_help = "Examples:
+  torii unstage src/secret.rs                 Remove a single file from index
+  torii unstage .env config/                  Multiple paths and directories
+  torii unstage --all                         Unstage everything")]
+    Unstage {
+        /// Paths to unstage
+        #[arg(value_name = "PATHS")]
+        paths: Vec<PathBuf>,
+
+        /// Unstage all paths in the index
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Show commit history
     #[command(after_help = "Examples:
@@ -225,6 +243,7 @@ enum Commands {
   torii branch                      List local branches
   torii branch --all                List local and remote branches
   torii branch feature/auth -c      Create and switch to branch
+  torii branch gh-pages -c --orphan Create orphan branch (no history)
   torii branch main                 Switch to existing branch
   torii branch -d feature/auth              Delete local branch
   torii branch -d feature/auth --force      Force delete (not merged)
@@ -237,6 +256,10 @@ enum Commands {
         /// Create new branch and switch to it
         #[arg(short, long)]
         create: bool,
+
+        /// Create the branch with no parents/history (requires -c)
+        #[arg(long)]
+        orphan: bool,
 
         /// Delete local branch by name
         #[arg(short, long)]
@@ -770,6 +793,36 @@ enum RemoteCommands {
     },
     /// List remotes configured in the current repository
     Local,
+
+    /// Link an existing remote repo to local (writes origin without touching the platform)
+    #[command(after_help = "Examples:
+  torii remote link github user/repo            Link via SSH (default)
+  torii remote link gitlab user/repo --https    Link via HTTPS
+  torii remote link --url git@host:owner/repo.git
+  torii remote link my-fork github user/repo    Use a remote name other than 'origin'")]
+    Link {
+        /// Optional remote name (default: origin)
+        #[arg(long, default_value = "origin")]
+        name: String,
+
+        /// Platform shortcut: github, gitlab, codeberg, bitbucket, gitea, forgejo, sourcehut
+        platform: Option<String>,
+
+        /// owner/repo on the platform
+        repo: Option<String>,
+
+        /// Use HTTPS instead of SSH
+        #[arg(long)]
+        https: bool,
+
+        /// Provide a full URL directly (bypasses platform/repo)
+        #[arg(long, value_name = "URL")]
+        url: Option<String>,
+
+        /// Replace existing remote with the same name
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -845,6 +898,10 @@ enum HistoryCommands {
         /// Path to a pre-written rebase todo file (skips editor)
         #[arg(long, value_name = "FILE")]
         todo_file: Option<PathBuf>,
+
+        /// Rebase from the root commit (no target needed; useful to squash initial commits)
+        #[arg(long)]
+        root: bool,
 
         /// Continue an in-progress rebase
         #[arg(long)]
@@ -1120,12 +1177,15 @@ impl Cli {
                         }
                     }
 
+                    let msg = message.as_deref().ok_or_else(|| anyhow::anyhow!(
+                        "--message/-m is required for commit/amend"
+                    ))?;
                     if *amend {
-                        repo.commit_amend(message)?;
-                        println!("✅ Commit amended: {}", message);
+                        repo.commit_amend(msg)?;
+                        println!("✅ Commit amended: {}", msg);
                     } else {
-                        repo.commit(message)?;
-                        println!("✅ Changes saved: {}", message);
+                        repo.commit(msg)?;
+                        println!("✅ Changes saved: {}", msg);
                     }
                 }
             }
@@ -1184,6 +1244,23 @@ impl Cli {
                 repo.status()?;
             }
 
+            Commands::Unstage { paths, all } => {
+                let repo = GitRepo::open(".")?;
+                if *all {
+                    if !paths.is_empty() {
+                        anyhow::bail!("Pass either --all or specific paths, not both");
+                    }
+                    repo.unstage_all()?;
+                    println!("✅ Unstaged all paths");
+                } else {
+                    if paths.is_empty() {
+                        anyhow::bail!("Provide at least one path or use --all");
+                    }
+                    repo.unstage(paths)?;
+                    println!("✅ Unstaged {} path(s)", paths.len());
+                }
+            }
+
             Commands::Log { count, oneline, graph, author, since, until, grep, stat } => {
                 let repo = GitRepo::open(".")?;
                 repo.log(*count, *oneline, *graph, author.as_deref(), since.as_deref(), until.as_deref(), grep.as_deref(), *stat)?;
@@ -1194,7 +1271,7 @@ impl Cli {
                 repo.diff(*staged, *last)?;
             }
 
-            Commands::Branch { name, create, delete, force, delete_remote, list, rename, all } => {
+            Commands::Branch { name, create, orphan, delete, force, delete_remote, list, rename, all } => {
                 let repo = GitRepo::open(".")?;
 
                 if *list || *all {
@@ -1252,13 +1329,17 @@ impl Cli {
                     repo.rename_branch(&current, new_name)?;
                     println!("✅ Renamed branch {} to {}", current, new_name);
                 } else if let Some(branch_name) = name {
-                    if *create {
-                        // Create and switch to new branch
+                    if *orphan && !*create {
+                        anyhow::bail!("--orphan requires -c/--create");
+                    }
+                    if *create && *orphan {
+                        repo.create_orphan_branch(branch_name)?;
+                        println!("✅ Created orphan branch: {} (no parents — first commit will be a new root)", branch_name);
+                    } else if *create {
                         repo.create_branch(branch_name)?;
                         repo.switch_branch(branch_name)?;
                         println!("✅ Created and switched to branch: {}", branch_name);
                     } else {
-                        // Just switch to existing branch
                         repo.switch_branch(branch_name)?;
                         println!("✅ Switched to branch: {}", branch_name);
                     }
@@ -1706,6 +1787,54 @@ impl Cli {
                             }
                         }
                     }
+                    RemoteCommands::Link { name, platform, repo, https, url, force } => {
+                        let resolved_url = if let Some(u) = url {
+                            u.clone()
+                        } else {
+                            let plat = platform.as_deref().ok_or_else(|| anyhow::anyhow!(
+                                "Provide --url <URL> or <platform> <owner>/<repo>"
+                            ))?;
+                            let owner_repo = repo.as_deref().ok_or_else(|| anyhow::anyhow!(
+                                "Missing <owner>/<repo>"
+                            ))?;
+                            let (ssh_host, https_host) = match plat {
+                                "github"    => ("github.com", "github.com"),
+                                "gitlab"    => ("gitlab.com", "gitlab.com"),
+                                "codeberg"  => ("codeberg.org", "codeberg.org"),
+                                "bitbucket" => ("bitbucket.org", "bitbucket.org"),
+                                "gitea"     => ("gitea.com", "gitea.com"),
+                                "forgejo"   => ("codeberg.org", "codeberg.org"),
+                                "sourcehut" => ("git.sr.ht", "git.sr.ht"),
+                                _ => anyhow::bail!(
+                                    "Unknown platform '{}'. Supported: github, gitlab, codeberg, bitbucket, gitea, forgejo, sourcehut",
+                                    plat
+                                ),
+                            };
+                            let use_ssh = if *https { false } else { SshHelper::has_ssh_keys() };
+                            if use_ssh {
+                                format!("git@{}:{}.git", ssh_host, owner_repo)
+                            } else {
+                                format!("https://{}/{}.git", https_host, owner_repo)
+                            }
+                        };
+
+                        let git_repo = GitRepo::open(".")?;
+                        let inner = git_repo.repository();
+                        let exists = inner.find_remote(name).is_ok();
+                        if exists {
+                            if !*force {
+                                anyhow::bail!(
+                                    "Remote '{}' already exists. Use --force to overwrite, or 'torii remote local' to inspect.",
+                                    name
+                                );
+                            }
+                            inner.remote_set_url(name, &resolved_url)?;
+                            println!("🔗 Updated remote '{}' → {}", name, resolved_url);
+                        } else {
+                            inner.remote(name, &resolved_url)?;
+                            println!("🔗 Linked remote '{}' → {}", name, resolved_url);
+                        }
+                    }
                     RemoteCommands::List { platform } => {
                         let client = get_platform_client(platform)?;
                         println!("📋 Fetching repositories from {}...", platform);
@@ -1926,24 +2055,30 @@ impl Cli {
                             }
                         }
                     }
-                    HistoryCommands::Rebase { target, interactive, todo_file, r#continue, abort, skip } => {
+                    HistoryCommands::Rebase { target, interactive, todo_file, root, r#continue, abort, skip } => {
                         if *r#continue {
                             repo.rebase_continue()?;
                         } else if *abort {
                             repo.rebase_abort()?;
                         } else if *skip {
                             repo.rebase_skip()?;
+                        } else if *root {
+                            if let Some(todo) = todo_file {
+                                repo.rebase_root_with_todo(todo)?;
+                            } else {
+                                repo.rebase_root_interactive()?;
+                            }
                         } else if let Some(todo) = todo_file {
-                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase <base> --todo-file plan.txt"))?;
+                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase <base> --todo-file plan.txt (or use --root)"))?;
                             repo.rebase_with_todo(base, todo)?;
                         } else if *interactive {
-                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase HEAD~3 --interactive"))?;
+                            let base = target.as_deref().ok_or_else(|| anyhow::anyhow!("Target required: torii history rebase HEAD~3 --interactive (or use --root)"))?;
                             repo.rebase_interactive(base)?;
                         } else if let Some(base) = target {
                             repo.rebase_branch(base)?;
                             println!("✅ Rebased onto: {}", base);
                         } else {
-                            anyhow::bail!("Specify a target or use --interactive / --todo-file / --continue / --abort / --skip");
+                            anyhow::bail!("Specify a target or use --root / --interactive / --todo-file / --continue / --abort / --skip");
                         }
                     }
                 }

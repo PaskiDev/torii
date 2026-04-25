@@ -1,5 +1,5 @@
 use git2::{Repository, Signature, IndexAddOption, StatusOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use crate::error::{Result, ToriiError};
 
 pub struct GitRepo {
@@ -63,6 +63,40 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Unstage paths — equivalent to `git reset HEAD -- <paths>` (or `git rm --cached`
+    /// for files that were never committed). Keeps files on disk.
+    pub fn unstage<P: AsRef<Path>>(&self, paths: &[P]) -> Result<()> {
+        match self.repo.head() {
+            Ok(head) => {
+                let head_obj = head.peel(git2::ObjectType::Commit)?;
+                let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_ref()).collect();
+                self.repo.reset_default(Some(&head_obj), path_refs.iter())?;
+            }
+            Err(_) => {
+                // No HEAD yet (root commit not made) — drop entries from index directly
+                let mut index = self.repo.index()?;
+                for path in paths {
+                    let _ = index.remove_path(path.as_ref());
+                }
+                index.write()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Unstage all paths currently in the index.
+    pub fn unstage_all(&self) -> Result<()> {
+        let index = self.repo.index()?;
+        let paths: Vec<PathBuf> = index
+            .iter()
+            .filter_map(|e| std::str::from_utf8(&e.path).ok().map(PathBuf::from))
+            .collect();
+        if paths.is_empty() {
+            return Ok(());
+        }
+        self.unstage(&paths)
+    }
+
     /// Commit changes
     pub fn commit(&self, message: &str) -> Result<()> {
         let sig = self.get_signature()?;
@@ -96,24 +130,37 @@ impl GitRepo {
         let mut index = self.repo.index()?;
         let tree_id = index.write_tree()?;
         let tree = self.repo.find_tree(tree_id)?;
-        
-        // Get the current HEAD commit
-        let head_commit = self.repo.head()?.peel_to_commit()?;
-        
-        // Get the parents of the current commit (to preserve them)
+
+        // Resolve HEAD via the branch ref directly to dodge stale internal state
+        // after operations like history rewrite.
+        let head_ref = self.repo.head()?;
+        let head_oid = head_ref.target()
+            .ok_or_else(|| ToriiError::InvalidConfig("HEAD has no target".to_string()))?;
+        let head_commit = self.repo.find_commit(head_oid)?;
+
         let parents: Vec<_> = head_commit.parents().collect();
         let parent_refs: Vec<_> = parents.iter().collect();
-        
-        // Amend by creating a new commit with the same parents
-        self.repo.commit(
-            Some("HEAD"),
+
+        let new_oid = self.repo.commit(
+            None,
             &sig,
             &sig,
             message,
             &tree,
             &parent_refs,
         )?;
-        
+
+        // Move HEAD (or the underlying branch ref) to the new commit explicitly,
+        // bypassing libgit2's "first parent" check that fails when HEAD was
+        // rewritten just before this call.
+        if head_ref.is_branch() {
+            if let Some(refname) = head_ref.name() {
+                self.repo.reference(refname, new_oid, true, "amend")?;
+            }
+        } else {
+            self.repo.set_head_detached(new_oid)?;
+        }
+
         Ok(())
     }
     
@@ -157,8 +204,9 @@ impl GitRepo {
         callbacks
     }
 
-    /// Pull from remote
+    /// Pull from remote (fetch + fast-forward merge of current branch)
     pub fn pull(&self) -> Result<()> {
+        let branch = self.get_current_branch()?;
         let mut remote = self.repo.find_remote("origin")?;
 
         let remote_url = remote.url().unwrap_or("").to_string();
@@ -167,25 +215,29 @@ impl GitRepo {
         let mut fetch_options = git2::FetchOptions::new();
         fetch_options.remote_callbacks(callbacks);
 
-        remote.fetch(&["main", "master"], Some(&mut fetch_options), None)?;
-        
-        // Simple fast-forward merge
+        remote.fetch(&[&branch], Some(&mut fetch_options), None)?;
+
         let fetch_head = self.repo.find_reference("FETCH_HEAD")?;
         let fetch_commit = self.repo.reference_to_annotated_commit(&fetch_head)?;
-        
+
         let analysis = self.repo.merge_analysis(&[&fetch_commit])?;
-        
+
         if analysis.0.is_up_to_date() {
-            // nothing to do
-        } else if analysis.0.is_fast_forward() {
-            let refname = "refs/heads/main";
-            let mut reference = self.repo.find_reference(refname)?;
+            return Ok(());
+        }
+        if analysis.0.is_fast_forward() {
+            let refname = format!("refs/heads/{}", branch);
+            let mut reference = self.repo.find_reference(&refname)?;
             reference.set_target(fetch_commit.id(), "Fast-forward")?;
-            self.repo.set_head(refname)?;
+            self.repo.set_head(&refname)?;
             self.repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            return Ok(());
         }
 
-        Ok(())
+        Err(ToriiError::InvalidConfig(format!(
+            "Pull not fast-forward on '{}'. Local and remote diverged. Use 'torii sync {} --merge' or 'torii sync {} --rebase' to integrate.",
+            branch, branch, branch
+        )))
     }
 
     /// Push to remote
