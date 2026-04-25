@@ -151,12 +151,19 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("  /  ", Style::default().fg(C_DIM)),
         Span::styled(repo_name, Style::default().fg(C_WHITE).add_modifier(Modifier::BOLD)),
     ];
-    let right_spans: Vec<Span> = vec![
+    let mut right_spans: Vec<Span> = Vec::new();
+    if let Some(new_v) = &app.update_available {
+        right_spans.push(Span::styled(
+            format!("⬆ v{} available  ", new_v),
+            Style::default().fg(C_YELLOW).add_modifier(Modifier::BOLD),
+        ));
+    }
+    right_spans.extend(vec![
         Span::styled("branch: ", Style::default().fg(C_SUBTLE)),
         Span::styled(&app.branch, Style::default().fg(C_GREEN).add_modifier(Modifier::BOLD)),
         Span::styled("  status: ", Style::default().fg(C_SUBTLE)),
         Span::styled(status_label, Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
-    ];
+    ]);
     let left_len: usize = left_spans.iter().map(|s| s.content.chars().count()).sum::<usize>() + 1;
     let right_len: usize = right_spans.iter().map(|s| s.content.chars().count()).sum::<usize>() + 1;
     let pad = inner_w.saturating_sub(left_len + right_len);

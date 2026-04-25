@@ -77,6 +77,14 @@ fn run_loop(
     loop {
         app.tick = app.tick.wrapping_add(1);
 
+        // Poll update check result (background thread)
+        if let Some(rx) = &app.update_rx {
+            if let Ok(v) = rx.try_recv() {
+                app.update_available = Some(v);
+                app.update_rx = None;
+            }
+        }
+
         // Poll sync result from background thread
         if let Some(rx) = &app.sync_rx {
             if let Ok(result) = rx.try_recv() {

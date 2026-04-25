@@ -952,6 +952,10 @@ pub struct App {
     pub repo_picker_open: bool,
     pub repo_picker_idx: usize,
     pub active_workspace: Option<String>, // nombre del workspace activo, None si llegó por picker/carpeta
+
+    /// New version available on crates.io (set asynchronously after launch)
+    pub update_available: Option<String>,
+    pub update_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 impl App {
@@ -997,10 +1001,25 @@ impl App {
             repo_picker_open: false,
             repo_picker_idx: 0,
             active_workspace: None,
+            update_available: None,
+            update_rx: None,
         };
         app.refresh()?;
         app.load_workspaces();
+        app.spawn_update_check();
         Ok(app)
+    }
+
+    /// Run the update check on a background thread so it never blocks the TUI.
+    /// Result (if any) is delivered via `update_rx` and polled in the main loop.
+    fn spawn_update_check(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.update_rx = Some(rx);
+        std::thread::spawn(move || {
+            if let Some(v) = crate::updater::check() {
+                let _ = tx.send(v);
+            }
+        });
     }
 
     fn view_for_idx(idx: usize) -> View {
