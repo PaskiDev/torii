@@ -32,7 +32,7 @@ fn parse_protocol(s: Option<&String>) -> Protocol {
                 Protocol::SSH
             } else {
                 println!("⚠️  No SSH keys detected. Using HTTPS protocol.");
-                println!("   Run 'torii ssh-check' for SSH setup instructions.\n");
+                println!("   Run 'torii config check-ssh' for SSH setup instructions.\n");
                 Protocol::HTTPS
             }
         }
@@ -79,17 +79,19 @@ enum Commands {
   torii save src/auth.rs -m \"fix: token\"       Stage specific file and commit
   torii save --amend -m \"fix: typo\"            Amend last commit message
   torii save --revert abc1234 -m \"revert\"      Revert a specific commit
-  torii save --reset HEAD~1 --reset-mode soft  Undo last commit, keep changes")]
+  torii save --reset HEAD~1 --reset-mode soft  Undo last commit, keep changes
+  torii save --unstage src/secret.rs            Remove a path from the index
+  torii save --unstage --all                    Unstage everything")]
     Save {
-        /// Commit message (required for commit/amend; ignored with --reset/--revert)
-        #[arg(short, long, required_unless_present_any = ["reset", "revert"])]
+        /// Commit message (required for commit/amend; ignored with --reset/--revert/--unstage)
+        #[arg(short, long, required_unless_present_any = ["reset", "revert", "unstage"])]
         message: Option<String>,
 
-        /// Stage all changes before committing
+        /// Stage all changes before committing (or, with --unstage, unstage all paths)
         #[arg(short, long)]
         all: bool,
 
-        /// Specific files to stage before committing
+        /// Specific files to stage before committing (or unstage with --unstage)
         #[arg(value_name = "FILES")]
         files: Vec<PathBuf>,
 
@@ -111,6 +113,10 @@ enum Commands {
         ///   hard  — discard all changes
         #[arg(long, default_value = "mixed", verbatim_doc_comment)]
         reset_mode: String,
+
+        /// Unstage paths instead of committing (kept on disk). Use with FILES or --all.
+        #[arg(long, conflicts_with_all = ["amend", "revert", "reset"])]
+        unstage: bool,
     },
 
     /// Sync with remote (pull+push) or integrate a branch
@@ -155,27 +161,16 @@ enum Commands {
         /// Preview integration without executing
         #[arg(long)]
         preview: bool,
+
+        /// Verify local vs remote head without pulling/pushing
+        #[arg(long)]
+        verify: bool,
     },
 
     /// Show repository status
     #[command(after_help = "Examples:
   torii status    Show staged, unstaged, and untracked files")]
     Status,
-
-    /// Unstage one or more paths (keeps file in working tree)
-    #[command(after_help = "Examples:
-  torii unstage src/secret.rs                 Remove a single file from index
-  torii unstage .env config/                  Multiple paths and directories
-  torii unstage --all                         Unstage everything")]
-    Unstage {
-        /// Paths to unstage
-        #[arg(value_name = "PATHS")]
-        paths: Vec<PathBuf>,
-
-        /// Unstage all paths in the index
-        #[arg(long)]
-        all: bool,
-    },
 
     /// Show commit history
     #[command(after_help = "Examples:
@@ -221,6 +216,10 @@ enum Commands {
         /// Show file change statistics per commit
         #[arg(long)]
         stat: bool,
+
+        /// Show reflog (HEAD movement history) instead of commit log
+        #[arg(long)]
+        reflog: bool,
     },
 
     /// Show unstaged or staged changes
@@ -236,6 +235,47 @@ enum Commands {
         /// Show last commit diff
         #[arg(long)]
         last: bool,
+    },
+
+    /// Show who changed each line of a file
+    #[command(after_help = "Examples:
+  torii blame src/main.rs               Annotate every line
+  torii blame src/main.rs -L 10,20      Limit to lines 10-20")]
+    Blame {
+        /// File to blame
+        file: String,
+
+        /// Line range (e.g., 10,20)
+        #[arg(short = 'L', long)]
+        lines: Option<String>,
+    },
+
+    /// Scan for sensitive data (secrets, tokens, keys)
+    #[command(after_help = "Examples:
+  torii scan                Scan staged files (used automatically by 'save')
+  torii scan --history      Scan the entire git history")]
+    Scan {
+        /// Scan the entire git history instead of only staged files
+        #[arg(long)]
+        history: bool,
+    },
+
+    /// Apply a commit from another branch to the current branch
+    #[command(name = "cherry-pick", after_help = "Examples:
+  torii cherry-pick abc1234           Apply a commit
+  torii cherry-pick --continue        Resume after resolving conflicts
+  torii cherry-pick --abort           Abort an in-progress cherry-pick")]
+    CherryPick {
+        /// Commit hash to cherry-pick
+        commit: Option<String>,
+
+        /// Continue after resolving conflicts
+        #[arg(long)]
+        r#continue: bool,
+
+        /// Abort cherry-pick
+        #[arg(long)]
+        abort: bool,
     },
 
     /// Manage branches
@@ -354,12 +394,13 @@ Auto-bump rules (Conventional Commits):
 
     /// Mirror repository across multiple platforms
     #[command(after_help = "Examples:
-  torii mirror add-master gitlab user paskidev myrepo    Set GitLab as primary
-  torii mirror add-slave github user paskidev myrepo     Add GitHub as mirror
-  torii mirror sync                                      Push to all mirrors
+  torii mirror add gitlab user paskidev myrepo --primary  Set GitLab as primary (source of truth)
+  torii mirror add github user paskidev myrepo           Add GitHub as a replica mirror
+  torii mirror promote github paskidev                   Promote a mirror to primary
+  torii mirror sync                                      Push to all replica mirrors
   torii mirror sync --force                              Force push to all mirrors
   torii mirror list                                      List configured mirrors
-  torii mirror remove github user                        Remove a mirror
+  torii mirror remove github paskidev                    Remove a mirror
   torii mirror autofetch --enable --interval 30m         Auto-fetch every 30 min
   torii mirror autofetch --disable                       Disable auto-fetch
   torii mirror autofetch --status                        Show autofetch status
@@ -368,15 +409,6 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
     Mirror {
         #[command(subcommand)]
         action: MirrorCommands,
-    },
-
-    /// List all tracked files
-    #[command(after_help = "Examples:
-  torii ls           List all tracked files
-  torii ls src/      List tracked files under src/")]
-    Ls {
-        /// Filter by path prefix (e.g. src/)
-        path: Option<String>,
     },
 
     /// Show commit, tag, or file details
@@ -398,11 +430,6 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
         #[arg(short = 'L', long, requires = "blame")]
         lines: Option<String>,
     },
-
-    /// Check and troubleshoot SSH configuration
-    #[command(after_help = "Examples:
-  torii ssh-check    Verify SSH keys and show setup instructions if needed")]
-    SshCheck,
 
     /// Manage commit history (rebase, cherry-pick, blame, scan)
     #[command(after_help = "Examples:
@@ -466,48 +493,6 @@ Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo")]
     Remote {
         #[command(subcommand)]
         action: RemoteCommands,
-    },
-
-    /// Batch operations on multiple platforms
-    Repo {
-        /// Repository name
-        name: String,
-        
-        /// Platforms (comma-separated: github,gitlab,codeberg)
-        #[arg(long, value_delimiter = ',', num_args = 1..)]
-        platforms: Vec<String>,
-        
-        /// Create repository
-        #[arg(long)]
-        create: bool,
-        
-        /// Delete repository
-        #[arg(long)]
-        delete: bool,
-        
-        /// Make public
-        #[arg(long)]
-        public: bool,
-        
-        /// Make private
-        #[arg(long)]
-        private: bool,
-        
-        /// Description
-        #[arg(long)]
-        description: Option<String>,
-        
-        /// Push after creation
-        #[arg(long)]
-        push: bool,
-        
-        /// Skip confirmation
-        #[arg(short = 'y', long)]
-        yes: bool,
-        
-        /// Owner/username
-        #[arg(long)]
-        owner: Option<String>,
     },
 
     /// Manage multi-repo workspaces
@@ -727,13 +712,24 @@ enum ConfigCommands {
         #[arg(long)]
         local: bool,
     },
+
+    /// Check SSH configuration and show setup instructions
+    #[command(name = "check-ssh")]
+    CheckSsh,
 }
 
 #[derive(Subcommand)]
 enum RemoteCommands {
-    /// Create a new remote repository
+    /// Create a new remote repository on one or more platforms
+    #[command(after_help = "Examples:
+  torii remote create github myrepo                      One platform
+  torii remote create github,gitlab,codeberg myrepo      Multiple platforms (comma-separated)
+  torii remote create github myrepo --private --push     Create + link origin + push")]
     Create {
-        platform: String,
+        /// Platform (or comma-separated list): github, gitlab, codeberg, bitbucket, gitea, forgejo
+        #[arg(value_delimiter = ',')]
+        platforms: String,
+        /// Repository name
         name: String,
         #[arg(short, long)]
         description: Option<String>,
@@ -744,8 +740,10 @@ enum RemoteCommands {
         #[arg(long)]
         push: bool,
     },
+    /// Delete a remote repository on one or more platforms
     Delete {
-        platform: String,
+        /// Platform (or comma-separated list)
+        platforms: String,
         owner: String,
         repo: String,
         #[arg(short = 'y', long)]
@@ -831,59 +829,18 @@ enum HistoryCommands {
     Rewrite {
         /// Start date (YYYY-MM-DD HH:MM)
         start: String,
-        
+
         /// End date (YYYY-MM-DD HH:MM)
         end: String,
     },
-    
+
     /// Clean repository history
     Clean,
-
-    /// Verify remote repository
-    VerifyRemote,
-
-    /// Show reflog (reference log of HEAD movements)
-    Reflog {
-        /// Number of entries to show
-        #[arg(short = 'n', long, default_value = "20")]
-        count: usize,
-    },
 
     /// Remove a file from the entire git history
     RemoveFile {
         /// File path to remove from all commits
         file: String,
-    },
-
-    /// Apply a commit from another branch to current branch
-    CherryPick {
-        /// Commit hash to cherry-pick
-        commit: Option<String>,
-
-        /// Continue after resolving conflicts
-        #[arg(long)]
-        r#continue: bool,
-
-        /// Abort cherry-pick
-        #[arg(long)]
-        abort: bool,
-    },
-
-    /// Show who changed each line of a file
-    Blame {
-        /// File to blame
-        file: String,
-
-        /// Line range (e.g., 10,20)
-        #[arg(short = 'L', long)]
-        lines: Option<String>,
-    },
-
-    /// Scan staged files or full history for sensitive data
-    Scan {
-        /// Scan the entire git history instead of only staged files
-        #[arg(long)]
-        history: bool,
     },
 
     /// Rebase current branch onto a target
@@ -980,14 +937,26 @@ enum SnapshotCommands {
 
 #[derive(Debug, Subcommand)]
 enum TagCommands {
-    /// Create a new tag
+    /// Create a new tag (or auto-bump the next release tag with --release)
     Create {
-        /// Tag name
-        name: String,
+        /// Tag name (omit when using --release)
+        name: Option<String>,
 
         /// Tag message (creates annotated tag)
         #[arg(short, long)]
         message: Option<String>,
+
+        /// Auto-bump the next version from conventional commits since last tag
+        #[arg(long)]
+        release: bool,
+
+        /// Force a specific bump (used with --release): major, minor, patch
+        #[arg(long, requires = "release")]
+        bump: Option<String>,
+
+        /// Preview the next version without creating the tag (used with --release)
+        #[arg(long, requires = "release")]
+        dry_run: bool,
     },
 
     /// List all tags
@@ -1010,23 +979,12 @@ enum TagCommands {
         /// Tag name
         name: String,
     },
-
-    /// Create the next release tag based on conventional commits since last tag
-    Release {
-        /// Force a specific bump: major, minor, patch
-        #[arg(long)]
-        bump: Option<String>,
-
-        /// Preview the next version without creating the tag
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
 
 #[derive(Subcommand)]
 enum MirrorCommands {
-    /// Add primary mirror (main repository)
-    AddPrimary {
+    /// Add a mirror (replica by default; use --primary for the source of truth)
+    Add {
         /// Platform (github, gitlab, bitbucket, codeberg)
         platform: String,
 
@@ -1039,24 +997,9 @@ enum MirrorCommands {
         /// Repository name
         repo: String,
 
-        /// Protocol (ssh or https, defaults to ssh)
-        #[arg(short, long)]
-        protocol: Option<String>,
-    },
-
-    /// Add replica mirror (will sync from master)
-    AddReplica {
-        /// Platform (github, gitlab, bitbucket, codeberg)
-        platform: String,
-
-        /// Account type (user or org)
-        account_type: String,
-
-        /// Account name (username or organization)
-        account: String,
-
-        /// Repository name
-        repo: String,
+        /// Mark this mirror as the primary (source of truth). Default: replica.
+        #[arg(long)]
+        primary: bool,
 
         /// Protocol (ssh or https, defaults to ssh)
         #[arg(short, long)]
@@ -1073,8 +1016,8 @@ enum MirrorCommands {
         force: bool,
     },
 
-    /// Set a mirror as primary
-    SetPrimary {
+    /// Promote a mirror to primary (source of truth)
+    Promote {
         /// Platform
         platform: String,
 
@@ -1133,8 +1076,25 @@ impl Cli {
                 println!("   Created .toriignore with default patterns");
             }
 
-            Commands::Save { message, all, files, amend, revert, reset, reset_mode } => {
+            Commands::Save { message, all, files, amend, revert, reset, reset_mode, unstage } => {
                 let repo = GitRepo::open(".")?;
+
+                if *unstage {
+                    if *all {
+                        if !files.is_empty() {
+                            anyhow::bail!("Pass either --all or specific paths, not both");
+                        }
+                        repo.unstage_all()?;
+                        println!("✅ Unstaged all paths");
+                    } else {
+                        if files.is_empty() {
+                            anyhow::bail!("Provide at least one path or use --all");
+                        }
+                        repo.unstage(files)?;
+                        println!("✅ Unstaged {} path(s)", files.len());
+                    }
+                    return Ok(());
+                }
 
                 if let Some(commit_hash) = reset {
                     repo.reset_commit(commit_hash, reset_mode)?;
@@ -1190,10 +1150,14 @@ impl Cli {
                 }
             }
 
-            Commands::Sync { branch, pull, push, force, fetch, merge, rebase, preview } => {
+            Commands::Sync { branch, pull, push, force, fetch, merge, rebase, preview, verify } => {
                 let repo = GitRepo::open(".")?;
-                
-                // If branch is specified, integrate it
+
+                if *verify {
+                    repo.verify_remote()?;
+                    return Ok(());
+                }
+
                 if let Some(branch_name) = branch {
                     if *preview {
                         println!("🔍 Preview: Would integrate branch '{}'", branch_name);
@@ -1244,31 +1208,39 @@ impl Cli {
                 repo.status()?;
             }
 
-            Commands::Unstage { paths, all } => {
+            Commands::Log { count, oneline, graph, author, since, until, grep, stat, reflog } => {
                 let repo = GitRepo::open(".")?;
-                if *all {
-                    if !paths.is_empty() {
-                        anyhow::bail!("Pass either --all or specific paths, not both");
-                    }
-                    repo.unstage_all()?;
-                    println!("✅ Unstaged all paths");
+                if *reflog {
+                    repo.show_reflog(count.unwrap_or(20))?;
                 } else {
-                    if paths.is_empty() {
-                        anyhow::bail!("Provide at least one path or use --all");
-                    }
-                    repo.unstage(paths)?;
-                    println!("✅ Unstaged {} path(s)", paths.len());
+                    repo.log(*count, *oneline, *graph, author.as_deref(), since.as_deref(), until.as_deref(), grep.as_deref(), *stat)?;
                 }
-            }
-
-            Commands::Log { count, oneline, graph, author, since, until, grep, stat } => {
-                let repo = GitRepo::open(".")?;
-                repo.log(*count, *oneline, *graph, author.as_deref(), since.as_deref(), until.as_deref(), grep.as_deref(), *stat)?;
             }
 
             Commands::Diff { staged, last } => {
                 let repo = GitRepo::open(".")?;
                 repo.diff(*staged, *last)?;
+            }
+
+            Commands::Blame { file, lines } => {
+                let repo = GitRepo::open(".")?;
+                repo.blame(file, lines.as_deref())?;
+            }
+
+            Commands::Scan { history } => {
+                run_scan(*history)?;
+            }
+
+            Commands::CherryPick { commit, r#continue, abort } => {
+                let repo = GitRepo::open(".")?;
+                if *r#continue {
+                    repo.cherry_pick_continue()?;
+                } else if *abort {
+                    repo.cherry_pick_abort()?;
+                } else {
+                    let hash = commit.as_deref().ok_or_else(|| anyhow::anyhow!("Commit hash required: torii cherry-pick <hash>"))?;
+                    repo.cherry_pick(hash)?;
+                }
             }
 
             Commands::Branch { name, create, orphan, delete, force, delete_remote, list, rename, all } => {
@@ -1411,9 +1383,42 @@ impl Cli {
             Commands::Tag { action } => {
                 let repo = GitRepo::open(".")?;
                 match action {
-                    TagCommands::Create { name, message } => {
-                        repo.create_tag(name, message.as_deref())?;
-                        println!("✅ Tag created: {}", name);
+                    TagCommands::Create { name, message, release, bump, dry_run } => {
+                        if *release {
+                            let tagger = AutoTagger::new(repo);
+                            let current = tagger.get_latest_version()?;
+
+                            let next = if let Some(bump_str) = bump {
+                                use crate::versioning::semver::VersionBump;
+                                let b = match bump_str.as_str() {
+                                    "major" => VersionBump::Major,
+                                    "minor" => VersionBump::Minor,
+                                    "patch" => VersionBump::Patch,
+                                    _ => anyhow::bail!("Invalid bump: use major, minor or patch"),
+                                };
+                                let base = current.clone().unwrap_or_else(crate::versioning::semver::Version::initial);
+                                base.bump(b)
+                            } else {
+                                tagger.calculate_next_version_from_log()?
+                                    .ok_or_else(|| anyhow::anyhow!("No releasable commits found since last tag (need feat: or fix:)"))?
+                            };
+
+                            println!("📦 Current version: {}", current.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()));
+                            println!("🚀 Next version:    v{}", next);
+
+                            if *dry_run {
+                                println!("   (dry run — no tag created)");
+                            } else {
+                                tagger.create_tag(&next, &format!("Release v{}", next))?;
+                                println!("💡 Push with: torii sync --push");
+                            }
+                        } else {
+                            let tag_name = name.as_deref().ok_or_else(|| anyhow::anyhow!(
+                                "Tag name required (or use --release to auto-bump)"
+                            ))?;
+                            repo.create_tag(tag_name, message.as_deref())?;
+                            println!("✅ Tag created: {}", tag_name);
+                        }
                     }
                     TagCommands::List => {
                         repo.list_tags()?;
@@ -1432,36 +1437,6 @@ impl Cli {
                     }
                     TagCommands::Show { name } => {
                         repo.show_tag(name)?;
-                    }
-                    TagCommands::Release { bump, dry_run } => {
-                        let tagger = AutoTagger::new(repo);
-                        let current = tagger.get_latest_version()?;
-
-                        let next = if let Some(bump_str) = bump {
-                            use crate::versioning::semver::VersionBump;
-                            let b = match bump_str.as_str() {
-                                "major" => VersionBump::Major,
-                                "minor" => VersionBump::Minor,
-                                "patch" => VersionBump::Patch,
-                                _ => anyhow::bail!("Invalid bump: use major, minor or patch"),
-                            };
-                            let base = current.unwrap_or_else(crate::versioning::semver::Version::initial);
-                            base.bump(b)
-                        } else {
-                            // Infer bump from commits since last tag
-                            tagger.calculate_next_version_from_log()?
-                                .ok_or_else(|| anyhow::anyhow!("No releasable commits found since last tag (need feat: or fix:)"))?
-                        };
-
-                        println!("📦 Current version: {}", current.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()));
-                        println!("🚀 Next version:    v{}", next);
-
-                        if *dry_run {
-                            println!("   (dry run — no tag created)");
-                        } else {
-                            tagger.create_tag(&next, &format!("Release v{}", next))?;
-                            println!("💡 Push with: torii sync --push");
-                        }
                     }
                 }
             }
@@ -1504,17 +1479,12 @@ impl Cli {
             Commands::Mirror { action } => {
                 let mirror_mgr = MirrorManager::new(".")?;
                 match action {
-                    MirrorCommands::AddPrimary { platform, account_type, account, repo, protocol } => {
+                    MirrorCommands::Add { platform, account_type, account, repo, primary, protocol } => {
                         let acc_type = parse_account_type(account_type)?;
                         let proto = parse_protocol(protocol.as_ref());
-                        mirror_mgr.add_mirror(platform, acc_type, account, repo, proto, true)?;
-                        println!("✅ Primary mirror added: : {}/{} on {}", account, repo, platform);
-                    }
-                    MirrorCommands::AddReplica { platform, account_type, account, repo, protocol } => {
-                        let acc_type = parse_account_type(account_type)?;
-                        let proto = parse_protocol(protocol.as_ref());
-                        mirror_mgr.add_mirror(platform, acc_type, account, repo, proto, false)?;
-                        println!("✅ Replica mirror added: {}/{} on {}", account, repo, platform);
+                        mirror_mgr.add_mirror(platform, acc_type, account, repo, proto, *primary)?;
+                        let kind = if *primary { "Primary" } else { "Replica" };
+                        println!("✅ {} mirror added: {}/{} on {}", kind, account, repo, platform);
                     }
                     MirrorCommands::List => {
                         mirror_mgr.list_mirrors()?;
@@ -1522,9 +1492,9 @@ impl Cli {
                     MirrorCommands::Sync { force } => {
                         mirror_mgr.sync_all(*force)?;
                     }
-                    MirrorCommands::SetPrimary { platform, account } => {
+                    MirrorCommands::Promote { platform, account } => {
                         mirror_mgr.set_primary(platform, account)?;
-                        println!("✅ Set as primary: {}/{}", platform, account);
+                        println!("✅ Promoted to primary: {}/{}", platform, account);
                     }
                     MirrorCommands::Remove { platform, account } => {
                         mirror_mgr.remove_mirror_by_account(platform, account)?;
@@ -1546,36 +1516,6 @@ impl Cli {
                             mirror_mgr.show_autofetch_status()?;
                         }
                     }
-                }
-            }
-
-            Commands::SshCheck => {
-                println!("🔐 SSH Configuration Check\n");
-                
-                if SshHelper::has_ssh_keys() {
-                    println!("✅ SSH keys found!\n");
-                    
-                    let keys = SshHelper::list_keys();
-                    if !keys.is_empty() {
-                        println!("Available keys:");
-                        for key in &keys {
-                            println!("  • {}", key);
-                        }
-                    }
-                    
-                    println!("\n💡 Recommendation: Use SSH protocol (default)");
-                } else {
-                    println!("❌ No SSH keys found");
-                    println!("\n💡 To set up SSH keys:");
-                    println!("   1. Generate a new key:");
-                    println!("      ssh-keygen -t ed25519 -C \"your_email@example.com\"");
-                    println!("   2. Start the SSH agent:");
-                    println!("      eval \"$(ssh-agent -s)\"");
-                    println!("   3. Add your key:");
-                    println!("      ssh-add ~/.ssh/id_ed25519");
-                    println!("   4. Copy your public key:");
-                    println!("      cat ~/.ssh/id_ed25519.pub");
-                    println!("   5. Add it to your Git hosting service");
                 }
             }
 
@@ -1656,7 +1596,7 @@ impl Cli {
                     }
                     ConfigCommands::Reset { local } => {
                         let config = ToriiConfig::default();
-                        
+
                         if *local {
                             config.save_local(".")?;
                             println!("✅ Local configuration reset to defaults");
@@ -1665,46 +1605,76 @@ impl Cli {
                             println!("✅ Global configuration reset to defaults");
                         }
                     }
+                    ConfigCommands::CheckSsh => {
+                        run_ssh_check();
+                    }
                 }
             }
 
             Commands::Remote { action } => {
                 match action {
-                    RemoteCommands::Create { platform, name, description, public, private: _, push } => {
-                        let client = get_platform_client(platform)?;
-                        
-                        let visibility = if *public {
-                            Visibility::Public
-                        } else {
-                            Visibility::Private
-                        };
-                        
-                        println!("🚀 Creating repository '{}' on {}...", name, platform);
-                        let repo = client.create_repo(name, description.as_deref(), visibility)?;
-                        
-                        println!("✅ Repository created successfully!");
-                        println!("   URL: {}", repo.url);
-                        println!("   SSH: {}", repo.ssh_url);
-                        
-                        if *push {
-                            println!("\n📤 Pushing to remote...");
+                    RemoteCommands::Create { platforms, name, description, public, private: _, push } => {
+                        let platforms: Vec<String> = platforms.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                        if platforms.is_empty() {
+                            anyhow::bail!("At least one platform is required");
+                        }
+                        let visibility = if *public { Visibility::Public } else { Visibility::Private };
+                        let multi = platforms.len() > 1;
+
+                        let mut created: Vec<(String, crate::remote::RemoteRepo)> = Vec::new();
+                        for platform in &platforms {
+                            print!("🚀 {} - ", platform);
+                            match get_platform_client(platform) {
+                                Ok(client) => match client.create_repo(name, description.as_deref(), visibility.clone()) {
+                                    Ok(repo) => {
+                                        println!("✅ Created");
+                                        println!("   URL: {}", repo.url);
+                                        println!("   SSH: {}", repo.ssh_url);
+                                        created.push((platform.clone(), repo));
+                                    }
+                                    Err(e) => println!("❌ Failed: {}", e),
+                                },
+                                Err(e) => println!("❌ Platform error: {}", e),
+                            }
+                        }
+
+                        if multi {
+                            println!("\n📊 Created on {}/{} platforms", created.len(), platforms.len());
+                        }
+
+                        if *push && !created.is_empty() {
+                            println!("\n📤 Linking remotes and pushing...");
                             let git_repo = GitRepo::open(".")?;
-                            // Add remote via git2
-                            let _ = git_repo.repository().remote("origin", &repo.ssh_url);
+                            for (idx, (platform, repo)) in created.iter().enumerate() {
+                                let remote_name = if !multi || idx == 0 { "origin".to_string() } else { platform.clone() };
+                                let _ = git_repo.repository().remote(&remote_name, &repo.ssh_url);
+                            }
                             git_repo.push(false)?;
-                            println!("✅ Pushed to remote");
+                            println!("✅ Pushed");
                         }
                     }
-                    RemoteCommands::Delete { platform, owner, repo, yes } => {
+                    RemoteCommands::Delete { platforms, owner, repo, yes } => {
+                        let platforms: Vec<String> = platforms.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                        if platforms.is_empty() {
+                            anyhow::bail!("At least one platform is required");
+                        }
                         if !yes {
-                            println!("⚠️  Are you sure you want to delete {}/{}? This cannot be undone!", owner, repo);
+                            println!("⚠️  Are you sure you want to delete {}/{} on {} platform(s)? This cannot be undone!", owner, repo, platforms.len());
                             println!("   Run with --yes to confirm");
                             return Ok(());
                         }
-                        
-                        let client = get_platform_client(platform)?;
-                        println!("🗑️  Deleting repository {}/{}...", owner, repo);
-                        client.delete_repo(owner, repo)?;
+
+                        for platform in &platforms {
+                            print!("🗑️  {} - ", platform);
+                            match get_platform_client(platform) {
+                                Ok(client) => match client.delete_repo(owner, repo) {
+                                    Ok(_) => println!("✅ Deleted"),
+                                    Err(e) => println!("❌ Failed: {}", e),
+                                },
+                                Err(e) => println!("❌ Platform error: {}", e),
+                            }
+                        }
+                        return Ok(());
                     }
                     RemoteCommands::Visibility { platform, owner, repo, public, private } => {
                         let client = get_platform_client(platform)?;
@@ -1855,128 +1825,6 @@ impl Cli {
                 }
             }
 
-            Commands::Repo { 
-                name, platforms, create, delete, public, private: _,
-                description, push, yes, owner
-            } => {
-                use crate::remote::{get_platform_client, Visibility};
-                
-                if platforms.is_empty() {
-                    println!("❌ No platforms specified. Use --platforms github,gitlab,codeberg");
-                    return Ok(());
-                }
-                
-                // Validate operation
-                if !create && !delete {
-                    println!("❌ Specify an operation: --create or --delete");
-                    return Ok(());
-                }
-                
-                if *create && *delete {
-                    println!("❌ Cannot create and delete at the same time");
-                    return Ok(());
-                }
-                
-                let visibility = if *public {
-                    Visibility::Public
-                } else {
-                    Visibility::Private
-                };
-                
-                println!("🌐 Multi-platform operation on {} platforms", platforms.len());
-                println!("   Repository: {}", name);
-                println!("   Platforms: {}", platforms.join(", "));
-                
-                if *delete && !yes {
-                    println!("\n⚠️  WARNING: This will DELETE '{}' from {} platforms!", name, platforms.len());
-                    println!("   This action CANNOT be undone!");
-                    println!("   Run with --yes to confirm");
-                    return Ok(());
-                }
-                
-                let mut results = Vec::new();
-                
-                for platform in platforms {
-                    print!("\n📦 {} - ", platform);
-                    
-                    match get_platform_client(platform) {
-                        Ok(client) => {
-                            if *create {
-                                print!("Creating... ");
-                                match client.create_repo(name, description.as_deref(), visibility.clone()) {
-                                    Ok(repo) => {
-                                        println!("✅ Created");
-                                        println!("   URL: {}", repo.url);
-                                        results.push((platform.clone(), true, None));
-                                    }
-                                    Err(e) => {
-                                        println!("❌ Failed: {}", e);
-                                        results.push((platform.clone(), false, Some(e.to_string())));
-                                    }
-                                }
-                            } else if *delete {
-                                print!("Deleting... ");
-                                let owner_name = owner.as_ref()
-                                    .map(|s| s.as_str())
-                                    .unwrap_or("user");
-                                
-                                match client.delete_repo(owner_name, name) {
-                                    Ok(_) => {
-                                        println!("✅ Deleted");
-                                        results.push((platform.clone(), true, None));
-                                    }
-                                    Err(e) => {
-                                        println!("❌ Failed: {}", e);
-                                        results.push((platform.clone(), false, Some(e.to_string())));
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("❌ Platform error: {}", e);
-                            results.push((platform.clone(), false, Some(e.to_string())));
-                        }
-                    }
-                }
-                
-                // Summary
-                let successful = results.iter().filter(|(_, success, _)| *success).count();
-                let failed = results.len() - successful;
-                
-                println!("\n📊 Summary:");
-                println!("   ✅ Successful: {}/{}", successful, results.len());
-                if failed > 0 {
-                    println!("   ❌ Failed: {}", failed);
-                    println!("\n   Failed platforms:");
-                    for (platform, success, error) in results.iter() {
-                        if !success {
-                            println!("     • {}: {}", platform, error.as_ref().unwrap_or(&"Unknown error".to_string()));
-                        }
-                    }
-                }
-                
-                // Push if requested and created successfully
-                if *create && *push && successful > 0 {
-                    println!("\n📤 Pushing to remote...");
-                    let git_repo = GitRepo::open(".")?;
-                    
-                    // Add remotes for successful platforms via git2
-                    for (platform, success, _) in results.iter() {
-                        if *success {
-                            let url = format!("git@{}:{}/{}.git", platform, owner.as_ref().unwrap_or(&"user".to_string()), name);
-                            let _ = git_repo.repository().remote(platform, &url);
-                        }
-                    }
-                    
-                    git_repo.push(false)?;
-                    println!("✅ Pushed to remotes");
-                }
-            }
-
-            Commands::Ls { path } => {
-                let repo = GitRepo::open(".")?;
-                repo.ls(path.as_deref())?;
-            }
 
             Commands::Show { object, blame, lines } => {
                 let repo = GitRepo::open(".")?;
@@ -1999,61 +1847,8 @@ impl Cli {
                         repo.clean_history()?;
                         println!("✅ Repository cleaned");
                     }
-                    HistoryCommands::VerifyRemote => {
-                        repo.verify_remote()?;
-                    }
-                    HistoryCommands::Reflog { count } => {
-                        repo.show_reflog(*count)?;
-                    }
                     HistoryCommands::RemoveFile { file } => {
                         repo.remove_file_from_history(file)?;
-                    }
-                    HistoryCommands::CherryPick { commit, r#continue, abort } => {
-                        if *r#continue {
-                            repo.cherry_pick_continue()?;
-                        } else if *abort {
-                            repo.cherry_pick_abort()?;
-                        } else {
-                            let hash = commit.as_deref().ok_or_else(|| anyhow::anyhow!("Commit hash required: torii history cherry-pick <hash>"))?;
-                            repo.cherry_pick(hash)?;
-                        }
-                    }
-                    HistoryCommands::Blame { file, lines } => {
-                        repo.blame(file, lines.as_deref())?;
-                    }
-                    HistoryCommands::Scan { history } => {
-                        let repo_path = std::path::Path::new(".");
-                        if *history {
-                            println!("🔍 Scanning full git history for sensitive data...\n");
-                            let results = scanner::scan_history(repo_path)?;
-                            if results.is_empty() {
-                                println!("✅ No sensitive data found in history.");
-                            } else {
-                                println!("⚠️  Found sensitive data in {} commit(s):\n", results.len());
-                                for (commit, findings) in &results {
-                                    println!("  📌 {}", commit);
-                                    for f in findings {
-                                        println!("     {}:{} — {}", f.file, f.line, f.pattern_name);
-                                        println!("     {}", f.preview);
-                                    }
-                                    println!();
-                                }
-                                println!("💡 To clean history: torii history rebase <base> --todo-file <plan>");
-                            }
-                        } else {
-                            println!("🔍 Scanning staged files for sensitive data...\n");
-                            let findings = scanner::scan_staged(repo_path)?;
-                            if findings.is_empty() {
-                                println!("✅ No sensitive data detected in staged files.");
-                            } else {
-                                println!("⚠️  Found {} issue(s):\n", findings.len());
-                                for f in &findings {
-                                    println!("  {}:{} — {}", f.file, f.line, f.pattern_name);
-                                    println!("  {}\n", f.preview);
-                                }
-                                println!("💡 Tip: use .env.example for placeholder values.");
-                            }
-                        }
                     }
                     HistoryCommands::Rebase { target, interactive, todo_file, root, r#continue, abort, skip } => {
                         if *r#continue {
@@ -2289,4 +2084,70 @@ impl Cli {
 
         Ok(())
     }
+}
+
+fn run_ssh_check() {
+    println!("🔐 SSH Configuration Check\n");
+
+    if SshHelper::has_ssh_keys() {
+        println!("✅ SSH keys found!\n");
+
+        let keys = SshHelper::list_keys();
+        if !keys.is_empty() {
+            println!("Available keys:");
+            for key in &keys {
+                println!("  • {}", key);
+            }
+        }
+
+        println!("\n💡 Recommendation: Use SSH protocol (default)");
+    } else {
+        println!("❌ No SSH keys found");
+        println!("\n💡 To set up SSH keys:");
+        println!("   1. Generate a new key:");
+        println!("      ssh-keygen -t ed25519 -C \"your_email@example.com\"");
+        println!("   2. Start the SSH agent:");
+        println!("      eval \"$(ssh-agent -s)\"");
+        println!("   3. Add your key:");
+        println!("      ssh-add ~/.ssh/id_ed25519");
+        println!("   4. Copy your public key:");
+        println!("      cat ~/.ssh/id_ed25519.pub");
+        println!("   5. Add it to your Git hosting service");
+    }
+}
+
+fn run_scan(history: bool) -> Result<()> {
+    let repo_path = std::path::Path::new(".");
+    if history {
+        println!("🔍 Scanning full git history for sensitive data...\n");
+        let results = scanner::scan_history(repo_path)?;
+        if results.is_empty() {
+            println!("✅ No sensitive data found in history.");
+        } else {
+            println!("⚠️  Found sensitive data in {} commit(s):\n", results.len());
+            for (commit, findings) in &results {
+                println!("  📌 {}", commit);
+                for f in findings {
+                    println!("     {}:{} — {}", f.file, f.line, f.pattern_name);
+                    println!("     {}", f.preview);
+                }
+                println!();
+            }
+            println!("💡 To clean history: torii history rebase <base> --todo-file <plan>");
+        }
+    } else {
+        println!("🔍 Scanning staged files for sensitive data...\n");
+        let findings = scanner::scan_staged(repo_path)?;
+        if findings.is_empty() {
+            println!("✅ No sensitive data detected in staged files.");
+        } else {
+            println!("⚠️  Found {} issue(s):\n", findings.len());
+            for f in &findings {
+                println!("  {}:{} — {}", f.file, f.line, f.pattern_name);
+                println!("  {}\n", f.preview);
+            }
+            println!("💡 Tip: use .env.example for placeholder values.");
+        }
+    }
+    Ok(())
 }

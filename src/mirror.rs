@@ -164,7 +164,7 @@ impl MirrorManager {
         // Check if master already exists
         if is_primary && config.mirrors.iter().any(|m| m.mirror_type == MirrorType::Primary) {
             return Err(ToriiError::Mirror(
-                "A primary mirror already exists. Use 'torii mirror set-primary' to change it.".to_string()
+                "A primary mirror already exists. Use 'torii mirror promote' to change it.".to_string()
             ));
         }
         
@@ -234,7 +234,7 @@ impl MirrorManager {
             println!("No mirrors configured");
             println!();
             println!("💡 Add a primary mirror first:");
-            println!("   torii mirror add-primary <platform> <user|org> <account> <repo>");
+            println!("   torii mirror add <platform> <user|org> <account> <repo> --primary");
             return Ok(());
         }
 

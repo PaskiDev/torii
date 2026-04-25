@@ -175,9 +175,9 @@ torii tag push                               # Push all tags
 torii tag show <version>                     # Show tag details
 
 # Auto-release from conventional commits
-torii tag release                        # Auto-bump version
-torii tag release --bump minor           # Force minor bump
-torii tag release --dry-run              # Preview without creating
+torii tag create --release                  # Auto-bump version
+torii tag create --release --bump minor     # Force minor bump
+torii tag create --release --dry-run        # Preview without creating
 ```
 
 **Auto-bump rules (Conventional Commits):**
@@ -221,8 +221,8 @@ Mirror your repo across multiple platforms simultaneously.
 
 ```bash
 # Setup
-torii mirror add-primary <platform> user <username> <repo>   # Set primary (source of truth)
-torii mirror add-replica <platform> user <username> <repo>   # Add replica mirror
+torii mirror add <platform> user <username> <repo> --primary   # Set primary (source of truth)
+torii mirror add <platform> user <username> <repo>             # Add replica mirror (default)
 
 # Sync
 torii mirror sync                   # Push to all replicas
@@ -230,7 +230,7 @@ torii mirror sync --force           # Force push to all replicas
 
 # Manage
 torii mirror list                   # List configured mirrors
-torii mirror set-primary github     # Change primary
+torii mirror promote github user    # Promote a mirror to primary
 torii mirror remove github user     # Remove a mirror
 
 # Auto-fetch
@@ -240,17 +240,6 @@ torii mirror autofetch --status                   # Show status
 ```
 
 **Platforms:** `github`, `gitlab`, `codeberg`, `bitbucket`, `gitea`, `forgejo`
-
----
-
-## `torii ls`
-
-List all tracked files in the index.
-
-```bash
-torii ls           # All tracked files
-torii ls src/      # Files under src/
-```
 
 ---
 
@@ -268,47 +257,55 @@ torii show <file> --blame -L 10,20  # Blame specific range
 
 ---
 
-## `torii ssh-check`
+## `torii config check-ssh`
 
 Verify SSH key configuration and print setup instructions if needed.
 
 ```bash
-torii ssh-check
+torii config check-ssh
+```
+
+---
+
+## `torii blame`, `torii scan`, `torii cherry-pick`
+
+Common file inspection and commit operations are available at the top level.
+
+```bash
+torii blame <file>                  # Line-by-line change history
+torii blame <file> -L 10,20         # Specific line range
+
+torii scan                          # Scan staged files for secrets
+torii scan --history                # Scan entire git history
+
+torii cherry-pick <hash>            # Apply commit to current branch
+torii cherry-pick --continue        # Resume after resolving conflicts
+torii cherry-pick --abort           # Abort an in-progress cherry-pick
 ```
 
 ---
 
 ## `torii history`
 
-Advanced history operations.
+Maintenance operations on existing history.
 
 ```bash
 # Rebase
 torii history rebase main              # Rebase onto main
 torii history rebase -i HEAD~5         # Interactive rebase last 5 commits
+torii history rebase --root            # Rebase from the root commit (squash initial)
 torii history rebase --continue        # Continue after resolving conflicts
 torii history rebase --abort           # Abort rebase
 torii history rebase --skip            # Skip current patch
 
-# Cherry-pick
-torii history cherry-pick <hash>       # Apply commit to current branch
-
-# Blame
-torii history blame <file>             # Line-by-line change history
-torii history blame <file> -L 10,20   # Specific line range
-
-# Secret scanning
-torii history scan                     # Scan staged files for secrets
-torii history scan --history           # Scan entire git history
-
-# History rewrite
+# Rewrite / cleanup
 torii history rewrite "<start-date>" "<end-date>"  # Rewrite commit dates
 torii history remove-file <file>                   # Purge file from all commits
-torii history clean                    # GC + expire reflog
+torii history clean                                # GC + expire reflog
 
-# Other
-torii history reflog                   # HEAD movement history
-torii history verify-remote            # Compare local vs remote HEAD
+# Inspection (also exposed as flags)
+torii log --reflog                     # HEAD movement history
+torii sync --verify                    # Compare local vs remote HEAD
 ```
 
 ### Secret scanner patterns
@@ -385,14 +382,14 @@ torii remote list <platform>                               # List your repos
 
 ---
 
-## `torii repo`
+## Multi-platform repo creation
 
-Batch create/delete repos across multiple platforms at once.
+`torii remote create` accepts a comma-separated list of platforms.
 
 ```bash
-torii repo <name> --platforms github,gitlab,codeberg --create --private
-torii repo <name> --platforms github,gitlab --delete --yes
-torii repo <name> --platforms github,gitlab --create --public --push
+torii remote create github,gitlab,codeberg <name> --private
+torii remote create github,gitlab <name> --public --push
+torii remote delete github,gitlab <owner> <name> --yes
 ```
 
 ---

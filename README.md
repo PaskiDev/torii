@@ -92,13 +92,6 @@ torii branch -d <name>        # delete branch
 torii branch --rename <name>  # rename current branch
 ```
 
-### Tracked files
-
-```bash
-torii ls              # list all tracked files
-torii ls src/         # filter by path prefix
-```
-
 ### Inspect
 
 ```bash
@@ -120,26 +113,31 @@ torii log --author "Alice"          # filter by author
 torii log --since 2026-01-01        # filter by date
 torii log --grep "feat"             # filter by message
 torii log --stat                    # show file change stats
+torii log --reflog                  # HEAD movement history
 
-torii history reflog                # HEAD movement history
+torii sync --verify                 # verify local vs remote HEAD
+
+torii blame <file>                  # line-by-line change history
+torii blame <file> -L 10,20
+
+torii scan                          # scan staged files for secrets
+torii scan --history                # scan entire git history
+
+torii cherry-pick <hash>            # apply commit to current branch
+torii cherry-pick --continue
+torii cherry-pick --abort
+
 torii history rewrite "2026-01-01" "2026-03-01"  # rewrite commit dates
 torii history clean                 # expire reflogs + remove backup refs
-torii history verify-remote         # verify remote state
 torii history remove-file <path>    # purge file from entire history
 
 torii history rebase main           # rebase onto branch
 torii history rebase HEAD~5 -i      # interactive rebase (opens editor)
+torii history rebase --root         # rebase from root commit (squash initial)
 torii history rebase HEAD~5 --todo-file plan.txt
 torii history rebase --continue
 torii history rebase --abort
 torii history rebase --skip
-
-torii history cherry-pick <hash>    # apply commit to current branch
-torii history cherry-pick --continue
-torii history cherry-pick --abort
-
-torii history blame <file>          # line-by-line change history
-torii history blame <file> -L 10,20
 ```
 
 ### Security scanner
@@ -182,12 +180,12 @@ torii tag delete v1.0.0
 torii tag push v1.0.0
 torii tag push                    # push all tags
 torii tag show v1.0.0
-torii tag release                 # auto-bump from conventional commits
-torii tag release --bump minor    # force bump type
-torii tag release --dry-run       # preview without creating
+torii tag create --release                  # auto-bump from conventional commits
+torii tag create --release --bump minor     # force bump type
+torii tag create --release --dry-run        # preview without creating
 ```
 
-`torii tag release` reads commits since the last tag and bumps following [Conventional Commits](https://www.conventionalcommits.org/):
+`torii tag create --release` reads commits since the last tag and bumps following [Conventional Commits](https://www.conventionalcommits.org/):
 - `feat:` → minor bump
 - `fix:` / `perf:` → patch bump
 - `feat!:` / breaking → major bump
@@ -197,13 +195,13 @@ torii tag release --dry-run       # preview without creating
 Mirror your repository across multiple platforms simultaneously.
 
 ```bash
-torii mirror add-primary gitlab user <username> <repo>
-torii mirror add-replica github user <username> <repo>
-torii mirror add-replica codeberg user <username> <repo>
+torii mirror add gitlab user <username> <repo> --primary
+torii mirror add github user <username> <repo>
+torii mirror add codeberg user <username> <repo>
 torii mirror sync
 torii mirror sync --force
 torii mirror list
-torii mirror set-primary gitlab user
+torii mirror promote gitlab user
 torii mirror remove github user
 torii mirror autofetch --enable --interval 30m
 torii mirror autofetch --disable
@@ -225,9 +223,9 @@ torii remote configure github <owner> <repo> --default-branch main
 torii remote info github <owner> <repo>
 torii remote list github
 
-# Batch across platforms
-torii repo <name> --platforms github,gitlab --create --public
-torii repo <name> --platforms github,gitlab --delete --yes
+# Multiple platforms at once (comma-separated)
+torii remote create github,gitlab,codeberg <name> --public --push
+torii remote delete github,gitlab <owner> <name> --yes
 ```
 
 ### Config
@@ -250,7 +248,7 @@ Available keys: `user.name`, `user.email`, `user.editor`, `auth.github_token`, `
 torii clone github <user>/<repo>        # clone with platform shorthand
 torii clone https://...                 # clone with full URL
 torii clone github <user>/<repo> -d dir # clone into specific directory
-torii ssh-check                         # verify SSH key setup
+torii config check-ssh                  # verify SSH key setup
 ```
 
 ## TUI
@@ -329,11 +327,10 @@ Full-screen interface with sidebar navigation. All views accessible from keyboar
 | `git rebase -i HEAD~3` | `torii history rebase HEAD~3 -i` |
 | `git stash push -u` | `torii snapshot stash -u` |
 | `git log --oneline --author X` | `torii log --oneline --author X` |
-| `git ls-files` | `torii ls` |
 | `git show HEAD` | `torii show` |
-| `git blame src/main.rs` | `torii show src/main.rs --blame` |
+| `git blame src/main.rs` | `torii blame src/main.rs` |
 | Push to 3 platforms | `torii mirror sync` |
-| Hunt for exposed secrets | `torii history scan --history` |
+| Hunt for exposed secrets | `torii scan --history` |
 | Run status across 5 repos | `torii workspace status <name>` |
 | Commit all dirty repos at once | `torii workspace save <name> -am "wip"` |
 

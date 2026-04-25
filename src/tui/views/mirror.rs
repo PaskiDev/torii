@@ -110,7 +110,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             Line::from(""),
             Line::from(vec![
                 Span::styled("  add with: ", Style::default().fg(C_DIM)),
-                Span::styled("torii mirror add-replica", Style::default().fg(C_SUBTLE)),
+                Span::styled("torii mirror add", Style::default().fg(C_SUBTLE)),
             ]),
         ]
     };

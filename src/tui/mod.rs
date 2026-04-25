@@ -378,7 +378,7 @@ fn run_loop(
                     if let Some(entry) = app.history_view.reflog.get(app.history_view.idx) {
                         let hash = entry.id.clone();
                         let ok = std::process::Command::new("torii")
-                            .args(["history", "cherry-pick", &hash])
+                            .args(["cherry-pick", &hash])
                             .current_dir(&app.repo_path)
                             .stdout(std::process::Stdio::null())
                             .stderr(std::process::Stdio::null())
@@ -408,7 +408,7 @@ fn run_loop(
                 Action::HistoryScan => {
                     let full = app.history_view.scan_full;
                     let mut cmd = std::process::Command::new("torii");
-                    cmd.args(if full { vec!["history", "scan", "--history"] } else { vec!["history", "scan"] })
+                    cmd.args(if full { vec!["scan", "--history"] } else { vec!["scan"] })
                         .current_dir(&app.repo_path)
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null());
@@ -468,7 +468,7 @@ fn run_loop(
                     app.history_view.input.clear();
                     if !file.is_empty() {
                         let output = std::process::Command::new("torii")
-                            .args(["history", "blame", &file])
+                            .args(["blame", &file])
                             .current_dir(&app.repo_path)
                             .output();
                         match output {
@@ -661,13 +661,14 @@ fn run_loop(
                     let account    = app.remote_view.new_mirror_account.clone();
                     let repo       = app.remote_view.new_mirror_repo.clone();
                     let is_primary = app.remote_view.new_mirror_type == 1;
-                    let subcmd     = if is_primary { "add-primary" } else { "add-replica" };
                     app.remote_view.new_mirror_platform.clear();
                     app.remote_view.new_mirror_account.clear();
                     app.remote_view.new_mirror_repo.clear();
                     app.remote_view.new_mirror_type = 0;
+                    let mut args: Vec<&str> = vec!["mirror", "add", &platform, "user", &account, &repo];
+                    if is_primary { args.push("--primary"); }
                     let status = std::process::Command::new("torii")
-                        .args(["mirror", subcmd, &platform, "user", &account, &repo])
+                        .args(&args)
                         .current_dir(&app.repo_path)
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
@@ -684,14 +685,14 @@ fn run_loop(
                         .map(|m| (m.platform.to_lowercase(), m.account.clone()))
                     {
                         let status = std::process::Command::new("torii")
-                            .args(["mirror", "set-primary", &platform, &account])
+                            .args(["mirror", "promote", &platform, &account])
                             .current_dir(&app.repo_path)
                             .stdout(std::process::Stdio::null())
                             .stderr(std::process::Stdio::null())
                             .status();
                         let is_ok = matches!(status, Ok(s) if s.success());
-                        let msg = if is_ok { format!("set primary: {}/{}", platform, account) }
-                                  else { "set primary failed".to_string() };
+                        let msg = if is_ok { format!("promoted to primary: {}/{}", platform, account) }
+                                  else { "promote failed".to_string() };
                         app.log_event(&msg, if is_ok { EventKind::Success } else { EventKind::Error });
                         if is_ok { app.reload_remotes(); } else { app.remote_view.status = Some(msg); }
                     }
