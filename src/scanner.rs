@@ -252,6 +252,64 @@ fn should_skip_file(path: &str) -> bool {
         || lower.contains("\\i18n\\")
 }
 
+/// Return list of paths staged vs HEAD (used by hooks/size guard)
+pub fn staged_paths(repo_path: &Path) -> Result<Vec<String>> {
+    use git2::Repository;
+    let repo = Repository::discover(repo_path).map_err(crate::error::ToriiError::Git)?;
+    let index = repo.index().map_err(crate::error::ToriiError::Git)?;
+    let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+    let diff = match &head_tree {
+        Some(tree) => repo.diff_tree_to_index(Some(tree), Some(&index), None),
+        None => repo.diff_tree_to_index(None, Some(&index), None),
+    }.map_err(crate::error::ToriiError::Git)?;
+    let mut out = Vec::new();
+    diff.foreach(&mut |delta, _| {
+        if let Some(p) = delta.new_file().path() {
+            out.push(p.to_string_lossy().to_string());
+        }
+        true
+    }, None, None, None).map_err(crate::error::ToriiError::Git)?;
+    Ok(out)
+}
+
+/// Scan staged content using user-defined regex rules from .toriignore.
+/// Returns findings — empty if no rules or no matches.
+pub fn scan_staged_with_custom(
+    repo_path: &Path,
+    rules: &[crate::toriignore::SecretRule],
+) -> Result<Vec<Finding>> {
+    use git2::Repository;
+    if rules.is_empty() { return Ok(Vec::new()); }
+
+    let mut findings = Vec::new();
+    let repo = Repository::discover(repo_path).map_err(crate::error::ToriiError::Git)?;
+    let index = repo.index().map_err(crate::error::ToriiError::Git)?;
+    let paths = staged_paths(repo_path)?;
+
+    for file_path in &paths {
+        let p = std::path::Path::new(file_path);
+        if is_example_file(file_path) || should_skip_file(file_path) { continue; }
+        let entry = match index.get_path(p, 0) { Some(e) => e, None => continue };
+        let blob = match repo.find_blob(entry.id) { Ok(b) => b, Err(_) => continue };
+        let content = String::from_utf8_lossy(blob.content()).to_string();
+
+        for (i, line) in content.lines().enumerate() {
+            for rule in rules {
+                if rule.regex.is_match(line) {
+                    findings.push(Finding {
+                        file: file_path.clone(),
+                        line: i + 1,
+                        pattern_name: format!("custom: {}", rule.name),
+                        preview: mask(line.trim()),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+    Ok(findings)
+}
+
 /// Scan staged files in the git index for sensitive data.
 /// Returns a list of findings.
 pub fn scan_staged(repo_path: &Path) -> Result<Vec<Finding>> {

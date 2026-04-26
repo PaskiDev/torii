@@ -117,6 +117,10 @@ enum Commands {
         /// Unstage paths instead of committing (kept on disk). Use with FILES or --all.
         #[arg(long, conflicts_with_all = ["amend", "revert", "reset"])]
         unstage: bool,
+
+        /// Skip pre-save / post-save hooks defined in .toriignore
+        #[arg(long)]
+        skip_hooks: bool,
     },
 
     /// Sync with remote (pull+push) or integrate a branch
@@ -165,6 +169,10 @@ enum Commands {
         /// Verify local vs remote head without pulling/pushing
         #[arg(long)]
         verify: bool,
+
+        /// Skip pre-sync / post-sync hooks defined in .toriignore
+        #[arg(long)]
+        skip_hooks: bool,
     },
 
     /// Show repository status
@@ -1076,7 +1084,7 @@ impl Cli {
                 println!("   Created .toriignore with default patterns");
             }
 
-            Commands::Save { message, all, files, amend, revert, reset, reset_mode, unstage } => {
+            Commands::Save { message, all, files, amend, revert, reset, reset_mode, unstage, skip_hooks } => {
                 let repo = GitRepo::open(".")?;
 
                 if *unstage {
@@ -1114,7 +1122,22 @@ impl Cli {
                     
                     // Scan staged files for sensitive data before committing
                     let repo_path = std::path::Path::new(".");
-                    let findings = scanner::scan_staged(repo_path)?;
+
+                    // Load .toriignore (sections: secrets/size/hooks)
+                    let ti = crate::toriignore::ToriIgnore::load(repo_path)?;
+
+                    // [size] guard
+                    let staged = scanner::staged_paths(repo_path).unwrap_or_default();
+                    crate::hooks::check_size(&ti.size, repo_path, &staged)?;
+
+                    // [hooks] pre-save
+                    if !*skip_hooks {
+                        crate::hooks::pre_save(&ti.hooks, repo_path)?;
+                    }
+
+                    let mut findings = scanner::scan_staged(repo_path)?;
+                    // [secrets] custom regex rules
+                    findings.extend(scanner::scan_staged_with_custom(repo_path, &ti.secrets)?);
                     if !findings.is_empty() {
                         println!("⚠️  Sensitive data detected in staged files:\n");
                         for f in &findings {
@@ -1147,11 +1170,19 @@ impl Cli {
                         repo.commit(msg)?;
                         println!("✅ Changes saved: {}", msg);
                     }
+                    if !*skip_hooks {
+                        crate::hooks::post_save(&ti.hooks, repo_path);
+                    }
                 }
             }
 
-            Commands::Sync { branch, pull, push, force, fetch, merge, rebase, preview, verify } => {
+            Commands::Sync { branch, pull, push, force, fetch, merge, rebase, preview, verify, skip_hooks } => {
                 let repo = GitRepo::open(".")?;
+                let repo_path = std::path::Path::new(".");
+                let ti = crate::toriignore::ToriIgnore::load(repo_path)?;
+                if !*skip_hooks {
+                    crate::hooks::pre_sync(&ti.hooks, repo_path)?;
+                }
 
                 if *verify {
                     repo.verify_remote()?;
@@ -1200,6 +1231,9 @@ impl Cli {
                     // Also sync replica mirrors if any are configured
                     let mirror_mgr = MirrorManager::new(".")?;
                     mirror_mgr.sync_replicas_if_any(false)?;
+                }
+                if !*skip_hooks {
+                    crate::hooks::post_sync(&ti.hooks, repo_path);
                 }
             }
 

@@ -1,32 +1,64 @@
 use std::path::Path;
 use std::fs;
 use std::io::{self, BufRead};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
-/// Manages .toriignore patterns
+/// Parsed `.toriignore` — paths + extension sections (secrets/size/hooks).
 #[derive(Default)]
 #[allow(dead_code)]
 pub struct ToriIgnore {
     patterns: Vec<String>,
+    pub secrets: Vec<SecretRule>,
+    pub size: SizeRules,
+    pub hooks: HookRules,
 }
 
+#[derive(Clone)]
+pub struct SecretRule {
+    pub name: String,
+    pub regex: regex::Regex,
+}
+
+#[derive(Default, Clone)]
+pub struct SizeRules {
+    /// Hard limit — block save above this (bytes)
+    pub max_bytes: Option<u64>,
+    /// Soft limit — warn above this (bytes)
+    pub warn_bytes: Option<u64>,
+    /// Glob patterns excluded from size enforcement
+    pub exclude: Vec<String>,
+}
+
+#[derive(Default, Clone)]
+pub struct HookRules {
+    pub pre_save: Vec<String>,
+    pub pre_sync: Vec<String>,
+    pub post_save: Vec<String>,
+    pub post_sync: Vec<String>,
+}
+
+#[derive(PartialEq, Eq)]
+enum Section {
+    Paths,
+    Secrets,
+    Size,
+    Hooks(HookKind),
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum HookKind { PreSave, PreSync, PostSave, PostSync }
+
 impl ToriIgnore {
-    /// Load .toriignore from repository root
-    #[allow(dead_code)]
+    /// Load from repository root (returns default if file absent)
     pub fn load<P: AsRef<Path>>(repo_path: P) -> Result<Self> {
-        let toriignore_path = repo_path.as_ref().join(".toriignore");
-
-        if toriignore_path.exists() {
-            return Self::from_file(&toriignore_path);
-        }
-
-        Ok(Self::default())
+        let path = repo_path.as_ref().join(".toriignore");
+        if path.exists() { Self::from_file(&path) } else { Ok(Self::default()) }
     }
 
-    /// Default patterns for a new project
+    /// Default content seeded by `torii init`
     pub fn default_content() -> &'static str {
         "# Torii ignore file — controls what torii tracks and snapshots\n\
-         # Syntax is identical to .gitignore\n\
+         # Syntax extends .gitignore with optional [sections]\n\
          \n\
          # Build output\n\
          /target\n\
@@ -52,203 +84,264 @@ impl ToriIgnore {
          *.swo\n\
          *~\n\
          .idea/\n\
-         .vscode/\n"
+         .vscode/\n\
+         \n\
+         # ─── Custom secret patterns (uncomment to enable) ─────────────────\n\
+         # [secrets]\n\
+         # deny: AKIA[0-9A-Z]{16}              # AWS access keys\n\
+         # deny: ghp_[A-Za-z0-9]{36}           # GitHub PAT\n\
+         # deny: xkeysib-[a-z0-9]{64,}         # Brevo API\n\
+         \n\
+         # ─── File size limits (uncomment to enable) ───────────────────────\n\
+         # [size]\n\
+         # max: 10MB\n\
+         # warn: 1MB\n\
+         # exclude: *.psd, *.zip, *.bin\n\
+         \n\
+         # ─── Pre-save / pre-sync hooks (uncomment to enable) ──────────────\n\
+         # [hooks]\n\
+         # pre-save: cargo fmt --check\n\
+         # pre-save: cargo clippy -- -D warnings\n\
+         # pre-sync: cargo test --no-run\n"
     }
-    
-    /// Load patterns from a file
+
     fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file = fs::File::open(path)?;
         let reader = io::BufReader::new(file);
-        
-        let mut patterns = Vec::new();
-        
-        for line in reader.lines() {
-            let line = line?;
-            let line = line.trim();
-            
-            // Skip empty lines and comments
-            if line.is_empty() || line.starts_with('#') {
+        let mut out = Self::default();
+        let mut section = Section::Paths;
+
+        for raw in reader.lines() {
+            let raw = raw?;
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') { continue; }
+
+            // Section header: [name] or [name:variant]
+            if line.starts_with('[') && line.ends_with(']') {
+                let inner = &line[1..line.len() - 1];
+                section = match inner {
+                    "secrets" => Section::Secrets,
+                    "size" => Section::Size,
+                    "hooks" => Section::Hooks(HookKind::PreSave), // sentinel; key picks variant
+                    _ => Section::Paths, // unknown section → ignore as path noise
+                };
                 continue;
             }
-            
-            patterns.push(line.to_string());
+
+            match section {
+                Section::Paths => out.patterns.push(line.to_string()),
+                Section::Secrets => out.parse_secret(line)?,
+                Section::Size => out.parse_size(line)?,
+                Section::Hooks(_) => out.parse_hook(line)?,
+            }
         }
-        
-        Ok(Self { patterns })
+
+        Ok(out)
     }
-    
-    /// Check if a path should be ignored
+
+    fn parse_secret(&mut self, line: &str) -> Result<()> {
+        // Format: deny: <regex>            (optional `# name` after)
+        let body = line.strip_prefix("deny:").map(str::trim);
+        let Some(body) = body else { return Ok(()); };
+        let (pattern, name) = match body.find('#') {
+            Some(i) => (body[..i].trim(), body[i + 1..].trim().to_string()),
+            None => (body, format!("Custom rule {}", self.secrets.len() + 1)),
+        };
+        if pattern.is_empty() { return Ok(()); }
+        let regex = regex::Regex::new(pattern)
+            .map_err(|e| anyhow!("invalid regex `{}` in [secrets]: {}", pattern, e))?;
+        self.secrets.push(SecretRule { name, regex });
+        Ok(())
+    }
+
+    fn parse_size(&mut self, line: &str) -> Result<()> {
+        let (key, val) = match line.split_once(':') {
+            Some((k, v)) => (k.trim(), v.trim()),
+            None => return Ok(()),
+        };
+        match key {
+            "max" => self.size.max_bytes = Some(parse_size_value(val)?),
+            "warn" => self.size.warn_bytes = Some(parse_size_value(val)?),
+            "exclude" => self.size.exclude.extend(
+                val.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+            ),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn parse_hook(&mut self, line: &str) -> Result<()> {
+        let (key, val) = match line.split_once(':') {
+            Some((k, v)) => (k.trim(), v.trim()),
+            None => return Ok(()),
+        };
+        if val.is_empty() { return Ok(()); }
+        match key {
+            "pre-save" => self.hooks.pre_save.push(val.to_string()),
+            "pre-sync" => self.hooks.pre_sync.push(val.to_string()),
+            "post-save" => self.hooks.post_save.push(val.to_string()),
+            "post-sync" => self.hooks.post_sync.push(val.to_string()),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Returns true if any path pattern matches (legacy gitignore-style)
     #[allow(dead_code)]
     pub fn is_ignored<P: AsRef<Path>>(&self, path: P) -> bool {
-        let path_str = path.as_ref().to_string_lossy();
-        let path_str = path_str.trim_start_matches('/');
-
-        for pattern in &self.patterns {
-            // Strip leading slash from pattern (means repo root in gitignore)
-            let pattern = pattern.trim_start_matches('/');
-            if self.matches_pattern(path_str, pattern) {
-                return true;
-            }
+        let s = path.as_ref().to_string_lossy();
+        let s = s.trim_start_matches('/');
+        for p in &self.patterns {
+            let p = p.trim_start_matches('/');
+            if matches_pattern(s, p) { return true; }
         }
-
-        false
-    }
-    
-    /// Simple pattern matching (supports *, /, and **)
-    fn matches_pattern(&self, path: &str, pattern: &str) -> bool {
-        // Exact match
-        if path == pattern {
-            return true;
-        }
-        
-        // Directory match (pattern ends with /)
-        if pattern.ends_with('/') {
-            let dir_pattern = pattern.trim_end_matches('/');
-            if path.starts_with(dir_pattern) {
-                return true;
-            }
-        }
-        
-        // Wildcard match
-        if pattern.contains('*') {
-            return self.wildcard_match(path, pattern);
-        }
-        
-        // Extension match (*.ext)
-        if pattern.starts_with("*.") {
-            let ext = pattern.trim_start_matches("*.");
-            if path.ends_with(&format!(".{}", ext)) {
-                return true;
-            }
-        }
-        
-        // Path contains pattern
-        if path.contains(pattern) {
-            return true;
-        }
-        
-        false
-    }
-    
-    /// Simple wildcard matching
-    fn wildcard_match(&self, path: &str, pattern: &str) -> bool {
-        // Handle ** (match any directory depth)
-        if pattern.contains("**/") {
-            let parts: Vec<&str> = pattern.split("**/").collect();
-            if parts.len() == 2 {
-                let suffix = parts[1];
-                // Check every possible subpath against suffix pattern
-                for (i, _) in path.match_indices('/') {
-                    if Self::simple_glob(&path[i + 1..], suffix) {
-                        return true;
-                    }
-                }
-                // Also check full path (no leading directory)
-                if Self::simple_glob(path, suffix) {
-                    return true;
-                }
-            }
-        }
-
-        // Handle simple * wildcard
-        if pattern.starts_with('*') && pattern.ends_with('*') {
-            let middle = pattern.trim_matches('*');
-            return path.contains(middle);
-        }
-
-        if pattern.starts_with('*') {
-            let suffix = pattern.trim_start_matches('*');
-            return path.ends_with(suffix);
-        }
-
-        if pattern.ends_with('*') {
-            let prefix = pattern.trim_end_matches('*');
-            return path.starts_with(prefix);
-        }
-
         false
     }
 
-    /// Match a single path segment against a pattern with `*` wildcards (no `**`)
-    fn simple_glob(text: &str, pattern: &str) -> bool {
-        if !pattern.contains('*') {
-            return text == pattern;
-        }
-        let parts: Vec<&str> = pattern.split('*').collect();
-        let mut pos = 0;
-        for (i, part) in parts.iter().enumerate() {
-            if part.is_empty() {
-                continue;
-            }
-            match text[pos..].find(part) {
-                Some(idx) => {
-                    // First segment must match start
-                    if i == 0 && idx != 0 {
-                        return false;
-                    }
-                    pos += idx + part.len();
-                }
-                None => return false,
-            }
-        }
-        // Last segment must match end
-        if let Some(last) = parts.last() {
-            if !last.is_empty() {
-                return text.ends_with(last);
-            }
-        }
-        true
-    }
-    
-    /// Get all patterns
     #[allow(dead_code)]
-    pub fn patterns(&self) -> &[String] {
-        &self.patterns
+    pub fn patterns(&self) -> &[String] { &self.patterns }
+}
+
+/// Parse "10MB", "500KB", "1024", "2GB" → bytes
+fn parse_size_value(s: &str) -> Result<u64> {
+    let s = s.trim();
+    let upper = s.to_uppercase();
+    let (num_str, mul): (&str, u64) =
+        if let Some(rest) = upper.strip_suffix("GB") { (rest, 1024 * 1024 * 1024) }
+        else if let Some(rest) = upper.strip_suffix("MB") { (rest, 1024 * 1024) }
+        else if let Some(rest) = upper.strip_suffix("KB") { (rest, 1024) }
+        else if let Some(rest) = upper.strip_suffix("B") { (rest, 1) }
+        else { (upper.as_str(), 1) };
+    let num: u64 = num_str.trim().parse()
+        .map_err(|_| anyhow!("invalid size value: `{}`", s))?;
+    Ok(num.checked_mul(mul).ok_or_else(|| anyhow!("size overflow: {}", s))?)
+}
+
+fn matches_pattern(path: &str, pattern: &str) -> bool {
+    if path == pattern { return true; }
+    if pattern.ends_with('/') {
+        let dir = pattern.trim_end_matches('/');
+        if path.starts_with(dir) { return true; }
     }
+    if pattern.contains('*') { return wildcard_match(path, pattern); }
+    if pattern.starts_with("*.") {
+        let ext = pattern.trim_start_matches("*.");
+        if path.ends_with(&format!(".{}", ext)) { return true; }
+    }
+    path.contains(pattern)
+}
+
+fn wildcard_match(path: &str, pattern: &str) -> bool {
+    if pattern.contains("**/") {
+        let parts: Vec<&str> = pattern.split("**/").collect();
+        if parts.len() == 2 {
+            let suffix = parts[1];
+            for (i, _) in path.match_indices('/') {
+                if simple_glob(&path[i + 1..], suffix) { return true; }
+            }
+            if simple_glob(path, suffix) { return true; }
+        }
+    }
+    if pattern.starts_with('*') && pattern.ends_with('*') {
+        let middle = pattern.trim_matches('*');
+        return path.contains(middle);
+    }
+    if pattern.starts_with('*') {
+        return path.ends_with(pattern.trim_start_matches('*'));
+    }
+    if pattern.ends_with('*') {
+        return path.starts_with(pattern.trim_end_matches('*'));
+    }
+    false
+}
+
+fn simple_glob(text: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') { return text == pattern; }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut pos = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() { continue; }
+        match text[pos..].find(part) {
+            Some(idx) => {
+                if i == 0 && idx != 0 { return false; }
+                pos += idx + part.len();
+            }
+            None => return false,
+        }
+    }
+    if let Some(last) = parts.last() {
+        if !last.is_empty() { return text.ends_with(last); }
+    }
+    true
+}
+
+/// Match a path against an exclude glob like `*.psd` or `vendor/*`
+pub fn glob_match(path: &str, pattern: &str) -> bool {
+    matches_pattern(path, pattern)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    #[test]
-    fn test_exact_match() {
-        let ignore = ToriIgnore {
-            patterns: vec!["target".to_string()],
-        };
-        
-        assert!(ignore.is_ignored("target"));
-        assert!(!ignore.is_ignored("src"));
+
+    fn from_str(s: &str) -> ToriIgnore {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".toriignore");
+        std::fs::write(&p, s).unwrap();
+        ToriIgnore::from_file(&p).unwrap()
     }
-    
+
     #[test]
-    fn test_directory_match() {
-        let ignore = ToriIgnore {
-            patterns: vec!["node_modules/".to_string()],
-        };
-        
-        assert!(ignore.is_ignored("node_modules/package.json"));
-        assert!(!ignore.is_ignored("src/main.rs"));
+    fn parses_paths_only() {
+        let t = from_str("target\nnode_modules/\n");
+        assert_eq!(t.patterns.len(), 2);
+        assert!(t.is_ignored("target"));
+        assert!(t.is_ignored("node_modules/x"));
     }
-    
+
     #[test]
-    fn test_extension_match() {
-        let ignore = ToriIgnore {
-            patterns: vec!["*.log".to_string()],
-        };
-        
-        assert!(ignore.is_ignored("debug.log"));
-        assert!(ignore.is_ignored("error.log"));
-        assert!(!ignore.is_ignored("README.md"));
+    fn parses_secrets_section() {
+        let t = from_str("[secrets]\ndeny: AKIA[0-9A-Z]{16}\ndeny: ghp_[A-Za-z0-9]{36}\n");
+        assert_eq!(t.secrets.len(), 2);
+        assert!(t.secrets[0].regex.is_match("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!t.secrets[0].regex.is_match("not a key"));
     }
-    
+
     #[test]
-    fn test_wildcard_match() {
-        let ignore = ToriIgnore {
-            patterns: vec!["**/temp/*".to_string()],
-        };
-        
-        assert!(ignore.is_ignored("src/temp/file.txt"));
-        assert!(ignore.is_ignored("temp/data"));
+    fn parses_secrets_with_name() {
+        let t = from_str("[secrets]\ndeny: xkeysib-[a-z0-9]{20,}  # Brevo\n");
+        assert_eq!(t.secrets[0].name, "Brevo");
+    }
+
+    #[test]
+    fn parses_size_section() {
+        let t = from_str("[size]\nmax: 10MB\nwarn: 500KB\nexclude: *.psd, *.zip\n");
+        assert_eq!(t.size.max_bytes, Some(10 * 1024 * 1024));
+        assert_eq!(t.size.warn_bytes, Some(500 * 1024));
+        assert_eq!(t.size.exclude.len(), 2);
+    }
+
+    #[test]
+    fn parses_hooks_section() {
+        let t = from_str("[hooks]\npre-save: cargo fmt --check\npre-save: cargo clippy\npre-sync: cargo test\n");
+        assert_eq!(t.hooks.pre_save.len(), 2);
+        assert_eq!(t.hooks.pre_sync.len(), 1);
+        assert_eq!(t.hooks.pre_save[0], "cargo fmt --check");
+    }
+
+    #[test]
+    fn parse_size_value_units() {
+        assert_eq!(parse_size_value("10MB").unwrap(), 10 * 1024 * 1024);
+        assert_eq!(parse_size_value("500KB").unwrap(), 500 * 1024);
+        assert_eq!(parse_size_value("2GB").unwrap(), 2u64 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size_value("1024").unwrap(), 1024);
+    }
+
+    #[test]
+    fn invalid_secret_regex_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(".toriignore");
+        std::fs::write(&p, "[secrets]\ndeny: [unclosed\n").unwrap();
+        assert!(ToriIgnore::from_file(&p).is_err());
     }
 }

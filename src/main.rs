@@ -12,6 +12,7 @@ mod duration;
 mod error;
 mod mirror;
 mod remote;
+mod hooks;
 mod scanner;
 mod snapshot;
 mod ssh;
