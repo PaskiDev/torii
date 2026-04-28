@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-28
+
+### Added
+- `.toriignore.local` — machine-private overlay for sensitive ignore rules. Auto-gitignored, never committed. Merges on top of `.toriignore`; tighter local size limits override public ones.
+- `torii ignore add|secret|list` — manage rules from the CLI. `secret` defaults to `.local` (private); `--public` writes to committed `.toriignore` with a recon-warning.
+- `[secrets]`, `[size]`, `[hooks]` sections in `.toriignore` for declarative pre-save/sync gates (custom regex secret rules, file-size limits, hook commands).
+- Update banner in TUI header when a newer crates.io version is available.
+- CLI update notifier on crates.io releases.
+
+### Changed
+- Command surface tightened: promoted `blame`/`scan`/`cherry-pick` to top-level; demoted `ls`/`unstage`/`repo`; consolidated `mirror primary`/`replica`.
+
+### Fixed
+- `torii pull` branch handling, `remote link`, `unstage`, `rebase --root`, `amend` after history rewrite, `branch --orphan`, `save` flag combinations.
+
 ## [0.1.16] - 2026-04-19
 
 ### Changed

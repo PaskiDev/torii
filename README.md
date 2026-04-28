@@ -6,21 +6,33 @@ A human-first Git client. Simpler commands, built-in safety nets, and multi-plat
 
 ## Install
 
-**Linux / macOS — one line:**
+Prebuilt binaries — no toolchain or system libraries needed.
+
+**Linux / macOS:**
 
 ```bash
-curl -fsSL https://gitorii.com/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/paskidev/gitorii/releases/latest/download/gitorii-installer.sh | sh
 ```
 
-**Windows — download from [gitorii.com/releases](https://gitorii.com/releases)**
+**Windows (PowerShell):**
 
-**Via cargo (builds from source):**
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/paskidev/gitorii/releases/latest/download/gitorii-installer.ps1 | iex"
+```
+
+**Via `cargo binstall`** (also fetches a prebuilt binary):
+
+```bash
+cargo binstall gitorii
+```
+
+**From source via cargo** (compiles locally, slower):
 
 ```bash
 cargo install gitorii
 ```
 
-> **⚠️ Building from source requires system dependencies:**
+> Building from source requires `perl`, `pkg-config` and OpenSSL headers (only for `cargo install`, not for the prebuilt binaries above):
 >
 > | Platform | Command |
 > |----------|---------|
@@ -154,6 +166,28 @@ Runs automatically before every `torii save`. Detects:
 - Generic API keys and passwords
 
 Files named `*.example`, `*.sample`, or `*.template` are always skipped.
+
+### Ignore rules (`.toriignore` + `.toriignore.local`)
+
+`.toriignore` extends `.gitignore` syntax with optional sections for custom secret patterns, file size limits, and pre/post hooks. It is auto-synced into `.git/info/exclude` so `git` itself respects the rules.
+
+```bash
+torii ignore add 'build/'                          # add path to public .toriignore
+torii ignore add --local '/internal/billing/'      # add path to .toriignore.local
+torii ignore secret 'AKIA[0-9A-Z]{16}' --name AWS  # add secret regex (defaults to .local)
+torii ignore secret 'ghp_[A-Za-z0-9]{36}' --public # add to public .toriignore (warns)
+torii ignore list                                  # show effective rules (merged)
+```
+
+**`.toriignore.local`** is machine-private — gitignored automatically and never committed. Use it for rules whose existence would aid recon if the public repo leaked: proprietary secret formats, internal paths, custom audit regex. Local rules merge on top of public ones; tighter local size limits override public ones.
+
+```
+# .toriignore                # .toriignore.local (private)
+[secrets]                    [secrets]
+deny: AKIA[0-9A-Z]{16}       deny: PROP_[a-z]{20}  # internal
+[size]                       [size]
+max: 10MB                    max: 5MB              # tighter wins
+```
 
 ### Snapshots
 
@@ -348,9 +382,9 @@ Required to build from source. Pre-built binaries have no dependencies.
 ## Links
 
 - [Website](https://gitorii.com)
-- [Releases](https://gitorii.com/releases)
+- [Releases](https://github.com/paskidev/gitorii/releases)
 - [Docs](https://gitorii.com/docs)
-- [Issues](https://gitlab.com/paskidev/torii/-/issues)
+- [Issues](https://github.com/paskidev/gitorii/issues)
 - [crates.io](https://crates.io/crates/gitorii)
 
 ## License
