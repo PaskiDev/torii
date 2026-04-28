@@ -6,8 +6,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
-use crate::tui::app::{App, TagConfirm};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_GREEN, C_CYAN, C_RED};
+use crate::tui::app::App;
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_YELLOW, C_CYAN, C_RED};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let bc = app.brand_color();

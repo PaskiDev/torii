@@ -552,7 +552,7 @@ fn run_loop(
                     app.remote_view.new_url.clear();
                     app.remote_view.confirm = app::RemoteConfirm::None;
                     if name.is_empty() || new_url.is_empty() { break; }
-                    let Ok(mut repo) = git2::Repository::discover(&app.repo_path) else { break; };
+                    let Ok(repo) = git2::Repository::discover(&app.repo_path) else { break; };
                     let msg = match repo.remote_set_url(&name, &new_url) {
                         Ok(_)  => format!("url updated: {}", new_url),
                         Err(e) => format!("edit url failed: {}", e.message()),
@@ -1152,7 +1152,6 @@ fn run_loop(
                     let platform = iv.platform.clone();
                     let owner = iv.owner.clone();
                     let repo_name = iv.repo_name.clone();
-                    drop(iv);
                     use crate::issue::get_issue_client;
                     match get_issue_client(&platform).and_then(|c| c.close(&owner, &repo_name, number)) {
                         Ok(_) => {
@@ -1170,7 +1169,6 @@ fn run_loop(
                     let platform = iv.platform.clone();
                     let owner = iv.owner.clone();
                     let repo_name = iv.repo_name.clone();
-                    drop(iv);
                     if title.is_empty() { break; }
                     app.issue_view.confirm = app::IssueConfirm::None;
                     use crate::issue::{get_issue_client, CreateIssueOptions};
@@ -1197,7 +1195,6 @@ fn run_loop(
                     let platform = iv.platform.clone();
                     let owner = iv.owner.clone();
                     let repo_name = iv.repo_name.clone();
-                    drop(iv);
                     if body.is_empty() { break; }
                     app.issue_view.confirm = app::IssueConfirm::None;
                     app.issue_view.comment_input.clear();

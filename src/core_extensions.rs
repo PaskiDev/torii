@@ -939,6 +939,7 @@ impl GitRepo {
     }
 
     /// List all tracked files in the index
+    #[allow(dead_code)]
     pub fn ls(&self, path_filter: Option<&str>) -> Result<()> {
         let mut index = self.repo.index()?;
         index.read(true)?;

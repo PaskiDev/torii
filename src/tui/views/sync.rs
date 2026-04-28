@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, SyncOp, SyncStatus};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_RED, C_YELLOW};
+use super::super::ui::{C_WHITE, C_DIM, C_GREEN, C_RED, C_YELLOW};
 
 const OPS: &[SyncOp] = &[
     SyncOp::PullPush,

@@ -4,6 +4,7 @@ use crate::error::Result;
 use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm, IssueConfirm};
 
 
+#[allow(dead_code)]
 pub enum Action {
     Quit,
     Refresh,
@@ -144,8 +145,8 @@ impl EventHandler {
                     View::Commit    => app.commit_view.focus == CommitFocus::Input,
                     View::Snapshot  => app.snapshot_view.focus == SnapshotFocus::Create || app.snapshot_view.search_mode,
                     View::Log       => app.log.search_mode,
-                    View::Branch    => app.branch_view.confirm == BranchConfirm::NewBranch,
-                    View::Tag       => matches!(app.tag_view.confirm, TagConfirm::CreateName | TagConfirm::CreateMessage),
+                    View::Branch    => app.branch_view.confirm == BranchConfirm::NewBranch || app.branch_view.search_mode,
+                    View::Tag       => matches!(app.tag_view.confirm, TagConfirm::CreateName | TagConfirm::CreateMessage) || app.tag_view.search_mode,
                     View::History   => matches!(app.history_view.confirm,
                         HistoryConfirm::Rebase | HistoryConfirm::RemoveFile |
                         HistoryConfirm::RewriteStart | HistoryConfirm::RewriteEnd |
@@ -160,8 +161,6 @@ impl EventHandler {
                     View::Pr        => matches!(app.pr_view.confirm,
                         PrConfirm::CreateTitle | PrConfirm::CreateDesc |
                         PrConfirm::EditTitle | PrConfirm::EditDesc),
-                    View::Branch    => app.branch_view.search_mode,
-                    View::Tag       => app.tag_view.search_mode,
                     View::Issue     => matches!(app.issue_view.confirm,
                         IssueConfirm::CreateTitle | IssueConfirm::CreateDesc | IssueConfirm::Comment),
                     View::Config    => app.config_view.editing,
@@ -405,7 +404,7 @@ fn handle_dashboard(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     if let Some(a) = handle_global_nav(key, app) { return Some(a); }
 
     match (key.modifiers, key.code) {
-        (_, KeyCode::BackTab) | (KeyModifiers::SHIFT, KeyCode::BackTab) => app.prev_panel(),
+        (_, KeyCode::BackTab) => app.prev_panel(),
         (_, KeyCode::Up)   | (_, KeyCode::Char('k')) => app.move_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.move_down(),
 

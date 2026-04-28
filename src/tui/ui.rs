@@ -10,6 +10,7 @@ use super::app::{App, EventKind, View};
 use super::views;
 
 pub const BRAND_COLOR: Color = Color::Rgb(255, 76, 76);
+#[allow(dead_code)]
 pub const SELECTED_BG: Color = Color::Rgb(40, 40, 60);
 
 // Paleta viva
@@ -20,10 +21,12 @@ pub const C_CYAN: Color     = Color::Rgb(80, 220, 200);
 pub const C_YELLOW: Color   = Color::Rgb(255, 210, 80);
 pub const C_GREEN: Color    = Color::Rgb(100, 220, 100);
 pub const C_RED: Color      = Color::Rgb(255, 100, 100);
+#[allow(dead_code)]
 pub const C_BORDER: Color   = Color::Rgb(60, 60, 80);
 
 const SIDEBAR_WIDTH: u16 = 20;
 
+#[allow(dead_code)]
 struct Tab {
     key: &'static str,
     label: &'static str,
@@ -1135,14 +1138,7 @@ fn render_sidebar(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
             ("  ", Style::default().fg(C_SUBTLE), None)
         };
 
-        let label_owned: String;
-        let label: &str = if tab.view == View::Pr {
-            label_owned = "pr/mr".to_string();
-            &label_owned
-        } else {
-            label_owned = String::new();
-            tab.label
-        };
+        let label: &str = if tab.view == View::Pr { "pr/mr" } else { tab.label };
 
         let mut item = ListItem::new(Line::from(vec![
             Span::styled(prefix, Style::default().fg(brand)),

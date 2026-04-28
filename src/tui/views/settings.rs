@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{App, BorderStyle};
-use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN, C_YELLOW};
+use super::super::ui::{C_WHITE, C_SUBTLE, C_DIM, C_GREEN};
 
 struct SettingItem {
     label: &'static str,

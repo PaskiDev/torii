@@ -58,6 +58,7 @@ pub struct UpdatePrOptions {
     pub base: Option<String>,
 }
 
+#[allow(dead_code)]
 pub trait PrClient: Send {
     fn create(&self, owner: &str, repo: &str, opts: CreatePrOptions) -> Result<PullRequest>;
     fn list(&self, owner: &str, repo: &str, state: &str) -> Result<Vec<PullRequest>>;

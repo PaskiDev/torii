@@ -527,6 +527,7 @@ impl Default for MirrorState {
 // ── PR state ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PrEntry {
     pub number: u64,
     pub title: String,
@@ -638,6 +639,7 @@ impl Default for PrState {
 // ── Issue state ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct IssueEntry {
     pub number: u64,
     pub title: String,
@@ -758,6 +760,7 @@ impl Default for WorkspaceState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigScope { Global, Local }
 
+#[allow(dead_code)]
 pub struct ConfigEntry {
     pub key: String,
     pub value: String,
@@ -1298,6 +1301,7 @@ impl App {
         false
     }
 
+    #[allow(dead_code)]
     pub fn next_panel(&mut self) {
         self.dashboard.selected_panel = match self.dashboard.selected_panel {
             Panel::Staged    => Panel::Unstaged,
@@ -1969,12 +1973,6 @@ impl App {
         }
     }
 
-    // ── Mirror helpers (legacy — kept for mirror_move_up/down) ───────────────
-
-    fn load_mirrors(&mut self) {
-        // mirrors now loaded inside load_remotes
-    }
-
     pub fn mirror_move_up(&mut self) {
         if self.mirror_view.idx > 0 { self.mirror_view.idx -= 1; }
     }
@@ -2117,7 +2115,7 @@ impl App {
             let is_sensitive = SENSITIVE.contains(&key);
             let value = match values.get(key) {
                 Some(v) if v.is_empty() => "[not set]".to_string(),
-                Some(v) if is_sensitive => "[set]".to_string(),
+                Some(_v) if is_sensitive => "[set]".to_string(),
                 Some(v) => v.clone(),
                 None => "[not set]".to_string(),
             };

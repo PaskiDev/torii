@@ -21,7 +21,9 @@ const C_WHITE: Color     = Color::Rgb(220, 220, 220);
 const C_SUBTLE: Color    = Color::Rgb(140, 140, 160);
 const C_DIM: Color       = Color::Rgb(80, 80, 100);
 const C_GREEN: Color     = Color::Rgb(100, 220, 100);
+#[allow(dead_code)]
 const C_YELLOW: Color    = Color::Rgb(255, 210, 80);
+#[allow(dead_code)]
 const C_BORDER: Color    = Color::Rgb(60, 60, 80);
 
 pub enum PickerResult {

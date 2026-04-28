@@ -46,6 +46,7 @@ enum Section {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
+#[allow(dead_code)]
 enum HookKind { PreSave, PreSync, PostSave, PostSync }
 
 impl ToriIgnore {
