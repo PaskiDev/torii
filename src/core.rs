@@ -26,20 +26,37 @@ impl GitRepo {
         Ok(git_repo)
     }
 
-    /// Sync .toriignore → .git/info/exclude so git itself respects the patterns.
+    /// Sync .toriignore (+ .toriignore.local) → .git/info/exclude so git
+    /// itself respects the patterns. Always force-excludes `.toriignore.local`
+    /// itself — local rules are machine-private and must never be committed.
     /// Called automatically on open and before staging.
     pub fn sync_toriignore(&self) -> Result<()> {
         let repo_path = self.repo.path().parent().unwrap().to_path_buf();
-        let toriignore_path = repo_path.join(".toriignore");
+        let public_path = repo_path.join(".toriignore");
+        let local_path = repo_path.join(".toriignore.local");
         let exclude_path = self.repo.path().join("info").join("exclude");
 
-        if toriignore_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&toriignore_path) {
-                let header = "# Synced from .toriignore by torii — do not edit manually\n";
-                let _ = std::fs::write(&exclude_path, format!("{}{}", header, content));
+        let mut buf = String::from(
+            "# Synced from .toriignore by torii — do not edit manually\n\
+             # Local-only rules — never commit\n\
+             .toriignore.local\n",
+        );
+
+        if public_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&public_path) {
+                buf.push_str(&content);
+                if !buf.ends_with('\n') { buf.push('\n'); }
             }
         }
 
+        if local_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&local_path) {
+                buf.push_str("# ─── from .toriignore.local ───\n");
+                buf.push_str(&content);
+            }
+        }
+
+        let _ = std::fs::write(&exclude_path, buf);
         Ok(())
     }
 

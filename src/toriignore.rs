@@ -49,10 +49,46 @@ enum Section {
 enum HookKind { PreSave, PreSync, PostSave, PostSync }
 
 impl ToriIgnore {
-    /// Load from repository root (returns default if file absent)
+    /// Load from repository root (returns default if file absent).
+    ///
+    /// Merges `.toriignore` (committed, public) with `.toriignore.local`
+    /// (gitignored, machine-local). `.local` rules take precedence — they
+    /// extend `[secrets]`/`[size]`/`[hooks]` and append path patterns.
+    /// Use `.local` for sensitive rules whose mere existence would aid
+    /// recon if the public repo leaks (paths like `/internal/billing/`,
+    /// custom regex for proprietary secret formats, etc).
     pub fn load<P: AsRef<Path>>(repo_path: P) -> Result<Self> {
-        let path = repo_path.as_ref().join(".toriignore");
-        if path.exists() { Self::from_file(&path) } else { Ok(Self::default()) }
+        let root = repo_path.as_ref();
+        let public = root.join(".toriignore");
+        let local = root.join(".toriignore.local");
+
+        let mut out = if public.exists() {
+            Self::from_file(&public)?
+        } else {
+            Self::default()
+        };
+
+        if local.exists() {
+            let local_rules = Self::from_file(&local)?;
+            out.merge(local_rules);
+        }
+
+        Ok(out)
+    }
+
+    /// Append rules from `other` into self. Path patterns concat;
+    /// secrets/hooks concat; size limits in `other` override (tighter
+    /// local policy wins).
+    fn merge(&mut self, other: Self) {
+        self.patterns.extend(other.patterns);
+        self.secrets.extend(other.secrets);
+        self.hooks.pre_save.extend(other.hooks.pre_save);
+        self.hooks.pre_sync.extend(other.hooks.pre_sync);
+        self.hooks.post_save.extend(other.hooks.post_save);
+        self.hooks.post_sync.extend(other.hooks.post_sync);
+        self.size.exclude.extend(other.size.exclude);
+        if other.size.max_bytes.is_some() { self.size.max_bytes = other.size.max_bytes; }
+        if other.size.warn_bytes.is_some() { self.size.warn_bytes = other.size.warn_bytes; }
     }
 
     /// Default content seeded by `torii init`
@@ -102,7 +138,13 @@ impl ToriIgnore {
          # [hooks]\n\
          # pre-save: cargo fmt --check\n\
          # pre-save: cargo clippy -- -D warnings\n\
-         # pre-sync: cargo test --no-run\n"
+         # pre-sync: cargo test --no-run\n\
+         \n\
+         # ─── Sensitive rules → use .toriignore.local ──────────────────────\n\
+         # Rules whose existence would help an attacker recon (internal\n\
+         # paths, proprietary secret formats) belong in .toriignore.local.\n\
+         # That file is gitignored automatically — never committed.\n\
+         # Same syntax as this file. Local rules merge on top of public ones.\n"
     }
 
     fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -335,6 +377,45 @@ mod tests {
         assert_eq!(parse_size_value("500KB").unwrap(), 500 * 1024);
         assert_eq!(parse_size_value("2GB").unwrap(), 2u64 * 1024 * 1024 * 1024);
         assert_eq!(parse_size_value("1024").unwrap(), 1024);
+    }
+
+    #[test]
+    fn local_overlay_merges_with_public() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".toriignore"),
+            "node_modules/\n[secrets]\ndeny: AKIA[0-9A-Z]{16}\n[size]\nmax: 10MB\n",
+        ).unwrap();
+        std::fs::write(
+            dir.path().join(".toriignore.local"),
+            "/internal/billing/\n[secrets]\ndeny: PROP_[a-z]{20}  # Proprietary\n[size]\nmax: 5MB\n",
+        ).unwrap();
+
+        let t = ToriIgnore::load(dir.path()).unwrap();
+        assert_eq!(t.patterns.len(), 2);
+        assert_eq!(t.secrets.len(), 2);
+        // Local overrides — tighter limit wins
+        assert_eq!(t.size.max_bytes, Some(5 * 1024 * 1024));
+    }
+
+    #[test]
+    fn local_only_works_without_public() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".toriignore.local"),
+            "secret.txt\n[hooks]\npre-save: ./check.sh\n",
+        ).unwrap();
+        let t = ToriIgnore::load(dir.path()).unwrap();
+        assert_eq!(t.patterns.len(), 1);
+        assert_eq!(t.hooks.pre_save.len(), 1);
+    }
+
+    #[test]
+    fn no_files_returns_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = ToriIgnore::load(dir.path()).unwrap();
+        assert!(t.patterns.is_empty());
+        assert!(t.secrets.is_empty());
     }
 
     #[test]
