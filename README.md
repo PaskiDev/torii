@@ -6,40 +6,34 @@ A human-first Git client. Simpler commands, built-in safety nets, and multi-plat
 
 ## Install
 
-Prebuilt binaries — no toolchain or system libraries needed.
-
-**Linux / macOS:**
+**Prebuilt binaries** (Linux / macOS):
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/paskidev/gitorii/releases/latest/download/gitorii-installer.sh | sh
 ```
 
-**Windows (PowerShell):**
+**Windows** (PowerShell):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/paskidev/gitorii/releases/latest/download/gitorii-installer.ps1 | iex"
 ```
 
-**Via `cargo binstall`** (also fetches a prebuilt binary):
+**Via `cargo binstall`** (fetches prebuilt binary):
 
 ```bash
 cargo binstall gitorii
 ```
 
-**From source via cargo** (compiles locally, slower):
+**From source via cargo** (compiles locally):
 
 ```bash
 cargo install gitorii
 ```
 
-> Building from source requires `perl`, `pkg-config` and OpenSSL headers (only for `cargo install`, not for the prebuilt binaries above):
->
-> | Platform | Command |
-> |----------|---------|
-> | Ubuntu/Debian | `sudo apt install perl libssl-dev pkg-config` |
-> | Fedora/RHEL | `sudo dnf install perl openssl-devel pkg-config` |
-> | macOS | `brew install openssl` |
-> | Arch | `sudo pacman -S perl openssl pkgconf` |
+> **Building from source needs only a C compiler** (`gcc` or `clang`).
+> No `perl`, no `openssl-dev`, no `libssh2-dev`, no `pkg-config`.
+> Since 0.6.0, gitorii uses pure-Rust HTTPS (`rustls`) and SSH (`russh`)
+> transports instead of libcurl/libssh2/openssl.
 
 ## Quick start
 
@@ -370,14 +364,26 @@ Full-screen interface with sidebar navigation. All views accessible from keyboar
 
 ## System dependencies
 
-Required to build from source. Pre-built binaries have no dependencies.
+**None at runtime** for prebuilt binaries. **Only a C compiler** when building from source.
 
-| Platform | Command |
-|----------|---------|
-| Ubuntu/Debian | `sudo apt install perl libssl-dev pkg-config` |
-| Fedora/RHEL | `sudo dnf install perl openssl-devel pkg-config` |
-| macOS | `brew install openssl` |
-| Arch | `sudo pacman -S perl openssl pkgconf` |
+Since 0.6.0 gitorii ships its own pure-Rust HTTPS (`rustls`) and SSH (`russh`)
+transports, so libgit2 is built without HTTPS/SSH support — no openssl-dev,
+no libssh2-dev, no pkg-config, no perl.
+
+| Platform | Build prerequisite |
+|----------|--------------------|
+| Ubuntu/Debian | `sudo apt install build-essential` |
+| Fedora/RHEL | `sudo dnf install gcc make` |
+| macOS | `xcode-select --install` |
+| Arch | `sudo pacman -S base-devel` |
+| Alpine | `apk add build-base` |
+
+Want a fully static binary with zero runtime libs (runs on Alpine, scratch,
+busybox)? Build with the `static` feature on the musl target:
+
+```bash
+cargo build --release --target x86_64-unknown-linux-musl --features static
+```
 
 ## Links
 

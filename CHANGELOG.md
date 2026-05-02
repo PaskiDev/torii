@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0-rc.1] - 2026-05-02
+## [0.6.0-rc.2] - 2026-05-02
+
+### Fixed
+- README install/system-dependency sections still listed `perl`, `openssl-dev`, `libssh2-dev` and `pkg-config` from the pre-0.6 era. Updated to reflect that only a C compiler is required from source. Added a section for the `static` feature + musl target that produces a zero-runtime-deps binary. 0.6.0-rc.1 yanked because the README on crates.io misled testers into installing dependencies they no longer need.
+
+## [0.6.0-rc.1] - 2026-05-02 (yanked)
 
 ### Added
 - **Pure-Rust HTTPS+SSH transports** — libgit2's libcurl/libssh2 transports replaced by custom impls registered via `git2::transport::register`. HTTPS over `reqwest` + `rustls`, SSH over `russh` + `aws-lc-rs`.
