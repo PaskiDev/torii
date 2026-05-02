@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - TBD
+
+### Added
+- **Fully static Linux binary** via `--features static` + `x86_64-unknown-linux-musl` target. Vendors zlib (libz-sys/static); combined with the pure-Rust transports from 0.6.0, produces a binary with **zero runtime dependencies**. Runs on Alpine, scratch containers, busybox, any glibc/musl mix. CI now builds and publishes `torii-linux-x86_64-musl` alongside the dynamically-linked variants.
+
+### Changed
+- `libz-sys` declared as a direct dep so the `static` feature can be opted into at the gitorii level (was previously transitive through libgit2-sys).
+
 ## [0.6.0-rc.1] - 2026-05-02
 
 ### Added

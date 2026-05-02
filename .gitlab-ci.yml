@@ -33,7 +33,7 @@ variables:
   retry: 0
   script:
     - export PATH="$CARGO_HOME/bin:$PATH"
-    - cargo build --release --target $TARGET
+    - cargo build --release --target $TARGET ${FEATURES:+--features $FEATURES}
     - cp target/$TARGET/release/torii${EXT:-} torii-${ASSET_NAME}
   artifacts:
     paths:
@@ -63,6 +63,23 @@ build-windows-x86_64:
     LINKER: x86_64-w64-mingw32-gcc
     EXT: .exe
 
+# Fully static build — runs on Alpine, scratch, busybox, any Linux without libc match.
+# Vendors zlib via libz-sys/static; libgit2 vendored without HTTPS/SSH; rustls+russh.
+build-linux-x86_64-musl:
+  extends: .build_linux
+  variables:
+    TARGET: x86_64-unknown-linux-musl
+    ASSET_NAME: linux-x86_64-musl
+    EXTRA_PKGS: musl-tools
+    LINKER: musl-gcc
+    FEATURES: static
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl build-essential $EXTRA_PKGS
+    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    - export PATH="$CARGO_HOME/bin:$PATH"
+    - rustup target add $TARGET
+    - export CC_x86_64_unknown_linux_musl=musl-gcc
+
 
 release:
   stage: release
@@ -72,10 +89,12 @@ release:
     - build-linux-x86_64
     - build-linux-aarch64
     - build-windows-x86_64
+    - build-linux-x86_64-musl
   dependencies:
     - build-linux-x86_64
     - build-linux-aarch64
     - build-windows-x86_64
+    - build-linux-x86_64-musl
   before_script:
     - apk add --no-cache curl jq
   script:
@@ -100,8 +119,9 @@ release:
         fi
       }
 
-    - upload torii-linux-x86_64     torii-linux-x86_64
-    - upload torii-linux-aarch64    torii-linux-aarch64
+    - upload torii-linux-x86_64       torii-linux-x86_64
+    - upload torii-linux-aarch64      torii-linux-aarch64
+    - upload torii-linux-x86_64-musl  torii-linux-x86_64-musl
     - upload torii-windows-x86_64.exe torii-windows-x86_64.exe
 
     # Create the release with links pointing to the package registry URLs
@@ -113,6 +133,7 @@ release:
         --arg desc "${NOTES}" \
         --arg lx64  "${BASE}/torii-linux-x86_64" \
         --arg larm  "${BASE}/torii-linux-aarch64" \
+        --arg lmusl "${BASE}/torii-linux-x86_64-musl" \
         --arg win   "${BASE}/torii-windows-x86_64.exe" \
         '{
           name: $name,
@@ -120,11 +141,12 @@ release:
           description: $desc,
           assets: {
             links: [
-              { name: "torii-linux-x86_64",        url: $lx64, link_type: "package" },
-              { name: "torii-linux-aarch64",        url: $larm, link_type: "package" },
-              { name: "torii-windows-x86_64.exe",   url: $win,  link_type: "package" },
+              { name: "torii-linux-x86_64",          url: $lx64,  link_type: "package" },
+              { name: "torii-linux-aarch64",         url: $larm,  link_type: "package" },
+              { name: "torii-linux-x86_64-musl (static)", url: $lmusl, link_type: "package" },
+              { name: "torii-windows-x86_64.exe",    url: $win,   link_type: "package" },
               { name: "Install via cargo",           url: "https://crates.io/crates/gitorii", link_type: "other" },
-              { name: "Changelog",                  url: "https://gitlab.com/paskidev/torii/-/blob/main/CHANGELOG.md", link_type: "other" }
+              { name: "Changelog",                   url: "https://gitlab.com/paskidev/torii/-/blob/main/CHANGELOG.md", link_type: "other" }
             ]
           }
         }')

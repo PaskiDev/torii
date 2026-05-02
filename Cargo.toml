@@ -1,6 +1,6 @@
 [package]
 name = "gitorii"
-version = "0.6.0-rc.1"
+version = "0.6.1-dev"
 edition = "2021"
 authors = ["Paski <paski@paski.dev>"]
 description = "A human-first Git client with simplified commands, snapshots, multi-platform mirrors and built-in secret scanning"
@@ -53,8 +53,20 @@ tokio = { version = "1", features = ["rt", "io-util", "macros", "net", "sync"] }
 # Regex for custom secret patterns in .toriignore
 regex = "1.10"
 
+# Pulled in transitively by git2 → libgit2-sys. Declared here only so the
+# `static` feature can be opted into at the gitorii level.
+libz-sys = { version = "1.1", default-features = false, features = ["libc"] }
+
 [dev-dependencies]
 tempfile = "3.12"
+
+[features]
+default = []
+# Build a fully static binary: vendors and links zlib statically so no
+# system libz is required at runtime. Combine with the musl target for a
+# binary that runs on Alpine, scratch containers, and any glibc/musl mix.
+#   cargo build --release --target x86_64-unknown-linux-musl --features static
+static = ["libz-sys/static"]
 
 # The profile that 'dist' will build with
 [profile.dist]
