@@ -269,13 +269,44 @@ impl GitRepo {
         };
 
         let remote_url = remote.url().unwrap_or("").to_string();
-        let callbacks = Self::auth_callbacks_for(&remote_url);
+        let mut callbacks = Self::auth_callbacks_for(&remote_url);
+
+        // Capture per-ref rejections. libgit2's `remote.push()` returns Ok even
+        // when the server rejects (e.g. non-fast-forward without --force, or
+        // permission denied). The push-update-reference callback fires once per
+        // refspec with an Option<&str> describing the rejection.
+        let rejections: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rejections_cb = rejections.clone();
+        callbacks.push_update_reference(move |refname, status| {
+            if let Some(msg) = status {
+                rejections_cb
+                    .lock()
+                    .unwrap()
+                    .push((refname.to_string(), msg.to_string()));
+            }
+            Ok(())
+        });
 
         let mut push_options = git2::PushOptions::new();
         push_options.remote_callbacks(callbacks);
 
         // Push branch
         remote.push(&[&refspec], Some(&mut push_options))?;
+
+        // Surface server-side rejections that libgit2 swallows silently.
+        let rejected = rejections.lock().unwrap();
+        if !rejected.is_empty() {
+            let detail = rejected
+                .iter()
+                .map(|(r, m)| format!("{} → {}", r, m))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(ToriiError::Git(git2::Error::from_str(&format!(
+                "push rejected by remote: {}",
+                detail
+            ))));
+        }
 
         // Push tags via git2 — enumerate local tags and push each one
         self.push_all_tags_via_git2("origin", force)?;
