@@ -278,7 +278,7 @@ impl GitLabPrClient {
     }
 
     fn project_path(owner: &str, repo: &str) -> String {
-        urlencoding::encode(&format!("{}/{}", owner, repo)).to_string()
+        crate::url::encode(&format!("{}/{}", owner, repo))
     }
 }
 
@@ -419,7 +419,7 @@ impl PrClient for GitLabPrClient {
         let url = format!(
             "{}/projects/{}/repository/branches/{}",
             self.base_url, Self::project_path(owner, repo),
-            urlencoding::encode(branch)
+            crate::url::encode(branch)
         );
         let resp = self.client()
             .delete(&url)

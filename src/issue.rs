@@ -181,7 +181,7 @@ impl GitLabIssueClient {
     }
 
     fn project_path(owner: &str, repo: &str) -> String {
-        urlencoding::encode(&format!("{}/{}", owner, repo)).to_string()
+        crate::url::encode(&format!("{}/{}", owner, repo))
     }
 }
 

@@ -1,5 +1,5 @@
+use std::io::IsTerminal;
 use std::time::Duration;
-use is_terminal::IsTerminal;
 use update_informer::{registry, Check};
 
 use crate::config::ToriiConfig;
@@ -42,13 +42,13 @@ pub fn update_command() -> &'static str {
     let path = exe.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
 
     if path.contains("/.cargo/bin/") {
-        "cargo install gitorii"
+        "cargo install gitorii  (or: cargo binstall gitorii)"
     } else if path.starts_with("/usr/local/bin")
         || path.starts_with("/usr/bin")
         || path.starts_with("/opt/")
     {
-        "curl -fsSL https://gitorii.com/install.sh | sh"
+        "curl -LsSf https://github.com/paskidev/gitorii/releases/latest/download/gitorii-installer.sh | sh"
     } else {
-        "cargo install gitorii  (or re-run your installer)"
+        "cargo binstall gitorii  (or re-run your installer)"
     }
 }

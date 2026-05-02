@@ -18,10 +18,10 @@ path = "src/main.rs"
 
 [dependencies]
 # CLI argument parsing
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "=4.5", features = ["derive"] }
 
-# Git operations
-git2 = { version = "0.19", features = ["vendored-openssl"] }
+# Git operations — transports disabled, we provide custom reqwest+russh transports
+git2 = { version = "0.19", default-features = false }
 
 # Error handling
 anyhow = "1.0"
@@ -30,10 +30,7 @@ thiserror = "1.0"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
-reqwest = { version = "0.11", features = ["json", "blocking"] }
-tokio = { version = "1", features = ["full"] }
-urlencoding = "2.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "rustls-tls"] }
 toml = "0.8"
 
 # Time handling
@@ -48,7 +45,10 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 
 # Update notifier
 update-informer = { version = "1.2", default-features = false, features = ["crates"] }
-is-terminal = "0.4"
+
+# SSH transport (pure Rust, no openssl/libssh2)
+russh = "0.60"
+tokio = { version = "1", features = ["rt", "io-util", "macros", "net", "sync"] }
 
 # Regex for custom secret patterns in .toriignore
 regex = "1.10"

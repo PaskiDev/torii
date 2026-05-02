@@ -396,7 +396,7 @@ impl PlatformClient for GitLabClient {
             ))?;
 
         let path_str = format!("{}/{}", owner, repo);
-        let project_path = urlencoding::encode(&path_str);
+        let project_path = crate::url::encode(&path_str);
         let client = reqwest::blocking::Client::new();
         let response = client
             .delete(format!("{}/projects/{}", self.base_url, project_path))
@@ -421,7 +421,7 @@ impl PlatformClient for GitLabClient {
             ))?;
 
         let path_str = format!("{}/{}", owner, repo);
-        let project_path = urlencoding::encode(&path_str);
+        let project_path = crate::url::encode(&path_str);
         let mut body = serde_json::json!({});
 
         if let Some(desc) = settings.description {
@@ -482,7 +482,7 @@ impl PlatformClient for GitLabClient {
             ))?;
 
         let path_str = format!("{}/{}", owner, repo);
-        let project_path = urlencoding::encode(&path_str);
+        let project_path = crate::url::encode(&path_str);
         let client = reqwest::blocking::Client::new();
         let response = client
             .get(format!("{}/projects/{}", self.base_url, project_path))
@@ -566,7 +566,7 @@ impl PlatformClient for GitLabClient {
             ))?;
 
         let path_str = format!("{}/{}", owner, repo);
-        let project_path = urlencoding::encode(&path_str);
+        let project_path = crate::url::encode(&path_str);
         let visibility_str = match visibility {
             Visibility::Public => "public",
             Visibility::Private => "private",
@@ -603,7 +603,7 @@ impl PlatformClient for GitLabClient {
             ))?;
 
         let path_str = format!("{}/{}", owner, repo);
-        let project_path = urlencoding::encode(&path_str);
+        let project_path = crate::url::encode(&path_str);
         let mut body = serde_json::json!({});
 
         if let Some(issues) = features.issues {
