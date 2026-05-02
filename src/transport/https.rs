@@ -103,11 +103,8 @@ impl HttpStream {
         if let Some(a) = &auth {
             req = req.header(AUTHORIZATION, a);
         }
-        let resp = req
-            .send()
-            .map_err(io_err)?
-            .error_for_status()
-            .map_err(io_err)?;
+        let resp = req.send().map_err(io_err)?;
+        let resp = check_status(resp, base_url, auth.is_some())?;
         Ok(Self {
             inner: Mutex::new(Inner::Ls { resp }),
         })
@@ -161,11 +158,9 @@ impl Read for HttpStream {
                     if let Some(a) = auth.as_deref() {
                         req = req.header(AUTHORIZATION, a);
                     }
-                    let r = req
-                        .send()
-                        .map_err(to_io)?
-                        .error_for_status()
-                        .map_err(to_io)?;
+                    let r = req.send().map_err(to_io)?;
+                    let r = check_status(r, url, auth.is_some())
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
                     *resp = Some(r);
                     *sent = true;
                 }
@@ -207,6 +202,50 @@ fn io_err(e: reqwest::Error) -> Error {
 
 fn to_io(e: reqwest::Error) -> io::Error {
     io::Error::new(io::ErrorKind::Other, e)
+}
+
+/// Translate auth-relevant HTTP statuses into actionable errors before libgit2
+/// sees an opaque "transport error". On success returns the response unchanged.
+fn check_status(resp: Response, base_url: &str, had_auth: bool) -> Result<Response, Error> {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    let host = host_of(base_url).unwrap_or_else(|| "remote".to_string());
+    let msg = match status.as_u16() {
+        401 if !had_auth => format!(
+            "{} requires auth (HTTP 401). Set {} or TORII_HTTPS_TOKEN.",
+            host,
+            env_var_name_for(&host).unwrap_or("a host token")
+        ),
+        401 => format!(
+            "{} rejected the credentials (HTTP 401). Check token scope and validity.",
+            host
+        ),
+        403 => format!(
+            "{} forbade the request (HTTP 403). Token may lack scope or repo is restricted.",
+            host
+        ),
+        404 => format!(
+            "{} returned 404. Repo may not exist or token cannot see it.",
+            host
+        ),
+        s => format!("{} returned HTTP {}", host, s),
+    };
+    Err(Error::from_str(&format!("https transport: {}", msg)))
+}
+
+fn env_var_name_for(host: &str) -> Option<&'static str> {
+    Some(match host {
+        h if h.contains("github.") => "GITHUB_TOKEN",
+        h if h.contains("gitlab.") => "GITLAB_TOKEN",
+        h if h.contains("codeberg.") => "CODEBERG_TOKEN",
+        h if h.contains("bitbucket.") => "BITBUCKET_TOKEN",
+        h if h.contains("gitea.") => "GITEA_TOKEN",
+        h if h.contains("forgejo.") => "FORGEJO_TOKEN",
+        h if h.contains("sr.ht") || h.contains("sourcehut.") => "SOURCEHUT_TOKEN",
+        _ => return None,
+    })
 }
 
 /// Resolve an `Authorization` header value for the given URL.
