@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0-rc.1] - 2026-05-02
+
+### Added
+- **Pure-Rust HTTPS+SSH transports** — libgit2's libcurl/libssh2 transports replaced by custom impls registered via `git2::transport::register`. HTTPS over `reqwest` + `rustls`, SSH over `russh` + `aws-lc-rs`.
+- HTTPS auth via env vars per host: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `CODEBERG_TOKEN`, `BITBUCKET_TOKEN`, `GITEA_TOKEN`, `FORGEJO_TOKEN`, `SOURCEHUT_TOKEN`. Generic fallback `TORII_HTTPS_TOKEN`.
+- SSH auth chain: ssh-agent (`SSH_AUTH_SOCK`) → `~/.ssh/id_ed25519` → `~/.ssh/id_rsa`. Failure message lists each method tried.
+- SSH host verification via `~/.ssh/known_hosts` (handles hashed entries and `[host]:port`). TOFU prompt on first connection if tty; `TORII_SSH_STRICT=1` to disable TOFU.
+- Actionable HTTPS error messages distinguishing 401 (no auth / bad creds), 403 (forbidden), 404 (not found / not visible).
+- Internal `crate::url::encode` helper (no `urlencoding` dep).
+
+### Changed
+- **Build deps reduced to just a C compiler.** No more `perl`, `openssl-dev`, `libssh2-dev`, `make`, `cmake`. `pkg-config` optional (used to find system libgit2/zlib; falls back to vendored).
+- **Runtime deps:** `libz` (zlib) and libc only. No openssl, no libssh2, no libcurl.
+- `git2` builds with `default-features = false` — libgit2 vendored without HTTPS/SSH support (`GIT_HTTPS=0 GIT_SSH=0`).
+- Bumped `reqwest` 0.11 → 0.12 with `rustls-tls`.
+- `clap` pinned to `=4.5` to dodge a 4.6 crash in `Subcommand::augment_subcommands`.
+- Direct deps trimmed: 18 → 14 (dropped `tokio` direct, `is-terminal`, `serde_yaml`, `urlencoding`).
+
+### Notes for testers
+This is a release candidate. The transport rewrite is a major internal change. Validated against GitHub clone/fetch/push over HTTPS (with token) and SSH (with ed25519 + known_hosts). Other forges (GitLab, Codeberg, Bitbucket, Gitea, Forgejo, Sourcehut) use the same Smart HTTP/SSH protocol so they should work, but have not been individually verified at push level. Please report issues at https://github.com/paskidev/gitorii/issues.
+
 ## [0.5.0] - 2026-04-28
 
 ### Added
