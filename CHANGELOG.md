@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0-rc.2] - 2026-05-02
+## [0.6.0] - 2026-05-02
+
+### Added
+- **Pure-Rust HTTPS+SSH transports.** libgit2's libcurl/libssh2 transports replaced by custom impls registered via `git2::transport::register`. HTTPS over `reqwest` + `rustls`, SSH over `russh` + `aws-lc-rs`. Result: **build needs only a C compiler** — no perl, no openssl-dev, no libssh2-dev, no pkg-config.
+- HTTPS auth via env vars per host: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `CODEBERG_TOKEN`, `BITBUCKET_TOKEN`, `GITEA_TOKEN`, `FORGEJO_TOKEN`, `SOURCEHUT_TOKEN`. Generic fallback `TORII_HTTPS_TOKEN`.
+- SSH auth chain: ssh-agent (`SSH_AUTH_SOCK`) → `~/.ssh/id_ed25519` → `~/.ssh/id_rsa`. Failure message lists each method tried.
+- SSH host verification via `~/.ssh/known_hosts` (handles hashed entries and `[host]:port`). TOFU prompt on first connection if tty; `TORII_SSH_STRICT=1` to disable TOFU.
+- Actionable HTTPS error messages distinguishing 401 (no auth / bad creds), 403 (forbidden), 404 (not found / not visible).
+- Internal `crate::url::encode` helper (no `urlencoding` dep).
+
+### Fixed
+- **Silent push rejections.** `torii sync --push` previously printed `✅ Pushed to remote` even when the server rejected the update (branch protection, non-fast-forward without `--force`, pre-receive hook decline, missing permissions). libgit2's `remote.push()` returns Ok in those cases; rejections only surface via the `push_update_reference` callback. Now collected and reported as `push rejected by remote: <ref> → <reason>`. Bug pre-existed the transport rewrite and affected 0.5.0 too.
+
+### Changed
+- **Build deps reduced to just a C compiler.** No `perl`, `openssl-dev`, `libssh2-dev`, `make`, `cmake`. `pkg-config` optional.
+- **Runtime deps:** `libz` (zlib) + libc only. No openssl, libssh2, libcurl.
+- `git2` builds with `default-features = false` — libgit2 vendored without HTTPS/SSH (`GIT_HTTPS=0 GIT_SSH=0`).
+- Bumped `reqwest` 0.11 → 0.12 with `rustls-tls`.
+- `clap` pinned to `=4.5` to dodge a 4.6 crash in `Subcommand::augment_subcommands`.
+- Direct deps trimmed: 18 → 14 (dropped `tokio` direct, `is-terminal`, `serde_yaml`, `urlencoding`).
+
+### Notes
+Validated end-to-end against **GitHub, GitLab, and Codeberg** (HTTPS + SSH, clone/fetch/push). Other forges (Bitbucket, Gitea, Forgejo, Sourcehut, SourceForge) speak the same Smart HTTP / SSH protocol so they should work, but have not been individually verified at push level. Please report issues at https://github.com/paskidev/gitorii/issues.
+
+## [0.6.0-rc.2] - 2026-05-02 (yanked)
 
 ### Fixed
 - README install/system-dependency sections still listed `perl`, `openssl-dev`, `libssh2-dev` and `pkg-config` from the pre-0.6 era. Updated to reflect that only a C compiler is required from source. Added a section for the `static` feature + musl target that produces a zero-runtime-deps binary. 0.6.0-rc.1 yanked because the README on crates.io misled testers into installing dependencies they no longer need.
