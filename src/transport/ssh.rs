@@ -4,18 +4,19 @@
 //!   UploadPackLs / UploadPack    → `git-upload-pack 'owner/repo.git'`
 //!   ReceivePackLs / ReceivePack  → `git-receive-pack 'owner/repo.git'`
 //!
-//! libgit2 owns pkt-line / pack negotiation. We bridge libgit2's blocking
-//! Read/Write to russh's async Channel via a current-thread tokio runtime
-//! and mpsc channels (one per direction).
+//! Auth order: ssh-agent (SSH_AUTH_SOCK) → ed25519 key on disk → rsa key on disk.
+//! Host verification: ~/.ssh/known_hosts. TOFU prompt on unknown hosts (tty only).
 
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use git2::transport::{Service, SmartSubtransport, SmartSubtransportStream, Transport};
 use git2::{Error, Remote};
 use russh::client;
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use russh::keys::agent::client::AgentClient;
+use russh::keys::ssh_key::PublicKey;
+use russh::keys::{check_known_hosts, load_secret_key, PrivateKeyWithHashAlg};
 use russh::ChannelMsg;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
@@ -80,13 +81,9 @@ fn parse_ssh_url(url: &str) -> Result<(String, String, u16, String), Error> {
 /// Bridges libgit2's blocking Read/Write to russh's async Channel.
 struct SshStream {
     runtime: Arc<Runtime>,
-    /// Bytes from server → libgit2 reads here.
     rx: mpsc::Receiver<Vec<u8>>,
-    /// Pending leftover from a partial chunk.
     leftover: Vec<u8>,
-    /// Bytes from libgit2 → server.
     tx: mpsc::Sender<Vec<u8>>,
-    /// Set true when server EOF received; drain rx then return Ok(0).
     eof: bool,
 }
 
@@ -106,33 +103,20 @@ impl SshStream {
         let (write_tx, mut write_rx) = mpsc::channel::<Vec<u8>>(32);
 
         runtime.block_on(async {
-            let key_path = ssh_key_path()?;
-            let key = load_secret_key(&key_path, None)
-                .map_err(|e| format!("load key {:?}: {}", key_path, e))?;
+            let handler = Handler::new(host.clone(), port);
 
             let config = Arc::new(client::Config {
                 inactivity_timeout: Some(std::time::Duration::from_secs(60)),
                 ..Default::default()
             });
-            let mut session = client::connect(config, (host.as_str(), port), Handler).await?;
+            let mut session =
+                client::connect(config, (host.as_str(), port), handler).await?;
 
-            let hash = session.best_supported_rsa_hash().await?.flatten();
-            let auth = session
-                .authenticate_publickey(
-                    &user,
-                    PrivateKeyWithHashAlg::new(Arc::new(key), hash),
-                )
-                .await?;
-            if !auth.success() {
-                return Err::<(), Box<dyn std::error::Error + Send + Sync>>(
-                    "ssh auth failed (only key from disk supported in spike)".into(),
-                );
-            }
+            authenticate(&mut session, &user).await?;
 
             let mut channel = session.channel_open_session().await?;
             channel.exec(true, cmd.as_bytes()).await?;
 
-            // Spawn pump task: forward channel msgs → read_tx, drain write_rx → channel.
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
@@ -143,9 +127,7 @@ impl SshStream {
                                         break;
                                     }
                                 }
-                                Some(ChannelMsg::Eof) | Some(ChannelMsg::ExitStatus { .. }) => {
-                                    // keep draining for trailing data after exit
-                                }
+                                Some(ChannelMsg::Eof) | Some(ChannelMsg::ExitStatus { .. }) => {}
                                 None => break,
                                 _ => {}
                             }
@@ -179,6 +161,72 @@ impl SshStream {
     }
 }
 
+/// Try ssh-agent first; fall back to ed25519/rsa keys on disk.
+/// Aggregates failures so the user sees what was attempted.
+async fn authenticate(
+    session: &mut client::Handle<Handler>,
+    user: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tried: Vec<String> = Vec::new();
+
+    if std::env::var_os("SSH_AUTH_SOCK").is_some() {
+        match try_agent(session, user).await {
+            Ok(true) => return Ok(()),
+            Ok(false) => tried.push("ssh-agent (no key accepted)".into()),
+            Err(e) => tried.push(format!("ssh-agent ({})", e)),
+        }
+    } else {
+        tried.push("ssh-agent (SSH_AUTH_SOCK not set)".into());
+    }
+
+    if let Some(path) = ssh_key_path() {
+        match try_disk_key(session, user, &path).await {
+            Ok(true) => return Ok(()),
+            Ok(false) => tried.push(format!("disk key {:?} (rejected)", path)),
+            Err(e) => tried.push(format!("disk key {:?} ({})", path, e)),
+        }
+    } else {
+        tried.push("disk key (no id_ed25519 / id_rsa in ~/.ssh)".into());
+    }
+
+    Err(format!("ssh auth failed. tried: {}", tried.join("; ")).into())
+}
+
+async fn try_agent(
+    session: &mut client::Handle<Handler>,
+    user: &str,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let mut agent = AgentClient::connect_env().await?;
+    let identities = agent.request_identities().await?;
+    if identities.is_empty() {
+        return Ok(false);
+    }
+    let hash = session.best_supported_rsa_hash().await?.flatten();
+    for id in identities {
+        let pubkey = id.public_key().into_owned();
+        let result = session
+            .authenticate_publickey_with(user, pubkey, hash, &mut agent)
+            .await?;
+        if result.success() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn try_disk_key(
+    session: &mut client::Handle<Handler>,
+    user: &str,
+    path: &PathBuf,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let key = load_secret_key(path, None)?;
+    let hash = session.best_supported_rsa_hash().await?.flatten();
+    let result = session
+        .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash))
+        .await?;
+    Ok(result.success())
+}
+
 impl Read for SshStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if !self.leftover.is_empty() {
@@ -190,8 +238,7 @@ impl Read for SshStream {
         if self.eof {
             return Ok(0);
         }
-        let chunk = self.runtime.block_on(self.rx.recv());
-        match chunk {
+        match self.runtime.block_on(self.rx.recv()) {
             Some(data) => {
                 let n = data.len().min(buf.len());
                 buf[..n].copy_from_slice(&data[..n]);
@@ -223,27 +270,151 @@ impl Write for SshStream {
     }
 }
 
-fn ssh_key_path() -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    let home = std::env::var_os("HOME").ok_or("HOME not set")?;
+fn ssh_key_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
     for name in ["id_ed25519", "id_rsa"] {
         let p = PathBuf::from(&home).join(".ssh").join(name);
         if p.exists() {
-            return Ok(p);
+            return Some(p);
         }
     }
-    Err("no ssh key found in ~/.ssh (id_ed25519 or id_rsa)".into())
+    None
 }
 
-struct Handler;
+fn known_hosts_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".ssh").join("known_hosts"))
+}
+
+struct Handler {
+    host: String,
+    port: u16,
+    /// Set true once we've prompted/appended for this connection so we don't
+    /// re-prompt on reconnects within the same handler instance.
+    decided: StdMutex<bool>,
+}
+
+impl Handler {
+    fn new(host: String, port: u16) -> Self {
+        Self {
+            host,
+            port,
+            decided: StdMutex::new(false),
+        }
+    }
+}
 
 impl client::Handler for Handler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _key: &russh::keys::ssh_key::PublicKey,
+        key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        // SPIKE: accept any host key. Production must verify against ~/.ssh/known_hosts.
-        Ok(true)
+        match check_known_hosts(&self.host, self.port, key) {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                // Unknown host. TOFU: prompt if tty + STRICT not set, else reject.
+                let strict = matches!(
+                    std::env::var("TORII_SSH_STRICT").as_deref(),
+                    Ok("1") | Ok("true") | Ok("yes")
+                );
+                if strict {
+                    eprintln!(
+                        "ssh: host {}:{} not in known_hosts and TORII_SSH_STRICT is set; rejecting",
+                        self.host, self.port
+                    );
+                    return Ok(false);
+                }
+                if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+                    eprintln!(
+                        "ssh: host {}:{} not in known_hosts (no tty to prompt). \
+                         Run interactively once to accept, or set TORII_SSH_STRICT=0 explicitly.",
+                        self.host, self.port
+                    );
+                    return Ok(false);
+                }
+                let mut decided = self.decided.lock().unwrap();
+                if *decided {
+                    return Ok(true);
+                }
+                let fp = key.fingerprint(Default::default());
+                eprintln!();
+                eprintln!("⚠️  Host {}:{} is not in known_hosts.", self.host, self.port);
+                eprintln!("    fingerprint: {}", fp);
+                eprint!("    Trust and continue? [y/N]: ");
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                let mut answer = String::new();
+                if std::io::stdin().read_line(&mut answer).is_err() {
+                    return Ok(false);
+                }
+                let yes = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+                if !yes {
+                    return Ok(false);
+                }
+                if let Err(e) = append_known_host(&self.host, self.port, key) {
+                    eprintln!("    (warning: failed to write known_hosts: {})", e);
+                }
+                *decided = true;
+                Ok(true)
+            }
+            Err(e) => {
+                eprintln!(
+                    "ssh: known_hosts mismatch or parse error for {}:{} — {}",
+                    self.host, self.port, e
+                );
+                Ok(false)
+            }
+        }
+    }
+}
+
+fn append_known_host(host: &str, port: u16, key: &PublicKey) -> io::Result<()> {
+    let path = known_hosts_path()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME not set"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let host_field = if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{}]:{}", host, port)
+    };
+    let key_line = key
+        .to_openssh()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    writeln!(f, "{} {}", host_field, key_line)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ssh_url;
+
+    #[test]
+    fn scp_form() {
+        let (u, h, p, path) = parse_ssh_url("git@github.com:owner/repo.git").unwrap();
+        assert_eq!(u, "git");
+        assert_eq!(h, "github.com");
+        assert_eq!(p, 22);
+        assert_eq!(path, "owner/repo.git");
+    }
+
+    #[test]
+    fn ssh_url_with_port() {
+        let (u, h, p, path) = parse_ssh_url("ssh://git@example.com:2222/group/repo").unwrap();
+        assert_eq!(u, "git");
+        assert_eq!(h, "example.com");
+        assert_eq!(p, 2222);
+        assert_eq!(path, "group/repo");
+    }
+
+    #[test]
+    fn ssh_url_default_port() {
+        let (_, _, p, _) = parse_ssh_url("ssh://git@example.com/x/y").unwrap();
+        assert_eq!(p, 22);
     }
 }
