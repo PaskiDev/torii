@@ -18,7 +18,9 @@ mod snapshot;
 mod ssh;
 mod tag;
 mod toriignore;
+mod transport;
 mod updater;
+mod url;
 mod versioning;
 mod pr;
 mod issue;
@@ -30,6 +32,7 @@ use cli::Cli;
 use clap::Parser;
 
 fn main() -> Result<()> {
+    transport::register_all();
     let cli = Cli::parse();
     let result = cli.execute();
     updater::maybe_notify();
