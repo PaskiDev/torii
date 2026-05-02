@@ -1,6 +1,9 @@
 workflow:
   rules:
+    # Stable: v1.2.3
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+    # Pre-release: v1.2.3-rc.1, v1.2.3-beta.2, v1.2.3-alpha.5
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+-[a-z]+\.[0-9]+$/
     - when: never
 
 stages:
@@ -16,7 +19,9 @@ variables:
   stage: build
   image: rust:1-bookworm
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl build-essential pkg-config libssl-dev $EXTRA_PKGS
+    # gitorii 0.6.0+ uses pure-Rust transports (rustls + russh).
+    # Build only needs a C compiler for libgit2 vendored without HTTPS/SSH.
+    - apt-get update -qq && apt-get install -y -qq curl build-essential $EXTRA_PKGS
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
     - export PATH="$CARGO_HOME/bin:$PATH"
     - rustup target add $TARGET

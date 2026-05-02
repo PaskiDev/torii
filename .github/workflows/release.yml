@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
+      # Stable: v1.2.3
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      # Pre-release: v1.2.3-rc.1, v1.2.3-beta.2, v1.2.3-alpha.5
+      - 'v[0-9]+.[0-9]+.[0-9]+-[a-z]+.[0-9]+'
 
 jobs:
   release:
@@ -14,6 +17,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Detect prerelease
+        id: prerelease
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" =~ -(rc|beta|alpha)\. ]]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          else
+            echo "value=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract changelog for this version
         id: changelog
@@ -30,7 +43,7 @@ jobs:
           name: "Torii ${{ github.ref_name }}"
           body: ${{ steps.changelog.outputs.notes }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.value }}
 
   publish-crates:
     name: Publish to crates.io
