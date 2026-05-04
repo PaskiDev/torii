@@ -815,6 +815,7 @@ pub struct TuiSettings {
     pub brand_color: (u8, u8, u8),
     pub selected_bg: (u8, u8, u8),
     pub event_log_max: usize,
+    pub graph_style: crate::graph::GraphStyle,
 }
 
 impl Default for TuiSettings {
@@ -829,6 +830,7 @@ impl Default for TuiSettings {
             brand_color: (255, 76, 76),
             selected_bg: (40, 40, 60),
             event_log_max: 50,
+            graph_style: crate::graph::GraphStyle::Curves,
         }
     }
 }
@@ -856,6 +858,7 @@ impl TuiSettings {
                 "brand_color"        => { if let Some(rgb) = parse_rgb(val) { s.brand_color = rgb; } }
                 "selected_bg"        => { if let Some(rgb) = parse_rgb(val) { s.selected_bg = rgb; } }
                 "event_log_max"      => { if let Ok(n) = val.parse::<usize>() { s.event_log_max = n; } }
+                "graph_style"        => { s.graph_style = crate::graph::GraphStyle::from_str(val); }
                 _ => {}
             }
         }
@@ -870,13 +873,14 @@ impl TuiSettings {
             let _ = std::fs::create_dir_all(parent);
         }
         let content = format!(
-            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\n",
+            "border_style = \"{}\"\nshow_help_view = {}\nshow_history_view = {}\nshow_mirror_view = {}\nshow_workspace_view = {}\nshow_remote_view = {}\nbrand_color = \"{},{},{}\"\nselected_bg = \"{},{},{}\"\nevent_log_max = {}\ngraph_style = \"{}\"\n",
             if self.border_style == BorderStyle::Rounded { "rounded" } else { "sharp" },
             self.show_help_view, self.show_history_view, self.show_mirror_view,
             self.show_workspace_view, self.show_remote_view,
             self.brand_color.0, self.brand_color.1, self.brand_color.2,
             self.selected_bg.0, self.selected_bg.1, self.selected_bg.2,
             self.event_log_max,
+            self.graph_style.as_str(),
         );
         let _ = std::fs::write(path, content);
     }
@@ -1275,12 +1279,11 @@ impl App {
     /// Recompute graph rows from `self.commits`. Cheap (≤ a few hundred
     /// commits in TUI). No-op if commits empty.
     pub fn recompute_graph_rows(&mut self) {
-        use crate::graph::{render, GraphCommit};
+        use crate::graph::{render_with, GraphCommit};
         if self.commits.is_empty() {
             self.log.graph_rows.clear();
             return;
         }
-        // Need parents per commit. Fast lookup: open repo, find_commit per oid.
         let repo = match git2::Repository::open(&self.repo_path) {
             Ok(r) => r,
             Err(_) => {
@@ -1303,7 +1306,7 @@ impl App {
                 }
             })
             .collect();
-        self.log.graph_rows = render(&input);
+        self.log.graph_rows = render_with(&input, self.settings.graph_style);
     }
 
     // ── Dashboard helpers ────────────────────────────────────────────────────

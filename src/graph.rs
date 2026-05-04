@@ -23,6 +23,83 @@
 //! - when a lane's tip is no longer referenced by any later commit, it closes
 //!   on the next transition line as `/` joining toward its first-parent lane.
 
+/// Visual glyph set for the graph. Pure data, no rendering — `render` reads
+/// the glyphs from the supplied set when emitting commit / transition lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphStyle {
+    /// Plain ASCII (`* | / \`). Maximum portability.
+    Ascii,
+    /// Unicode box-drawing curves (`● │ ╮ ╰`). Recommended default.
+    Curves,
+    /// Heavy box-drawing (`⬢ ┃ ┓ ┗`). Bold, attention-grabbing.
+    Heavy,
+}
+
+impl GraphStyle {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "ascii" => Self::Ascii,
+            "heavy" => Self::Heavy,
+            _ => Self::Curves,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ascii => "ascii",
+            Self::Curves => "curves",
+            Self::Heavy => "heavy",
+        }
+    }
+
+    /// Glyph for the active commit on its lane, varying by parent count:
+    /// 0 = root, 1 = normal, ≥2 = merge.
+    pub fn commit_glyph(self, parent_count: usize) -> char {
+        match (self, parent_count) {
+            (Self::Ascii, _) => '*',
+            (Self::Curves, 0) => '○',
+            (Self::Curves, 1) => '●',
+            (Self::Curves, _) => '◍',
+            (Self::Heavy, 0) => '□',
+            (Self::Heavy, 1) => '⬢',
+            (Self::Heavy, _) => '◆',
+        }
+    }
+
+    /// Vertical lane-continues glyph.
+    pub fn lane_glyph(self) -> char {
+        match self {
+            Self::Ascii => '|',
+            Self::Curves => '│',
+            Self::Heavy => '┃',
+        }
+    }
+
+    /// Glyph for a lane closing toward the left (fork-end / merge-target).
+    pub fn close_left_glyph(self) -> char {
+        match self {
+            Self::Ascii => '/',
+            Self::Curves => '╯',
+            Self::Heavy => '┛',
+        }
+    }
+
+    /// Glyph for a lane opening toward the right (new merge parent).
+    pub fn open_right_glyph(self) -> char {
+        match self {
+            Self::Ascii => '\\',
+            Self::Curves => '╮',
+            Self::Heavy => '┓',
+        }
+    }
+}
+
+impl Default for GraphStyle {
+    fn default() -> Self {
+        Self::Curves
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphCommit {
     pub id: String,
@@ -42,11 +119,18 @@ pub struct GraphRow {
     pub parent_count: usize,
 }
 
-/// Render the commit graph for an ordered list of commits.
+/// Render the commit graph using the default ASCII style. Kept for callers
+/// that don't need to choose a style. New code should prefer `render_with`.
+pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
+    render_with(commits, GraphStyle::Ascii)
+}
+
+/// Render the commit graph for an ordered list of commits with a chosen
+/// glyph style.
 ///
 /// Input order MUST be topological (children before parents). Use git2's
 /// `Sort::TOPOLOGICAL | Sort::TIME` for live data.
-pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
+pub fn render_with(commits: &[GraphCommit], style: GraphStyle) -> Vec<GraphRow> {
     let mut rows = Vec::with_capacity(commits.len());
     // Each lane holds the OID it currently expects to render next, or None.
     let mut lanes: Vec<Option<String>> = Vec::new();
@@ -62,17 +146,20 @@ pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
             }
         };
 
-        // 2. Build the commit line: '*' on lane, '|' on others (skip None tail).
+        // 2. Build the commit line. Use the styled glyphs.
+        let parent_count = commit.parents.len();
         let pre_width = active_width(&lanes);
+        let lane_g = style.lane_glyph();
+        let commit_g = style.commit_glyph(parent_count);
         let mut commit_line = String::with_capacity(pre_width * 2);
         for i in 0..pre_width {
             if i > 0 {
                 commit_line.push(' ');
             }
             if i == lane {
-                commit_line.push('*');
+                commit_line.push(commit_g);
             } else if lanes[i].is_some() {
-                commit_line.push('|');
+                commit_line.push(lane_g);
             } else {
                 commit_line.push(' ');
             }
@@ -80,7 +167,6 @@ pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
 
         // 3. Replace this commit's lane with its first parent (if any), open
         //    additional lanes for extra parents.
-        let parent_count = commit.parents.len();
         if parent_count == 0 {
             lanes[lane] = None;
         } else {
@@ -117,6 +203,8 @@ pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
         //    Full merge zigzags would need pre/post diff with `\` cells.
         let post_width = active_width(&lanes);
         let width = pre_width.max(post_width);
+        let close_g = style.close_left_glyph();
+        let open_g = style.open_right_glyph();
         let mut transition = String::with_capacity(width * 2);
         let mut any_change = false;
         for i in 0..width {
@@ -125,37 +213,34 @@ pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
             }
             let was_active = i < pre_width
                 && (i == lane || lanes_at_commit_active(&lanes, i, lane, commit, idx));
-            // For the transition we actually need the lane state right before
-            // mutation, which we lost. Simpler heuristic:
             let now_active = i < lanes.len() && lanes[i].is_some();
             if i == lane && parent_count >= 2 {
-                // Merge: the lane stays, mark it; new lanes were opened to the
-                // right. We'll signal them with `\`.
-                transition.push('|');
+                transition.push(lane_g);
             } else if !now_active && was_active {
-                // Lane closed — '/' joining left.
-                transition.push('/');
+                transition.push(close_g);
                 any_change = true;
             } else if now_active {
-                transition.push('|');
+                transition.push(lane_g);
             } else {
                 transition.push(' ');
             }
         }
-        // Add `\` markers for newly-opened merge parent lanes (right of `lane`).
+        // Mark newly-opened merge parent lanes (right of `lane`) with open_g.
+        // Replace by lane index — char-aware so it works with multi-byte
+        // Unicode glyphs.
         if parent_count >= 2 {
-            // Lanes opened by this commit's extra parents land at indices
-            // computed in step 3. We mark them with `\` in transition.
             let new_parent_ids: Vec<&String> = commit.parents[1..].iter().collect();
             for npid in new_parent_ids {
                 if let Some(i) = lanes.iter().position(|l| l.as_deref() == Some(npid.as_str())) {
                     if i > lane {
-                        let pos = i * 2; // each lane is 2 chars wide ("| ")
-                        if let Some(slot) = transition.as_bytes().get(pos) {
-                            if *slot == b'|' || *slot == b' ' {
-                                let mut bytes = transition.into_bytes();
-                                bytes[pos] = b'\\';
-                                transition = String::from_utf8(bytes).unwrap();
+                        let chars: Vec<char> = transition.chars().collect();
+                        let cell = i * 2; // lane glyph + space pattern
+                        if cell < chars.len() {
+                            let cur = chars[cell];
+                            if cur == lane_g || cur == ' ' {
+                                let mut new_chars = chars;
+                                new_chars[cell] = open_g;
+                                transition = new_chars.into_iter().collect();
                                 any_change = true;
                             }
                         }
@@ -212,9 +297,52 @@ fn lanes_at_commit_active(
 /// Map an arbitrary lane index to a stable ANSI 256 color. Useful for TUI
 /// callers that want consistent colour-per-lane across renders.
 pub fn lane_color(lane: usize) -> u8 {
-    // Skip 0,15 (white/black). Cycle through bright distinct hues.
-    const PALETTE: &[u8] = &[39, 208, 213, 226, 46, 51, 201, 220, 33, 198];
+    // Hand-picked vivid hues, well-spaced in HSL. Stable per-lane between
+    // renders so a branch keeps the same colour as you scroll.
+    const PALETTE: &[u8] = &[
+        39,   // bright cyan
+        208,  // orange
+        207,  // pink/magenta
+        226,  // yellow
+        46,   // green
+        99,   // purple
+        202,  // red-orange
+        51,   // turquoise
+        220,  // gold
+        129,  // violet
+    ];
     PALETTE[lane % PALETTE.len()]
+}
+
+/// Format a single ref label with a leading icon for visual scanning.
+/// Used by both CLI graph output and TUI graph view.
+///
+///   `HEAD -> main`     → `★ HEAD -> main`
+///   `HEAD`             → `★ HEAD (detached)`
+///   `tag: v0.6.0`      → `◆ v0.6.0`
+///   `main` (branch)    → `▸ main`
+pub fn format_ref_badge(raw: &str) -> String {
+    if raw.starts_with("HEAD -> ") {
+        format!("★ {}", raw)
+    } else if raw == "HEAD" {
+        "★ HEAD (detached)".to_string()
+    } else if let Some(name) = raw.strip_prefix("tag: ") {
+        format!("◆ {}", name)
+    } else {
+        format!("▸ {}", raw)
+    }
+}
+
+/// Color hint for a ref badge (ANSI 256). Brand-consistent: HEAD bright,
+/// tags gold, branches cyan.
+pub fn ref_badge_color(raw: &str) -> u8 {
+    if raw.starts_with("HEAD") {
+        199 // hot pink
+    } else if raw.starts_with("tag: ") {
+        220 // gold
+    } else {
+        51 // turquoise
+    }
 }
 
 // ============================================================================
@@ -326,11 +454,21 @@ pub fn walk_repo(
     Ok(out)
 }
 
-/// Convenience: walk + render. Returns paired (DecoratedCommit, GraphRow).
+/// Convenience: walk + render with default ASCII style.
 pub fn render_repo(
     repo: &git2::Repository,
     limit: usize,
     include_all: bool,
+) -> Result<Vec<(DecoratedCommit, GraphRow)>, git2::Error> {
+    render_repo_with(repo, limit, include_all, GraphStyle::Ascii)
+}
+
+/// Walk + render with a chosen glyph style.
+pub fn render_repo_with(
+    repo: &git2::Repository,
+    limit: usize,
+    include_all: bool,
+    style: GraphStyle,
 ) -> Result<Vec<(DecoratedCommit, GraphRow)>, git2::Error> {
     let commits = walk_repo(repo, limit, include_all)?;
     let graph_input: Vec<GraphCommit> = commits
@@ -340,7 +478,7 @@ pub fn render_repo(
             parents: c.parents.clone(),
         })
         .collect();
-    let rows = render(&graph_input);
+    let rows = render_with(&graph_input, style);
     Ok(commits.into_iter().zip(rows.into_iter()).collect())
 }
 

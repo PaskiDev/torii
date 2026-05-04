@@ -746,6 +746,7 @@ fn run_loop(
                 }
 
                 Action::SettingsToggle => {
+                    use crate::graph::GraphStyle;
                     let idx = app.settings_view.idx;
                     match idx {
                         0 => {
@@ -755,11 +756,23 @@ fn run_loop(
                                 app::BorderStyle::Rounded
                             };
                         }
-                        3 => app.settings.show_history_view   = !app.settings.show_history_view,
-                        4 => app.settings.show_remote_view    = !app.settings.show_remote_view,
-                        5 => app.settings.show_mirror_view    = !app.settings.show_mirror_view,
-                        6 => app.settings.show_workspace_view = !app.settings.show_workspace_view,
-                        7 => app.settings.show_help_view      = !app.settings.show_help_view,
+                        3 => {
+                            // Cycle: Curves → Heavy → Ascii → Curves
+                            app.settings.graph_style = match app.settings.graph_style {
+                                GraphStyle::Curves => GraphStyle::Heavy,
+                                GraphStyle::Heavy  => GraphStyle::Ascii,
+                                GraphStyle::Ascii  => GraphStyle::Curves,
+                            };
+                            // Re-render currently shown graph if active.
+                            if app.log.graph_on {
+                                app.recompute_graph_rows();
+                            }
+                        }
+                        4 => app.settings.show_history_view   = !app.settings.show_history_view,
+                        5 => app.settings.show_remote_view    = !app.settings.show_remote_view,
+                        6 => app.settings.show_mirror_view    = !app.settings.show_mirror_view,
+                        7 => app.settings.show_workspace_view = !app.settings.show_workspace_view,
+                        8 => app.settings.show_help_view      = !app.settings.show_help_view,
                         _ => {}
                     }
                 }

@@ -18,6 +18,7 @@ const ITEMS: &[SettingItem] = &[
     SettingItem { label: "border style",      section: "appearance" },
     SettingItem { label: "brand color",        section: "appearance" },
     SettingItem { label: "selected bg",        section: "appearance" },
+    SettingItem { label: "graph style",        section: "appearance" },
     SettingItem { label: "show history",       section: "views" },
     SettingItem { label: "show remote",        section: "views" },
     SettingItem { label: "show mirror",        section: "views" },
@@ -128,15 +129,21 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn setting_value(idx: usize, s: &crate::tui::app::TuiSettings) -> String {
+    use crate::graph::GraphStyle;
     match idx {
         0  => if s.border_style == BorderStyle::Rounded { "rounded  ╭╮╯╰".to_string() } else { "sharp  ┌┐┘└".to_string() },
         1  => format!("rgb({},{},{})", s.brand_color.0, s.brand_color.1, s.brand_color.2),
         2  => format!("rgb({},{},{})", s.selected_bg.0, s.selected_bg.1, s.selected_bg.2),
-        3  => if s.show_history_view   { "visible".to_string() } else { "hidden".to_string() },
-        4  => if s.show_remote_view    { "visible".to_string() } else { "hidden".to_string() },
-        5  => if s.show_mirror_view    { "visible".to_string() } else { "hidden".to_string() },
-        6  => if s.show_workspace_view { "visible".to_string() } else { "hidden".to_string() },
-        7  => if s.show_help_view      { "visible".to_string() } else { "hidden".to_string() },
+        3  => match s.graph_style {
+            GraphStyle::Ascii  => "ascii   * | / \\".to_string(),
+            GraphStyle::Curves => "curves  ● │ ╮ ╰".to_string(),
+            GraphStyle::Heavy  => "heavy   ⬢ ┃ ┓ ┛".to_string(),
+        },
+        4  => if s.show_history_view   { "visible".to_string() } else { "hidden".to_string() },
+        5  => if s.show_remote_view    { "visible".to_string() } else { "hidden".to_string() },
+        6  => if s.show_mirror_view    { "visible".to_string() } else { "hidden".to_string() },
+        7  => if s.show_workspace_view { "visible".to_string() } else { "hidden".to_string() },
+        8  => if s.show_help_view      { "visible".to_string() } else { "hidden".to_string() },
         _  => String::new(),
     }
 }
@@ -146,13 +153,14 @@ fn setting_color(idx: usize, s: &crate::tui::app::TuiSettings) -> Color {
         0  => C_WHITE,
         1  => Color::Rgb(s.brand_color.0, s.brand_color.1, s.brand_color.2),
         2  => C_WHITE,
-        3..=7 => {
+        3  => C_WHITE,
+        4..=8 => {
             let visible = match idx {
-                3 => s.show_history_view,
-                4 => s.show_remote_view,
-                5 => s.show_mirror_view,
-                6 => s.show_workspace_view,
-                7 => s.show_help_view,
+                4 => s.show_history_view,
+                5 => s.show_remote_view,
+                6 => s.show_mirror_view,
+                7 => s.show_workspace_view,
+                8 => s.show_help_view,
                 _ => true,
             };
             if visible { C_GREEN } else { C_DIM }

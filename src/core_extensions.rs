@@ -123,9 +123,15 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Render commit history as an ASCII graph (`torii log --graph`).
+    /// Render commit history as a graph (`torii log --graph`).
+    /// Style picked from TORII_GRAPH_STYLE env var (ascii|curves|heavy);
+    /// defaults to curves.
     fn log_graph(&self, limit: usize, include_all: bool) -> Result<()> {
-        let rendered = crate::graph::render_repo(self.repository(), limit, include_all)
+        let style = std::env::var("TORII_GRAPH_STYLE")
+            .ok()
+            .map(|s| crate::graph::GraphStyle::from_str(&s))
+            .unwrap_or_default();
+        let rendered = crate::graph::render_repo_with(self.repository(), limit, include_all, style)
             .map_err(|e| crate::error::ToriiError::Git(e))?;
         println!("📜 Commit Graph:");
         println!();
@@ -133,20 +139,25 @@ impl GitRepo {
             if !row.transition_line.is_empty() {
                 println!("  {}", row.transition_line);
             }
-            let refs = if commit.refs.is_empty() {
+            let refs_str = if commit.refs.is_empty() {
                 String::new()
             } else {
-                format!("({}) ", commit.refs.join(", "))
+                let badges: Vec<String> = commit
+                    .refs
+                    .iter()
+                    .map(|r| crate::graph::format_ref_badge(r))
+                    .collect();
+                format!("{} ", badges.join(" "))
             };
-            // Truncate summary to keep lines short.
-            let summary = if commit.summary.len() > 80 {
-                format!("{}…", &commit.summary[..77])
+            let summary = if commit.summary.chars().count() > 80 {
+                let cut: String = commit.summary.chars().take(79).collect();
+                format!("{}…", cut)
             } else {
                 commit.summary.clone()
             };
             println!(
                 "  {} {} {}{}",
-                row.commit_line, commit.short_id, refs, summary
+                row.commit_line, commit.short_id, refs_str, summary
             );
         }
         Ok(())
