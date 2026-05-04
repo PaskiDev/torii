@@ -155,17 +155,15 @@ impl GitRepo {
                 )
             })?;
             println!("🔄 Rebasing from {} using todo file: {}", base, todo_abs.display());
-            let editor = format!("cp {}", todo_abs.display());
-            let status = std::process::Command::new("git")
-                .args(["rebase", "-i", base])
+            let (todo_for_git, reword_map) = preprocess_reword_todo(&todo_abs)?;
+            let editor = format!("cp {}", todo_for_git.display());
+            let mut cmd = std::process::Command::new("git");
+            cmd.args(["rebase", "-i", base])
                 .env("GIT_SEQUENCE_EDITOR", &editor)
-                .current_dir(&repo_path)
-                .status()?;
-            if !status.success() {
-                eprintln!("⚠️  Rebase ended with conflicts or was aborted.");
-            } else {
-                println!("✅ Rebase complete");
-            }
+                .current_dir(&repo_path);
+            install_message_editor(&mut cmd, &reword_map, &repo_path)?;
+            let status = cmd.status()?;
+            report_rebase_outcome(&repo_path, status);
         }
         #[cfg(not(unix))]
         {
@@ -187,11 +185,7 @@ impl GitRepo {
                 .args(["rebase", "-i", base])
                 .current_dir(&repo_path)
                 .status()?;
-            if !status.success() {
-                eprintln!("⚠️  Interactive rebase ended with conflicts or was aborted.");
-            } else {
-                println!("✅ Interactive rebase complete");
-            }
+            report_rebase_outcome(&repo_path, status);
         }
         #[cfg(not(unix))]
         {
@@ -213,11 +207,7 @@ impl GitRepo {
                 .args(["rebase", "-i", "--root"])
                 .current_dir(&repo_path)
                 .status()?;
-            if !status.success() {
-                eprintln!("⚠️  Interactive rebase ended with conflicts or was aborted.");
-            } else {
-                println!("✅ Interactive rebase complete");
-            }
+            report_rebase_outcome(&repo_path, status);
         }
         #[cfg(not(unix))]
         {
@@ -239,17 +229,15 @@ impl GitRepo {
                 )
             })?;
             println!("🔄 Rebasing from root using todo file: {}", todo_abs.display());
-            let editor = format!("cp {}", todo_abs.display());
-            let status = std::process::Command::new("git")
-                .args(["rebase", "-i", "--root"])
+            let (todo_for_git, reword_map) = preprocess_reword_todo(&todo_abs)?;
+            let editor = format!("cp {}", todo_for_git.display());
+            let mut cmd = std::process::Command::new("git");
+            cmd.args(["rebase", "-i", "--root"])
                 .env("GIT_SEQUENCE_EDITOR", &editor)
-                .current_dir(&repo_path)
-                .status()?;
-            if !status.success() {
-                eprintln!("⚠️  Rebase ended with conflicts or was aborted.");
-            } else {
-                println!("✅ Rebase complete");
-            }
+                .current_dir(&repo_path);
+            install_message_editor(&mut cmd, &reword_map, &repo_path)?;
+            let status = cmd.status()?;
+            report_rebase_outcome(&repo_path, status);
         }
         #[cfg(not(unix))]
         {
@@ -263,6 +251,13 @@ impl GitRepo {
 
     /// Continue an in-progress rebase
     pub fn rebase_continue(&self) -> Result<()> {
+        // Two rebase formats coexist:
+        //   - libgit2-initiated rebases → use Repository::open_rebase
+        //   - `git rebase -i` (CLI, used for interactive/edit/reword) → not
+        //     openable via libgit2; delegate to `git rebase --continue`
+        if self.has_cli_rebase_in_progress() {
+            return self.delegate_rebase_subcommand("--continue", "continued");
+        }
         let mut rebase = self.repo.open_rebase(None)
             .map_err(|_| crate::error::ToriiError::InvalidConfig(
                 "No rebase in progress".to_string()
@@ -291,6 +286,9 @@ impl GitRepo {
 
     /// Abort the current rebase
     pub fn rebase_abort(&self) -> Result<()> {
+        if self.has_cli_rebase_in_progress() {
+            return self.delegate_rebase_subcommand("--abort", "aborted");
+        }
         let mut rebase = self.repo.open_rebase(None)
             .map_err(|_| crate::error::ToriiError::InvalidConfig(
                 "No rebase in progress".to_string()
@@ -305,6 +303,9 @@ impl GitRepo {
 
     /// Skip current patch in rebase
     pub fn rebase_skip(&self) -> Result<()> {
+        if self.has_cli_rebase_in_progress() {
+            return self.delegate_rebase_subcommand("--skip", "skipped");
+        }
         let mut rebase = self.repo.open_rebase(None)
             .map_err(|_| crate::error::ToriiError::InvalidConfig(
                 "No rebase in progress".to_string()
@@ -329,6 +330,32 @@ impl GitRepo {
             .map_err(|e| crate::error::ToriiError::Git(e))?;
 
         println!("✅ Patch skipped");
+        Ok(())
+    }
+
+    /// True if a `git rebase -i` style rebase is paused on disk
+    /// (libgit2's open_rebase does not see these — it only handles rebases
+    /// created via the libgit2 API).
+    fn has_cli_rebase_in_progress(&self) -> bool {
+        let git_dir = self.repo.path();
+        git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
+    }
+
+    /// Run `git rebase <flag>` for CLI-managed rebases.
+    fn delegate_rebase_subcommand(&self, flag: &str, verb: &str) -> Result<()> {
+        let repo_path = self.repo.path().parent().unwrap().to_path_buf();
+        let status = std::process::Command::new("git")
+            .args(["rebase", flag])
+            .current_dir(&repo_path)
+            .status()
+            .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("spawn git: {}", e)))?;
+        report_rebase_outcome(&repo_path, status);
+        // If the rebase finished cleanly (no in-progress dir), echo the verb.
+        let still_active = repo_path.join(".git").join("rebase-merge").exists()
+            || repo_path.join(".git").join("rebase-apply").exists();
+        if !still_active && status.success() {
+            println!("✅ Rebase {}", verb);
+        }
         Ok(())
     }
 
@@ -1089,4 +1116,206 @@ fn remove_dir_contents(dir: &std::path::Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+// ============================================================================
+// Rebase helpers — todo-file preprocessing + outcome detection
+// ============================================================================
+
+/// Read a torii todo file and emit two artefacts:
+///   1. A new todo file safe to feed to `git rebase -i` (every `reword` line
+///      becomes `pick`; we'll edit the message ourselves via GIT_EDITOR).
+///   2. A map { full_sha → new_message } harvested from `reword <sha> <msg>`
+///      entries. Lines without an inline message keep the original commit
+///      subject so behaviour matches a no-op `pick`.
+///
+/// torii-only extension to git's todo grammar:
+///   reword <sha> <new commit message on rest of line>
+///
+/// Standard git todo lines (`pick`, `edit`, `squash`, `fixup`, `drop`,
+/// `exec ...`, etc.) pass through unchanged.
+#[cfg(unix)]
+fn preprocess_reword_todo(
+    src: &std::path::Path,
+) -> Result<(std::path::PathBuf, std::collections::HashMap<String, String>)> {
+    let raw = std::fs::read_to_string(src).map_err(|e| {
+        crate::error::ToriiError::InvalidConfig(format!("read todo {}: {}", src.display(), e))
+    })?;
+
+    let mut out_lines: Vec<String> = Vec::with_capacity(raw.lines().count());
+    let mut reword_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+
+    for line in raw.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out_lines.push(line.to_string());
+            continue;
+        }
+        let mut parts = trimmed.splitn(3, ' ');
+        let cmd = parts.next().unwrap_or("");
+        if cmd != "reword" && cmd != "r" {
+            out_lines.push(line.to_string());
+            continue;
+        }
+        let sha = match parts.next() {
+            Some(s) => s.to_string(),
+            None => {
+                out_lines.push(line.to_string());
+                continue;
+            }
+        };
+        let inline_msg = parts.next().unwrap_or("").trim().to_string();
+        if !inline_msg.is_empty() {
+            reword_map.insert(sha.clone(), inline_msg);
+            // Keep `reword` so git invokes GIT_EDITOR; our shim replaces msg.
+            out_lines.push(format!("reword {}", sha));
+        } else {
+            // No inline message → behave like a noop reword. Use `pick` so git
+            // doesn't pause asking for a message we can't supply.
+            out_lines.push(format!("pick {}", sha));
+        }
+    }
+
+    let dest = std::env::temp_dir().join(format!(
+        "torii-rebase-todo-{}.txt",
+        std::process::id()
+    ));
+    std::fs::write(&dest, out_lines.join("\n") + "\n").map_err(|e| {
+        crate::error::ToriiError::InvalidConfig(format!("write todo: {}", e))
+    })?;
+
+    Ok((dest, reword_map))
+}
+
+/// Install a GIT_EDITOR shim so that `reword` lines from the torii todo file
+/// take effect.
+///
+/// Strategy: write a tiny shell script that, given the COMMIT_EDITMSG file
+/// path, reads the *original* subject line from the file (git puts the
+/// pre-reword message there), looks it up in our `subject → new_msg` map,
+/// and if matched replaces the file content. Otherwise leaves untouched.
+///
+/// Matching by subject (rather than SHA) is robust to rebase rewriting
+/// parent SHAs as it goes — git's HEAD changes during the rebase, but the
+/// subject of the message-being-edited is the original.
+#[cfg(unix)]
+fn install_message_editor(
+    cmd: &mut std::process::Command,
+    reword_map: &std::collections::HashMap<String, String>,
+    repo_path: &std::path::Path,
+) -> Result<()> {
+    if reword_map.is_empty() {
+        return Ok(());
+    }
+
+    // Resolve each todo-file sha to the original commit subject. The map is
+    // (subject → new message). Tabs + newlines in the new message are encoded.
+    let mut subject_map: Vec<(String, String)> = Vec::with_capacity(reword_map.len());
+    for (sha, new_msg) in reword_map {
+        let subj = std::process::Command::new("git")
+            .args(["log", "-1", "--format=%s", sha])
+            .current_dir(repo_path)
+            .output();
+        let subject = match subj {
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout).trim().to_string()
+            }
+            _ => continue, // unknown sha → skip silently (rebase may still proceed)
+        };
+        if subject.is_empty() {
+            continue;
+        }
+        subject_map.push((subject, new_msg.clone()));
+    }
+    if subject_map.is_empty() {
+        return Ok(());
+    }
+
+    let map_path = std::env::temp_dir().join(format!(
+        "torii-rebase-rewords-{}.tsv",
+        std::process::id()
+    ));
+    let mut map_text = String::new();
+    for (subj, msg) in &subject_map {
+        let safe_subj = subj.replace('\\', "\\\\").replace('\t', " ");
+        let safe_msg = msg.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "    ");
+        map_text.push_str(&format!("{}\t{}\n", safe_subj, safe_msg));
+    }
+    std::fs::write(&map_path, &map_text).map_err(|e| {
+        crate::error::ToriiError::InvalidConfig(format!("write reword map: {}", e))
+    })?;
+
+    let shim_path = std::env::temp_dir().join(format!(
+        "torii-rebase-editor-{}.sh",
+        std::process::id()
+    ));
+    let shim_body = format!(
+        r#"#!/bin/sh
+# torii-generated rebase message editor.
+# Usage: GIT_EDITOR <commit-msg-file>
+set -e
+MSG_FILE="$1"
+[ -z "$MSG_FILE" ] && exit 0
+MAP="{map}"
+[ ! -f "$MAP" ] && exit 0
+# Read the first non-comment line of the message — that's the subject.
+SUBJ=$(awk '/^#/ {{ next }} /./ {{ print; exit }}' "$MSG_FILE")
+[ -z "$SUBJ" ] && exit 0
+while IFS=$(printf '\t') read -r KEY MSG; do
+    if [ "$KEY" = "$SUBJ" ]; then
+        printf '%b\n' "$(printf '%s' "$MSG" | sed 's/\\n/\n/g; s/\\\\/\\/g')" > "$MSG_FILE"
+        exit 0
+    fi
+done < "$MAP"
+exit 0
+"#,
+        map = map_path.display(),
+    );
+    std::fs::write(&shim_path, shim_body).map_err(|e| {
+        crate::error::ToriiError::InvalidConfig(format!("write shim: {}", e))
+    })?;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(&shim_path)
+        .map_err(|e| crate::error::ToriiError::InvalidConfig(format!("shim perms: {}", e)))?
+        .permissions();
+    perms.set_mode(0o755);
+    let _ = std::fs::set_permissions(&shim_path, perms);
+
+    cmd.env("GIT_EDITOR", &shim_path);
+    Ok(())
+}
+
+/// Inspect the rebase state directory after `git rebase` returned. If a rebase
+/// is still in progress (because of `edit`, conflicts, or `break`), surface a
+/// clear next-step message instead of the misleading "Rebase complete".
+fn report_rebase_outcome(repo_path: &std::path::Path, status: std::process::ExitStatus) {
+    let merge_dir = repo_path.join(".git").join("rebase-merge");
+    let apply_dir = repo_path.join(".git").join("rebase-apply");
+    let in_progress = merge_dir.exists() || apply_dir.exists();
+
+    if in_progress {
+        let stopped_sha = std::fs::read_to_string(merge_dir.join("stopped-sha"))
+            .or_else(|_| std::fs::read_to_string(apply_dir.join("stopped-sha")))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        eprintln!();
+        if stopped_sha.is_empty() {
+            eprintln!("⏸️  Rebase paused.");
+        } else {
+            eprintln!("⏸️  Rebase paused at {}.", &stopped_sha[..stopped_sha.len().min(7)]);
+        }
+        eprintln!("    Edit files / amend / cherry-pick as needed, then:");
+        eprintln!("      torii history rebase --continue");
+        eprintln!("    Or abort with:");
+        eprintln!("      torii history rebase --abort");
+        return;
+    }
+
+    if !status.success() {
+        eprintln!("⚠️  Rebase ended with conflicts or was aborted.");
+        return;
+    }
+    println!("✅ Rebase complete");
 }
