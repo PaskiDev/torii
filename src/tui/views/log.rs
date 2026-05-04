@@ -28,6 +28,21 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.log.filtered.clone()
     };
 
+    let graph_on = app.log.graph_on && !app.log.graph_rows.is_empty();
+    // Reserve a column for graph prefix if active. Width = max line len in
+    // graph_rows so it stays aligned across the whole list.
+    let graph_width = if graph_on {
+        app.log
+            .graph_rows
+            .iter()
+            .map(|r| r.commit_line.chars().count())
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let msg_width = msg_width.saturating_sub(graph_width + 1);
+
     let items: Vec<ListItem> = display_indices.iter().map(|&i| {
         let c = &app.commits[i];
         let is_sel = i == app.log.idx;
@@ -43,14 +58,27 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         } else {
             C_WHITE
         };
-        let line = Line::from(vec![
+
+        let mut spans = vec![
             Span::styled(prefix, Style::default().fg(bc)),
-            Span::styled(format!("{} ", c.hash), Style::default().fg(C_YELLOW)),
-            Span::styled(format!("{:<width$}", msg, width = msg_width), Style::default().fg(if is_sel { C_WHITE } else { msg_color })),
-            Span::styled(format!(" {:>10}", truncate(&c.author, 10)), Style::default().fg(C_CYAN)),
-            Span::styled(format!(" {}", c.time), Style::default().fg(C_DIM)),
-        ]);
-        ListItem::new(line).style(style)
+        ];
+        if graph_on {
+            let row = app.log.graph_rows.get(i);
+            let glyphs = row.map(|r| r.commit_line.as_str()).unwrap_or("");
+            let color = row
+                .map(|r| ratatui::style::Color::Indexed(crate::graph::lane_color(r.lane)))
+                .unwrap_or(C_CYAN);
+            spans.push(Span::styled(
+                format!("{:<width$} ", glyphs, width = graph_width),
+                Style::default().fg(color),
+            ));
+        }
+        spans.push(Span::styled(format!("{} ", c.hash), Style::default().fg(C_YELLOW)));
+        spans.push(Span::styled(format!("{:<width$}", msg, width = msg_width), Style::default().fg(if is_sel { C_WHITE } else { msg_color })));
+        spans.push(Span::styled(format!(" {:>10}", truncate(&c.author, 10)), Style::default().fg(C_CYAN)));
+        spans.push(Span::styled(format!(" {}", c.time), Style::default().fg(C_DIM)));
+
+        ListItem::new(Line::from(spans)).style(style)
     }).collect();
 
     let sel_pos = display_indices.iter().position(|&i| i == app.log.idx);
@@ -59,12 +87,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let total = app.commits.len();
     let loaded_hint = if app.log.all_loaded { String::new() } else { "  ↓ more".to_string() };
+    let graph_tag = if graph_on { "  graph" } else { "" };
     let title = if app.log.search_mode {
         format!(" log — search: {}█ ", app.log.search_query)
     } else if !app.log.search_query.is_empty() {
-        format!(" log — \"{}\"  {} matches ", app.log.search_query, display_indices.len())
+        format!(" log — \"{}\"  {} matches{} ", app.log.search_query, display_indices.len(), graph_tag)
     } else {
-        format!(" log — {} ({} commits){} ", app.branch, total, loaded_hint)
+        format!(" log — {} ({} commits){}{} ", app.branch, total, loaded_hint, graph_tag)
     };
 
     let title_color = if app.log.search_mode { C_YELLOW } else if focused { C_WHITE } else { bc };

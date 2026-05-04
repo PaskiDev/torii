@@ -52,6 +52,9 @@ pub fn render(f: &mut Frame, app: &crate::tui::app::App) {
             ("j / ↓",  "move down"),
             ("k / ↑",  "move up"),
             ("d",      "diff selected commit"),
+            ("o",      "ops menu (diff / copy hash / search)"),
+            ("/",      "search commits"),
+            ("g",      "toggle commit graph"),
             ("Esc",    "back to files"),
         ]),
         ("diff view", &[
