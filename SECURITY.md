@@ -111,6 +111,32 @@ When syncing to mirrors:
 - Webhook secrets rotated periodically
 - Failed auth attempts logged and rate-limited
 
+## 📡 Upstream / Hosting-Provider Advisories
+
+Vulnerabilities in the git hosting providers themselves (GitHub, GitLab,
+Codeberg, etc.) are out of scope for torii — torii is just a client. We
+list noteworthy ones here so users running self-hosted instances know to
+patch.
+
+### CVE-2026-3854 — GitHub Enterprise Server `git push -o` RCE (April 2026)
+
+A server-side bug in GitHub's `babeld` / `gitauth` / `gitrpcd` proxy
+chain let any authenticated user inject semicolons into a `git push -o`
+option value, override an internal `X-Stat` header, and gain remote code
+execution on GitHub's backend. CVSS 8.8.
+
+- **Not a torii bug.** Identical to using stock `git push -o` against the
+  same server. torii's transport (rustls / russh) only ferries the bytes
+  the user typed; the server mis-parses them.
+- **GitHub.com:** patched by GitHub on 2026-03-04 (~2h after report).
+- **GitHub Enterprise Server:** upgrade to 3.14.25 / 3.15.20 / 3.16.16 /
+  3.17.13 / 3.18.7 / 3.19.4 or newer.
+- **No torii action required.**
+
+References: [NVD CVE-2026-3854](https://nvd.nist.gov/vuln/detail/CVE-2026-3854),
+[Wiz writeup](https://www.wiz.io/blog/github-rce-vulnerability-cve-2026-3854),
+[GitHub blog](https://github.blog/security/securing-the-git-push-pipeline-responding-to-a-critical-remote-code-execution-vulnerability/).
+
 ## 🛠️ Security Best Practices for Users
 
 ### Credentials
