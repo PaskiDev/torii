@@ -528,6 +528,20 @@ Available keys:
         action: ConfigCommands,
     },
 
+    /// Manage gitorii.com API key (cloud features: CI transpile, etc.)
+    #[command(after_help = "Examples:
+  torii auth login                  Prompt for an API key and save it
+  torii auth login --key gitorii_sk_…   Save a key non-interactively
+  torii auth status                 Show org / plan tied to the key
+  torii auth logout                 Forget the local key
+
+Generate a key in the dashboard: https://gitorii.com/dashboard/api-keys
+Override per-process via env: TORII_API_KEY=gitorii_sk_…")]
+    Auth {
+        #[command(subcommand)]
+        action: AuthCommands,
+    },
+
     /// Manage remote repositories (create, delete, configure)
     #[command(after_help = "Examples:
   torii remote create github myrepo --public          Create public repo on GitHub
@@ -757,6 +771,26 @@ enum WorkspaceCommands {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AuthCommands {
+    /// Save an API key locally and validate it against the backend.
+    Login {
+        /// API key (gitorii_sk_…). If omitted, prompts on stdin.
+        #[arg(long)]
+        key: Option<String>,
+        /// Custom API endpoint (default: https://api.gitorii.com).
+        /// Useful for self-hosted / local dev.
+        #[arg(long)]
+        endpoint: Option<String>,
+    },
+    /// Show the org / plan / seats tied to the active key.
+    Status,
+    /// Alias of `status`.
+    Whoami,
+    /// Delete the local key (env var TORII_API_KEY still wins if set).
+    Logout,
 }
 
 #[derive(Subcommand)]
@@ -1673,6 +1707,10 @@ impl Cli {
                 }
             }
 
+            Commands::Auth { action } => {
+                run_auth(action)?;
+            }
+
             Commands::Config { action } => {
                 match action {
                     ConfigCommands::Set { key, value, local } => {
@@ -2275,6 +2313,65 @@ fn run_ssh_check() {
         println!("      cat ~/.ssh/id_ed25519.pub");
         println!("   5. Add it to your Git hosting service");
     }
+}
+
+fn run_auth(action: &AuthCommands) -> Result<()> {
+    use crate::auth;
+    use crate::cloud::{whoami::whoami, CloudClient};
+
+    match action {
+        AuthCommands::Login { key, endpoint } => {
+            let key_value = match key {
+                Some(k) => k.clone(),
+                None => {
+                    use std::io::{BufRead, Write};
+                    print!("API key (gitorii_sk_…): ");
+                    std::io::stdout().flush().ok();
+                    let mut line = String::new();
+                    std::io::stdin().lock().read_line(&mut line)?;
+                    line.trim().to_string()
+                }
+            };
+            if !key_value.starts_with("gitorii_sk_") {
+                anyhow::bail!("API key must start with `gitorii_sk_`");
+            }
+            let endpoint = endpoint
+                .clone()
+                .unwrap_or_else(auth::default_endpoint);
+            // Validate before saving so we don't store a bogus key.
+            let client = CloudClient::new(auth::ApiKey {
+                key: key_value.clone(),
+                endpoint: endpoint.clone(),
+            });
+            let me = whoami(&client)?;
+            auth::save(&key_value, &endpoint)?;
+            println!("✅ Logged in to {}", endpoint);
+            println!("   org:  {} ({})", me.org_name, me.org_slug);
+            println!("   plan: {}", me.plan);
+        }
+        AuthCommands::Status | AuthCommands::Whoami => {
+            let key = auth::load().ok_or_else(|| anyhow::anyhow!(
+                "no API key configured. Run `torii auth login` or set TORII_API_KEY."
+            ))?;
+            let client = CloudClient::new(key);
+            let me = whoami(&client)?;
+            println!("endpoint: {}", client.endpoint());
+            println!("org:      {} ({}) [{}]", me.org_name, me.org_slug, me.org_id);
+            println!("plan:     {}", me.plan);
+            println!("seats:    {}", me.seats);
+            if me.suspended {
+                println!("status:   ⚠️  suspended");
+            }
+        }
+        AuthCommands::Logout => {
+            auth::delete()?;
+            println!("✅ Local API key deleted");
+            if std::env::var("TORII_API_KEY").is_ok() {
+                println!("⚠️  TORII_API_KEY env var still set — unset it to fully log out.");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn run_scan(history: bool) -> Result<()> {

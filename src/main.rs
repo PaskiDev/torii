@@ -3,7 +3,9 @@
 // See LICENSE file in the project root for full license information.
 // Commercial use is prohibited without explicit written permission from the copyright holder.
 
+mod auth;
 mod cli;
+mod cloud;
 mod config;
 mod core;
 mod core_extensions;
