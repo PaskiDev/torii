@@ -34,6 +34,9 @@ pub struct CompiledCommitPolicy {
 /// One rule failure for one commit.
 #[derive(Debug, Clone)]
 pub struct Violation {
+    /// Full commit OID — kept for future `--fix` mode that needs to
+    /// rewrite the exact commit.
+    #[allow(dead_code)]
     pub commit_id: String,
     pub commit_short: String,
     pub subject: String,

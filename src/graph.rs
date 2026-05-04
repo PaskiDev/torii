@@ -154,6 +154,7 @@ pub struct GraphRow {
 
 /// Render the commit graph using the default ASCII style. Kept for callers
 /// that don't need to choose a style. New code should prefer `render_with`.
+#[allow(dead_code)]
 pub fn render(commits: &[GraphCommit]) -> Vec<GraphRow> {
     render_with(commits, GraphStyle::Ascii)
 }
@@ -384,7 +385,9 @@ pub fn format_ref_badge(raw: &str) -> String {
 }
 
 /// Color hint for a ref badge (ANSI 256). Brand-consistent: HEAD bright,
-/// tags gold, branches cyan.
+/// tags gold, branches cyan. Currently used only by the TUI badge renderer
+/// (planned); CLI prints unstyled badges.
+#[allow(dead_code)]
 pub fn ref_badge_color(raw: &str) -> u8 {
     if raw.starts_with("HEAD") {
         199 // hot pink
@@ -401,6 +404,7 @@ pub fn ref_badge_color(raw: &str) -> u8 {
 
 /// One commit with everything a TUI row needs: graph topology + decorations.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // author + timestamp consumed by callers we'll add later
 pub struct DecoratedCommit {
     pub id: String,
     pub short_id: String,
@@ -505,6 +509,7 @@ pub fn walk_repo(
 }
 
 /// Convenience: walk + render with default ASCII style.
+#[allow(dead_code)]
 pub fn render_repo(
     repo: &git2::Repository,
     limit: usize,

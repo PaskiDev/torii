@@ -13,6 +13,10 @@ pub enum View {
     Tag,
     History,
     Remote,
+    /// Sidebar-reachable; not currently constructed from any keybind
+    /// (view-switcher letters were removed). Kept because mirror is a core
+    /// feature and the sidebar entry will reach it again.
+    #[allow(dead_code)]
     Mirror,
     Workspace,
     Pr,
