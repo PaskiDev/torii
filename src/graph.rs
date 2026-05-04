@@ -63,18 +63,18 @@ impl GraphStyle {
 
     /// Glyph for the active commit on its lane, varying by parent count:
     /// 0 = root, 1 = normal, ≥2 = merge.
+    ///
+    /// Curves / Bubbles / BubblesX share the bullseye family (〇 ⦿ ◉) for a
+    /// "node-on-a-line" look that reads like a graph editor (≈ kraken).
     pub fn commit_glyph(self, parent_count: usize) -> char {
         match (self, parent_count) {
             (Self::Ascii, _) => '*',
-            (Self::Curves, 0) => '○',
-            (Self::Curves, 1) => '●',
-            (Self::Curves, _) => '◍',
             (Self::Heavy, 0) => '□',
-            (Self::Heavy, 1) => '⬢',
+            (Self::Heavy, 1) => '◉',
             (Self::Heavy, _) => '◆',
-            (Self::Bubbles | Self::BubblesX, 0) => '◎',
-            (Self::Bubbles | Self::BubblesX, 1) => '◉',
-            (Self::Bubbles | Self::BubblesX, _) => '⬢',
+            (Self::Curves | Self::Bubbles | Self::BubblesX, 0) => '〇',
+            (Self::Curves | Self::Bubbles | Self::BubblesX, 1) => '⦿',
+            (Self::Curves | Self::Bubbles | Self::BubblesX, _) => '◉',
         }
     }
 
@@ -82,26 +82,29 @@ impl GraphStyle {
     pub fn lane_glyph(self) -> char {
         match self {
             Self::Ascii => '|',
-            Self::Curves => '│',
-            Self::Heavy | Self::Bubbles | Self::BubblesX => '┃',
+            Self::Heavy => '┃',
+            Self::Curves | Self::Bubbles | Self::BubblesX => '│',
         }
     }
 
     /// Glyph for a lane closing toward the left (fork-end / merge-target).
+    /// Curves / Bubbles use ◟ (lower-left half-circle) to suggest a smooth
+    /// arc from the closing lane into its target.
     pub fn close_left_glyph(self) -> char {
         match self {
             Self::Ascii => '/',
-            Self::Curves => '╯',
-            Self::Heavy | Self::Bubbles | Self::BubblesX => '┛',
+            Self::Heavy => '┛',
+            Self::Curves | Self::Bubbles | Self::BubblesX => '◟',
         }
     }
 
     /// Glyph for a lane opening toward the right (new merge parent).
+    /// Curves / Bubbles use ◝ (upper-right half-circle) — mirror of ◟.
     pub fn open_right_glyph(self) -> char {
         match self {
             Self::Ascii => '\\',
-            Self::Curves => '╮',
-            Self::Heavy | Self::Bubbles | Self::BubblesX => '┓',
+            Self::Heavy => '┓',
+            Self::Curves | Self::Bubbles | Self::BubblesX => '◝',
         }
     }
 
