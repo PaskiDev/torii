@@ -1306,7 +1306,14 @@ impl App {
                 }
             })
             .collect();
-        self.log.graph_rows = render_with(&input, self.settings.graph_style);
+        // BubblesX is a CLI-only expanded layout (one extra padding line per
+        // commit) that breaks the TUI's 1:1 commit→ListItem indexing. Degrade
+        // to its compact sibling for TUI rendering.
+        let style = match self.settings.graph_style {
+            crate::graph::GraphStyle::BubblesX => crate::graph::GraphStyle::Bubbles,
+            other => other,
+        };
+        self.log.graph_rows = render_with(&input, style);
     }
 
     // ── Dashboard helpers ────────────────────────────────────────────────────

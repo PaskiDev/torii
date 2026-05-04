@@ -757,11 +757,13 @@ fn run_loop(
                             };
                         }
                         3 => {
-                            // Cycle: Curves → Heavy → Ascii → Curves
+                            // Cycle: Curves → Heavy → Bubbles → BubblesX → Ascii → Curves
                             app.settings.graph_style = match app.settings.graph_style {
-                                GraphStyle::Curves => GraphStyle::Heavy,
-                                GraphStyle::Heavy  => GraphStyle::Ascii,
-                                GraphStyle::Ascii  => GraphStyle::Curves,
+                                GraphStyle::Curves   => GraphStyle::Heavy,
+                                GraphStyle::Heavy    => GraphStyle::Bubbles,
+                                GraphStyle::Bubbles  => GraphStyle::BubblesX,
+                                GraphStyle::BubblesX => GraphStyle::Ascii,
+                                GraphStyle::Ascii    => GraphStyle::Curves,
                             };
                             // Re-render currently shown graph if active.
                             if app.log.graph_on {

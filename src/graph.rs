@@ -33,6 +33,11 @@ pub enum GraphStyle {
     Curves,
     /// Heavy box-drawing (`⬢ ┃ ┓ ┗`). Bold, attention-grabbing.
     Heavy,
+    /// Wide spacing + filled circles. Compact one-line per commit.
+    Bubbles,
+    /// Same glyphs as Bubbles but each commit spans 2 lines: a node row
+    /// followed by an info-padding row. Use with `expanded_extra_lines()`.
+    BubblesX,
 }
 
 impl GraphStyle {
@@ -40,6 +45,8 @@ impl GraphStyle {
         match s {
             "ascii" => Self::Ascii,
             "heavy" => Self::Heavy,
+            "bubbles" => Self::Bubbles,
+            "bubbles-x" | "bubbles_x" | "bubblesx" => Self::BubblesX,
             _ => Self::Curves,
         }
     }
@@ -49,6 +56,8 @@ impl GraphStyle {
             Self::Ascii => "ascii",
             Self::Curves => "curves",
             Self::Heavy => "heavy",
+            Self::Bubbles => "bubbles",
+            Self::BubblesX => "bubbles-x",
         }
     }
 
@@ -63,6 +72,9 @@ impl GraphStyle {
             (Self::Heavy, 0) => '□',
             (Self::Heavy, 1) => '⬢',
             (Self::Heavy, _) => '◆',
+            (Self::Bubbles | Self::BubblesX, 0) => '◎',
+            (Self::Bubbles | Self::BubblesX, 1) => '◉',
+            (Self::Bubbles | Self::BubblesX, _) => '⬢',
         }
     }
 
@@ -71,7 +83,7 @@ impl GraphStyle {
         match self {
             Self::Ascii => '|',
             Self::Curves => '│',
-            Self::Heavy => '┃',
+            Self::Heavy | Self::Bubbles | Self::BubblesX => '┃',
         }
     }
 
@@ -80,7 +92,7 @@ impl GraphStyle {
         match self {
             Self::Ascii => '/',
             Self::Curves => '╯',
-            Self::Heavy => '┛',
+            Self::Heavy | Self::Bubbles | Self::BubblesX => '┛',
         }
     }
 
@@ -89,7 +101,25 @@ impl GraphStyle {
         match self {
             Self::Ascii => '\\',
             Self::Curves => '╮',
-            Self::Heavy => '┓',
+            Self::Heavy | Self::Bubbles | Self::BubblesX => '┓',
+        }
+    }
+
+    /// Cells of horizontal padding between lanes. Bubbles styles use wider
+    /// spacing so commit nodes have room to breathe.
+    pub fn lane_spacing(self) -> usize {
+        match self {
+            Self::Ascii | Self::Curves | Self::Heavy => 1,
+            Self::Bubbles | Self::BubblesX => 3,
+        }
+    }
+
+    /// Number of *extra* padding lines to insert below each commit row.
+    /// 0 for compact styles. BubblesX uses 1 (commit row + breather row).
+    pub fn expanded_extra_lines(self) -> usize {
+        match self {
+            Self::BubblesX => 1,
+            _ => 0,
         }
     }
 }
@@ -151,10 +181,12 @@ pub fn render_with(commits: &[GraphCommit], style: GraphStyle) -> Vec<GraphRow> 
         let pre_width = active_width(&lanes);
         let lane_g = style.lane_glyph();
         let commit_g = style.commit_glyph(parent_count);
-        let mut commit_line = String::with_capacity(pre_width * 2);
+        let spacing = style.lane_spacing();
+        let pad: String = std::iter::repeat(' ').take(spacing).collect();
+        let mut commit_line = String::with_capacity(pre_width * (1 + spacing));
         for i in 0..pre_width {
             if i > 0 {
-                commit_line.push(' ');
+                commit_line.push_str(&pad);
             }
             if i == lane {
                 commit_line.push(commit_g);
@@ -205,11 +237,11 @@ pub fn render_with(commits: &[GraphCommit], style: GraphStyle) -> Vec<GraphRow> 
         let width = pre_width.max(post_width);
         let close_g = style.close_left_glyph();
         let open_g = style.open_right_glyph();
-        let mut transition = String::with_capacity(width * 2);
+        let mut transition = String::with_capacity(width * (1 + spacing));
         let mut any_change = false;
         for i in 0..width {
             if i > 0 {
-                transition.push(' ');
+                transition.push_str(&pad);
             }
             let was_active = i < pre_width
                 && (i == lane || lanes_at_commit_active(&lanes, i, lane, commit, idx));
@@ -227,14 +259,14 @@ pub fn render_with(commits: &[GraphCommit], style: GraphStyle) -> Vec<GraphRow> 
         }
         // Mark newly-opened merge parent lanes (right of `lane`) with open_g.
         // Replace by lane index — char-aware so it works with multi-byte
-        // Unicode glyphs.
+        // Unicode glyphs and variable spacing.
         if parent_count >= 2 {
             let new_parent_ids: Vec<&String> = commit.parents[1..].iter().collect();
             for npid in new_parent_ids {
                 if let Some(i) = lanes.iter().position(|l| l.as_deref() == Some(npid.as_str())) {
                     if i > lane {
                         let chars: Vec<char> = transition.chars().collect();
-                        let cell = i * 2; // lane glyph + space pattern
+                        let cell = i * (1 + spacing);
                         if cell < chars.len() {
                             let cur = chars[cell];
                             if cur == lane_g || cur == ' ' {
@@ -279,6 +311,21 @@ fn active_width(lanes: &[Option<String>]) -> usize {
         .rposition(|l| l.is_some())
         .map(|i| i + 1)
         .unwrap_or(0)
+}
+
+/// Build a "breather" row that mirrors the current lanes but only shows
+/// vertical glyphs — useful for expanded styles (BubblesX) which insert one
+/// or more padding rows between commits to leave breathing room.
+///
+/// Pass the commit_line of the commit we're padding under; this function
+/// derives lane positions from it (any non-space char becomes a lane glyph
+/// of `style.lane_glyph()`).
+pub fn padding_row(commit_line: &str, style: GraphStyle) -> String {
+    let lane_g = style.lane_glyph();
+    commit_line
+        .chars()
+        .map(|c| if c == ' ' { ' ' } else { lane_g })
+        .collect()
 }
 
 /// Stub used only inside `render` to keep pre-mutation reasoning explicit.

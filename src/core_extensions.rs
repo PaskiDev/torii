@@ -133,6 +133,7 @@ impl GitRepo {
             .unwrap_or_default();
         let rendered = crate::graph::render_repo_with(self.repository(), limit, include_all, style)
             .map_err(|e| crate::error::ToriiError::Git(e))?;
+        let extra_pad = style.expanded_extra_lines();
         println!("📜 Commit Graph:");
         println!();
         for (commit, row) in &rendered {
@@ -155,10 +156,25 @@ impl GitRepo {
             } else {
                 commit.summary.clone()
             };
-            println!(
-                "  {} {} {}{}",
-                row.commit_line, commit.short_id, refs_str, summary
-            );
+
+            if extra_pad > 0 {
+                // Expanded: commit row carries node + hash + badges; second
+                // row indents the message under the lanes.
+                println!(
+                    "  {} {} {}",
+                    row.commit_line, commit.short_id, refs_str.trim_end()
+                );
+                let pad_row = crate::graph::padding_row(&row.commit_line, style);
+                println!("  {} {}", pad_row, summary);
+                for _ in 1..extra_pad {
+                    println!("  {}", pad_row);
+                }
+            } else {
+                println!(
+                    "  {} {} {}{}",
+                    row.commit_line, commit.short_id, refs_str, summary
+                );
+            }
         }
         Ok(())
     }
