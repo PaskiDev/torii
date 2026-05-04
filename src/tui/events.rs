@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 use crate::error::Result;
-use super::app::{App, View, Panel, SyncStatus, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm, IssueConfirm};
+use super::app::{App, View, Panel, CommitFocus, WorkspaceFocus, WorkspaceConfirm, SnapshotFocus, BranchConfirm, TagConfirm, HistoryConfirm, RemoteConfirm, PrConfirm, IssueConfirm};
 
 
 #[allow(dead_code)]
@@ -425,37 +425,15 @@ fn handle_dashboard(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     None
 }
 
+/// Universal shortcuts available from any view. View-switching is intentionally
+/// NOT here — it lives in the sidebar (Tab to focus, j/k navigate, Enter open),
+/// freeing every letter for view-local keybindings (e.g. 'g' toggles graph in
+/// Log view without jumping to Config).
 fn handle_global_nav(key: event::KeyEvent, app: &mut App) -> Option<Action> {
     match (key.modifiers, key.code) {
         (_, KeyCode::Char('q')) |
         (KeyModifiers::CONTROL, KeyCode::Char('c')) => return Some(Action::Quit),
-
         (_, KeyCode::Char('?')) => app.go_to(View::Help),
-
-        (_, KeyCode::Char('f')) => app.go_to(View::Dashboard),
-
-        (_, KeyCode::Char('c')) => {
-            app.commit_view.message.clear();
-            app.commit_view.cursor = 0;
-            app.commit_view.focus = CommitFocus::List;
-            app.go_to(View::Commit);
-        }
-        (_, KeyCode::Char('s')) => {
-            app.sync_view.status = SyncStatus::Idle;
-            app.go_to(View::Sync);
-        }
-        (_, KeyCode::Char('p')) => app.go_to(View::Snapshot),
-        (_, KeyCode::Char('l')) => app.go_to(View::Log),
-        (_, KeyCode::Char('b')) => app.go_to(View::Branch),
-        (_, KeyCode::Char('t')) => app.go_to(View::Tag),
-        (_, KeyCode::Char('h')) => app.go_to(View::History),
-        (_, KeyCode::Char('r')) => app.go_to(View::Remote),
-        (_, KeyCode::Char('m')) => app.go_to(View::Mirror),
-        (_, KeyCode::Char('w')) => app.go_to(View::Workspace),
-        (_, KeyCode::Char('n')) => app.go_to(View::Pr),
-        (_, KeyCode::Char('i')) => app.go_to(View::Issue),
-        (_, KeyCode::Char('g')) => app.go_to(View::Config),
-        (_, KeyCode::Char('x')) => app.go_to(View::Settings),
         _ => return None,
     }
     None

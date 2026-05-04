@@ -31,12 +31,11 @@ pub fn render(f: &mut Frame, app: &crate::tui::app::App) {
 
     let sections: &[(&str, &[(&str, &str)])] = &[
         ("navigation", &[
-            ("f",          "files / dashboard"),
-            ("c",          "commit (save changes)"),
-            ("s",          "sync (pull / push)"),
-            ("p",          "snapshots"),
-            ("l",          "log history"),
-            ("b",          "branches"),
+            ("Tab",        "focus sidebar / cycle panels"),
+            ("j / ↓",      "next item in sidebar"),
+            ("k / ↑",      "previous item in sidebar"),
+            ("Enter",      "open selected view"),
+            ("Esc",        "back / cancel"),
             ("?",          "this help screen"),
             ("q / Ctrl+c", "quit"),
         ]),
