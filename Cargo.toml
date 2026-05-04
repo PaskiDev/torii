@@ -50,8 +50,11 @@ update-informer = { version = "1.2", default-features = false, features = ["crat
 russh = "0.60"
 tokio = { version = "1", features = ["rt", "io-util", "macros", "net", "sync"] }
 
-# Regex for custom secret patterns in .toriignore
+# Regex for custom secret patterns in .toriignore + commit-scan policies
 regex = "1.10"
+
+# Gate DSL — used to load `policies/*.gate` files (commit-scan, future)
+gate-lang = { path = "../gate" }
 
 [dev-dependencies]
 tempfile = "3.12"
