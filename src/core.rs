@@ -7,9 +7,17 @@ pub struct GitRepo {
 }
 
 impl GitRepo {
-    /// Initialize a new git repository
+    /// Initialize a new git repository.
+    ///
+    /// Sets the initial branch from `git.default_branch` in the global torii
+    /// config (default `main`) instead of libgit2's hard-coded `master`.
     pub fn init<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let repo = Repository::init(path)?;
+        let initial = crate::config::ToriiConfig::load_global()
+            .map(|c| c.git.default_branch)
+            .unwrap_or_else(|_| "main".to_string());
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head(&initial);
+        let repo = Repository::init_opts(path, &opts)?;
         Ok(Self { repo })
     }
 
