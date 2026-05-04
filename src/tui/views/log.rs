@@ -68,9 +68,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             let color = row
                 .map(|r| ratatui::style::Color::Indexed(crate::graph::lane_color(r.lane)))
                 .unwrap_or(C_CYAN);
+            // Explicitly cancel BOLD here — the parent ListItem style applies
+            // BOLD when selected, but many monospace fonts ship narrower
+            // bullseye/half-circle glyphs in bold (or fall back to a thinner
+            // proxy), making the selected commit glyph visibly shrink.
             spans.push(Span::styled(
                 format!("{:<width$} ", glyphs, width = graph_width),
-                Style::default().fg(color),
+                Style::default().fg(color).remove_modifier(Modifier::BOLD),
             ));
         }
         spans.push(Span::styled(format!("{} ", c.hash), Style::default().fg(C_YELLOW)));
