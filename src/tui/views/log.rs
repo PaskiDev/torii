@@ -28,9 +28,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.log.filtered.clone()
     };
 
-    let graph_on = app.log.graph_on && !app.log.graph_rows.is_empty();
-    // Reserve a column for graph prefix if active. Width = max line len in
-    // graph_rows so it stays aligned across the whole list.
+    // Graph prefixes are always rendered in the Log view (toggleable via
+    // Settings → graph style if the user wants to fall back to ascii).
+    let graph_on = !app.log.graph_rows.is_empty();
     let graph_width = if graph_on {
         app.log
             .graph_rows
@@ -87,13 +87,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let total = app.commits.len();
     let loaded_hint = if app.log.all_loaded { String::new() } else { "  ↓ more".to_string() };
-    let graph_tag = if graph_on { "  graph" } else { "" };
     let title = if app.log.search_mode {
         format!(" log — search: {}█ ", app.log.search_query)
     } else if !app.log.search_query.is_empty() {
-        format!(" log — \"{}\"  {} matches{} ", app.log.search_query, display_indices.len(), graph_tag)
+        format!(" log — \"{}\"  {} matches ", app.log.search_query, display_indices.len())
     } else {
-        format!(" log — {} ({} commits){}{} ", app.branch, total, loaded_hint, graph_tag)
+        format!(" log — {} ({} commits){} ", app.branch, total, loaded_hint)
     };
 
     let title_color = if app.log.search_mode { C_YELLOW } else if focused { C_WHITE } else { bc };

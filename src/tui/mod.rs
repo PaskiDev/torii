@@ -765,10 +765,8 @@ fn run_loop(
                                 GraphStyle::BubblesX => GraphStyle::Ascii,
                                 GraphStyle::Ascii    => GraphStyle::Curves,
                             };
-                            // Re-render currently shown graph if active.
-                            if app.log.graph_on {
-                                app.recompute_graph_rows();
-                            }
+                            // Always-on graph in Log view → re-render now.
+                            app.recompute_graph_rows();
                         }
                         4 => app.settings.show_history_view   = !app.settings.show_history_view,
                         5 => app.settings.show_remote_view    = !app.settings.show_remote_view,

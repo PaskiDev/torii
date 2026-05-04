@@ -123,10 +123,8 @@ pub struct LogState {
     pub last_files_idx: Option<usize>,
     pub ops_mode: bool,
     pub ops_idx: usize,
-    /// Render commit graph prefixes (`g` to toggle).
-    pub graph_on: bool,
-    /// Per-commit graph rows aligned with `App.commits`. Empty when graph_on
-    /// is false or before first computation.
+    /// Per-commit graph rows aligned with `App.commits`. Always populated in
+    /// the Log view to differentiate it visually from the History view.
     pub graph_rows: Vec<crate::graph::GraphRow>,
 }
 
@@ -144,7 +142,6 @@ impl Default for LogState {
             last_files_idx: None,
             ops_mode: false,
             ops_idx: 0,
-            graph_on: false,
             graph_rows: vec![],
         }
     }
@@ -1265,13 +1262,8 @@ impl App {
         }
         self.log.all_loaded = count <= self.log.page_size;
 
-        // Refresh graph rows whenever commits reload, but only if user wants
-        // them — otherwise it's wasted work.
-        if self.log.graph_on {
-            self.recompute_graph_rows();
-        } else {
-            self.log.graph_rows.clear();
-        }
+        // Graph is always-on in Log view — recompute every reload.
+        self.recompute_graph_rows();
 
         Ok(())
     }

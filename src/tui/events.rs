@@ -520,14 +520,6 @@ fn handle_log(key: event::KeyEvent, app: &mut App) -> Option<Action> {
             app.log.search_query.clear();
             app.log.filtered.clear();
         }
-        (_, KeyCode::Char('g')) => {
-            app.log.graph_on = !app.log.graph_on;
-            if app.log.graph_on {
-                app.recompute_graph_rows();
-            } else {
-                app.log.graph_rows.clear();
-            }
-        }
         _ => {}
     }
     None
