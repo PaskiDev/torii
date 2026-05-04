@@ -10,13 +10,16 @@ impl GitRepo {
         &self,
         count: Option<usize>,
         oneline: bool,
-        _graph: bool,
+        graph: bool,
         author: Option<&str>,
         since: Option<&str>,
         until: Option<&str>,
         grep: Option<&str>,
         stat: bool,
     ) -> Result<()> {
+        if graph {
+            return self.log_graph(count.unwrap_or(50), true);
+        }
         let mut revwalk = self.repository().revwalk()?;
         revwalk.push_head()?;
 
@@ -117,6 +120,35 @@ impl GitRepo {
             shown += 1;
         }
 
+        Ok(())
+    }
+
+    /// Render commit history as an ASCII graph (`torii log --graph`).
+    fn log_graph(&self, limit: usize, include_all: bool) -> Result<()> {
+        let rendered = crate::graph::render_repo(self.repository(), limit, include_all)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        println!("📜 Commit Graph:");
+        println!();
+        for (commit, row) in &rendered {
+            if !row.transition_line.is_empty() {
+                println!("  {}", row.transition_line);
+            }
+            let refs = if commit.refs.is_empty() {
+                String::new()
+            } else {
+                format!("({}) ", commit.refs.join(", "))
+            };
+            // Truncate summary to keep lines short.
+            let summary = if commit.summary.len() > 80 {
+                format!("{}…", &commit.summary[..77])
+            } else {
+                commit.summary.clone()
+            };
+            println!(
+                "  {} {} {}{}",
+                row.commit_line, commit.short_id, refs, summary
+            );
+        }
         Ok(())
     }
 

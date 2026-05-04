@@ -17,6 +17,7 @@ mod scanner;
 mod snapshot;
 mod ssh;
 mod tag;
+mod graph;
 mod toriignore;
 mod transport;
 mod updater;
