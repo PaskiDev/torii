@@ -14,35 +14,35 @@ use crate::scanner;
 use crate::issue::{get_issue_client, CreateIssueOptions};
 use crate::pr::detect_platform_from_remote;
 
-/// Template `policies/commits.gate` written by `torii init`. Conservative
+/// Template `policies/commits.toml` written by `torii init`. Conservative
 /// defaults so a fresh repo doesn't fail every save out of the box — users
 /// uncomment / extend rules they want enforced.
-const DEFAULT_COMMITS_POLICY: &str = r#"// torii commit policy — written by `torii init`.
-// Edit / extend; run `torii scan --commits` to evaluate.
-// Docs: https://gitorii.com/docs/policies/commits
+const DEFAULT_COMMITS_POLICY: &str = r#"# torii commit policy — written by `torii init`.
+# Edit / extend; run `torii scan --commits` to evaluate.
+# Docs: https://gitorii.com/docs/policies/commits
 
-policy commits {
-    // Block AI-tooling co-author trailers from leaking into history.
-    forbid trailer /Co-Authored-By:.*Claude/
-    forbid trailer /Co-Authored-By:.*Copilot/
-    forbid trailer /Co-Authored-By:.*GPT/
+# Block AI-tooling co-author trailers from leaking into history.
+forbid_trailers = [
+    "Co-Authored-By:.*Claude",
+    "Co-Authored-By:.*Copilot",
+    "Co-Authored-By:.*GPT",
+]
 
-    // Reject lazy / temp subjects.
-    forbid subject /^(wip|tmp|temp|misc|asdf|update|fix)$/
+# Reject lazy / temp subjects.
+forbid_subjects = ["^(wip|tmp|temp|misc|asdf|update|fix)$"]
 
-    // Subject sanity.
-    subject min_length 8
-    subject max_length 72
+# Subject sanity.
+subject_min_length = 8
+subject_max_length = 72
 
-    // Conventional Commits highly recommended; uncomment to enforce.
-    // conventional_commits required
+# Conventional Commits — uncomment to enforce.
+# require_conventional = true
 
-    // Pin commits to your domain (uncomment + adjust):
-    // author email matches /.*@example\.com$/
+# Pin commits to your domain (uncomment + adjust):
+# author_email_matches = ".*@example\\.com$"
 
-    // DCO sign-off (uncomment to require):
-    // require trailer /Signed-off-by:/
-}
+# DCO sign-off (uncomment to require):
+# require_trailers = ["Signed-off-by:"]
 "#;
 
 fn parse_account_type(s: &str) -> Result<AccountType> {
@@ -293,17 +293,17 @@ enum Commands {
     #[command(after_help = "Examples:
   torii scan                       Scan staged files for secrets
   torii scan --history             Scan entire git history for secrets
-  torii scan --commits             Scan commits against policies/commits.gate
+  torii scan --commits             Scan commits against policies/commits.toml
   torii scan --commits --limit 50  Limit how many commits to evaluate
-  torii scan --commits --policy-file path/to/commits.gate")]
+  torii scan --commits --policy-file path/to/commits.toml")]
     Scan {
         /// Scan the entire git history instead of only staged files
         #[arg(long)]
         history: bool,
-        /// Evaluate commits against a Gate policy (policies/commits.gate by default)
+        /// Evaluate commits against policies/commits.toml by default
         #[arg(long)]
         commits: bool,
-        /// Path to the policy file (default: <repo>/policies/commits.gate)
+        /// Path to the policy file (default: <repo>/policies/commits.toml)
         #[arg(long, value_name = "PATH")]
         policy_file: Option<PathBuf>,
         /// Max commits to scan when --commits is set (default: 200)
@@ -1231,10 +1231,10 @@ impl Cli {
                         .ok();
                 }
 
-                // Scaffold policies/commits.gate so `torii scan --commits` has
+                // Scaffold policies/commits.toml so `torii scan --commits` has
                 // something to read out of the box.
                 let policies_dir = std::path::Path::new(repo_path).join("policies");
-                let commits_policy = policies_dir.join("commits.gate");
+                let commits_policy = policies_dir.join("commits.toml");
                 if !commits_policy.exists() {
                     let _ = std::fs::create_dir_all(&policies_dir);
                     let _ = std::fs::write(&commits_policy, DEFAULT_COMMITS_POLICY);
@@ -1246,7 +1246,7 @@ impl Cli {
 
                 println!("✅ Initialized repository at {}", repo_path);
                 println!("   Created .toriignore with default patterns");
-                println!("   Created policies/commits.gate (run: torii scan --commits)");
+                println!("   Created policies/commits.toml (run: torii scan --commits)");
             }
 
             Commands::Save { message, all, files, amend, revert, reset, reset_mode, unstage, skip_hooks } => {
@@ -2444,7 +2444,7 @@ fn run_commit_scan(policy_path: Option<&std::path::Path>, limit: usize) -> Resul
     let repo = git2::Repository::discover(".").map_err(|e| anyhow::anyhow!("not a repo: {}", e))?;
     let workdir = repo
         .workdir()
-        .ok_or_else(|| anyhow::anyhow!("bare repos can't host policies/commits.gate"))?
+        .ok_or_else(|| anyhow::anyhow!("bare repos can't host policies/commits.toml"))?
         .to_path_buf();
     let path = match policy_path {
         Some(p) => p.to_path_buf(),

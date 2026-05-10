@@ -1,26 +1,51 @@
 //! Commit policy enforcement.
 //!
-//! Loads a `policies/commits.gate` file, parses it via the `gate` crate, and
-//! evaluates each commit in a range against the rules. Used by:
+//! Loads a `policies/commits.toml` file and evaluates each commit in a range
+//! against the rules. Used by:
 //!
 //!   - `torii scan commits [--all] [--since N]` (CLI)
 //!   - pre-save hook (planned)
 //!   - CI gates (future, server-side)
 //!
-//! The Gate DSL is parsed once into `PolicyDecl` rules; we then compile the
-//! regex patterns and run them per commit. Rule failures are returned as
-//! `Violation`s so callers can format / surface them however they want.
+//! Schema (all keys optional):
+//!
+//!   forbid_trailers     = ["regex", …]
+//!   require_trailers    = ["regex", …]
+//!   forbid_subjects     = ["regex", …]
+//!   author_email_matches = "regex"
+//!   subject_max_length  = 72
+//!   subject_min_length  = 8
+//!   require_conventional = true
+//!
+//! All regexes are case-insensitive by default.
 
 use std::path::{Path, PathBuf};
 
-use gate::gate::ast::{Item, PolicyDecl, PolicyKind, PolicyRule};
-use gate::gate::lexer::Lexer;
-use gate::gate::parser::Parser;
 use regex::Regex;
+use serde::Deserialize;
 
 use crate::error::{Result, ToriiError};
 
-/// Compiled, ready-to-run version of a `policy commits {}` block.
+/// Raw TOML shape — directly deserialised from `policies/commits.toml`.
+#[derive(Debug, Default, Deserialize)]
+struct RawPolicy {
+    #[serde(default)]
+    forbid_trailers: Vec<String>,
+    #[serde(default)]
+    require_trailers: Vec<String>,
+    #[serde(default)]
+    forbid_subjects: Vec<String>,
+    #[serde(default)]
+    author_email_matches: Option<String>,
+    #[serde(default)]
+    subject_max_length: Option<usize>,
+    #[serde(default)]
+    subject_min_length: Option<usize>,
+    #[serde(default)]
+    require_conventional: bool,
+}
+
+/// Compiled, ready-to-run policy.
 pub struct CompiledCommitPolicy {
     forbid_trailers: Vec<Regex>,
     require_trailers: Vec<Regex>,
@@ -45,45 +70,29 @@ pub struct Violation {
 }
 
 impl CompiledCommitPolicy {
-    pub fn from_decl(decl: &PolicyDecl) -> Result<Self> {
-        if decl.kind != PolicyKind::Commits {
-            return Err(ToriiError::InvalidConfig(
-                "expected `policy commits` block".into(),
-            ));
-        }
+    pub fn from_toml(src: &str) -> Result<Self> {
+        let raw: RawPolicy = toml::from_str(src)
+            .map_err(|e| ToriiError::InvalidConfig(format!("parse policy TOML: {}", e)))?;
         let mut p = CompiledCommitPolicy {
             forbid_trailers: Vec::new(),
             require_trailers: Vec::new(),
             forbid_subjects: Vec::new(),
             author_email_matches: None,
-            subject_max_length: None,
-            subject_min_length: None,
-            require_conventional: false,
+            subject_max_length: raw.subject_max_length,
+            subject_min_length: raw.subject_min_length,
+            require_conventional: raw.require_conventional,
         };
-        for rule in &decl.rules {
-            match rule {
-                PolicyRule::ForbidTrailer(pat) => {
-                    p.forbid_trailers.push(compile(pat)?);
-                }
-                PolicyRule::RequireTrailer(pat) => {
-                    p.require_trailers.push(compile(pat)?);
-                }
-                PolicyRule::ForbidSubject(pat) => {
-                    p.forbid_subjects.push(compile(pat)?);
-                }
-                PolicyRule::AuthorEmailMatches(pat) => {
-                    p.author_email_matches = Some(compile(pat)?);
-                }
-                PolicyRule::SubjectMaxLength(n) => {
-                    p.subject_max_length = Some(*n);
-                }
-                PolicyRule::SubjectMinLength(n) => {
-                    p.subject_min_length = Some(*n);
-                }
-                PolicyRule::ConventionalCommitsRequired => {
-                    p.require_conventional = true;
-                }
-            }
+        for pat in &raw.forbid_trailers {
+            p.forbid_trailers.push(compile(pat)?);
+        }
+        for pat in &raw.require_trailers {
+            p.require_trailers.push(compile(pat)?);
+        }
+        for pat in &raw.forbid_subjects {
+            p.forbid_subjects.push(compile(pat)?);
+        }
+        if let Some(pat) = &raw.author_email_matches {
+            p.author_email_matches = Some(compile(pat)?);
         }
         Ok(p)
     }
@@ -96,20 +105,7 @@ impl CompiledCommitPolicy {
         }
         let src = std::fs::read_to_string(path)
             .map_err(|e| ToriiError::InvalidConfig(format!("read {}: {}", path.display(), e)))?;
-        let tokens = Lexer::new(&src)
-            .tokenize()
-            .map_err(|e| ToriiError::InvalidConfig(format!("lex {}: {:?}", path.display(), e)))?;
-        let prog = Parser::new(tokens)
-            .parse()
-            .map_err(|e| ToriiError::InvalidConfig(format!("parse {}: {:?}", path.display(), e)))?;
-        let decl = prog.items.iter().find_map(|i| match i {
-            Item::Policy(d) if d.kind == PolicyKind::Commits => Some(d.clone()),
-            _ => None,
-        });
-        match decl {
-            Some(d) => Ok(Some(Self::from_decl(&d)?)),
-            None => Ok(None),
-        }
+        Ok(Some(Self::from_toml(&src)?))
     }
 
     /// Evaluate a commit. Returns 0+ violations.
@@ -138,7 +134,7 @@ impl CompiledCommitPolicy {
                 if re.is_match(line) {
                     push(
                         &mut out,
-                        "forbid trailer",
+                        "forbid_trailers",
                         format!("matches /{}/: `{}`", re.as_str(), line.trim()),
                     );
                     break; // one match per rule per commit is enough
@@ -151,7 +147,7 @@ impl CompiledCommitPolicy {
             if !found {
                 push(
                     &mut out,
-                    "require trailer",
+                    "require_trailers",
                     format!("no line matches /{}/", re.as_str()),
                 );
             }
@@ -161,7 +157,7 @@ impl CompiledCommitPolicy {
             if re.is_match(&subject) {
                 push(
                     &mut out,
-                    "forbid subject",
+                    "forbid_subjects",
                     format!("subject matches /{}/", re.as_str()),
                 );
             }
@@ -171,7 +167,7 @@ impl CompiledCommitPolicy {
             if !re.is_match(author_email) {
                 push(
                     &mut out,
-                    "author email",
+                    "author_email_matches",
                     format!("`{}` doesn't match /{}/", author_email, re.as_str()),
                 );
             }
@@ -182,7 +178,7 @@ impl CompiledCommitPolicy {
             if len > max {
                 push(
                     &mut out,
-                    "subject max_length",
+                    "subject_max_length",
                     format!("subject is {} chars (max {})", len, max),
                 );
             }
@@ -192,7 +188,7 @@ impl CompiledCommitPolicy {
             if len < min {
                 push(
                     &mut out,
-                    "subject min_length",
+                    "subject_min_length",
                     format!("subject is {} chars (min {})", len, min),
                 );
             }
@@ -201,8 +197,8 @@ impl CompiledCommitPolicy {
         if self.require_conventional && !is_conventional(&subject) {
             push(
                 &mut out,
-                "conventional_commits",
-                format!("subject doesn't match `<type>(scope?): description`"),
+                "require_conventional",
+                "subject doesn't match `<type>(scope?): description`".to_string(),
             );
         }
 
@@ -243,7 +239,7 @@ fn is_conventional(subject: &str) -> bool {
 
 /// Default location of the commit policy file inside a repo.
 pub fn default_policy_path(repo_root: &Path) -> PathBuf {
-    repo_root.join("policies").join("commits.gate")
+    repo_root.join("policies").join("commits.toml")
 }
 
 /// Convenience: scan a range of commits with a loaded policy.
@@ -272,42 +268,39 @@ mod tests {
     use super::*;
 
     fn pol(src: &str) -> CompiledCommitPolicy {
-        let tokens = Lexer::new(src).tokenize().unwrap();
-        let prog = Parser::new(tokens).parse().unwrap();
-        let Item::Policy(d) = &prog.items[0] else { panic!() };
-        CompiledCommitPolicy::from_decl(d).unwrap()
+        CompiledCommitPolicy::from_toml(src).unwrap()
     }
 
     #[test]
     fn forbid_trailer_catches_claude() {
-        let p = pol("policy commits { forbid trailer /Co-Authored-By:.*Claude/ }");
+        let p = pol(r#"forbid_trailers = ["Co-Authored-By:.*Claude"]"#);
         let v = p.check(
             "abc123",
             "x@y",
             "feat: stuff\n\nCo-Authored-By: Claude Sonnet <noreply@anthropic.com>",
         );
         assert_eq!(v.len(), 1);
-        assert_eq!(v[0].rule, "forbid trailer");
+        assert_eq!(v[0].rule, "forbid_trailers");
     }
 
     #[test]
     fn require_trailer_missing() {
-        let p = pol("policy commits { require trailer /Signed-off-by:/ }");
+        let p = pol(r#"require_trailers = ["Signed-off-by:"]"#);
         let v = p.check("abc", "x@y", "feat: stuff");
         assert_eq!(v.len(), 1);
-        assert_eq!(v[0].rule, "require trailer");
+        assert_eq!(v[0].rule, "require_trailers");
     }
 
     #[test]
     fn require_trailer_present_no_violation() {
-        let p = pol("policy commits { require trailer /Signed-off-by:/ }");
+        let p = pol(r#"require_trailers = ["Signed-off-by:"]"#);
         let v = p.check("abc", "x@y", "feat: stuff\n\nSigned-off-by: A B <a@b>");
         assert!(v.is_empty());
     }
 
     #[test]
     fn subject_length_limits() {
-        let p = pol("policy commits { subject max_length 10  subject min_length 5 }");
+        let p = pol("subject_max_length = 10\nsubject_min_length = 5");
         assert_eq!(p.check("a", "x@y", "ok done").len(), 0);
         assert_eq!(p.check("a", "x@y", "x").len(), 1); // too short
         assert_eq!(p.check("a", "x@y", "way too long subject here").len(), 1); // too long
@@ -315,21 +308,21 @@ mod tests {
 
     #[test]
     fn forbid_subject() {
-        let p = pol("policy commits { forbid subject /^(wip|tmp)$/ }");
+        let p = pol(r#"forbid_subjects = ["^(wip|tmp)$"]"#);
         assert_eq!(p.check("a", "x@y", "wip").len(), 1);
         assert_eq!(p.check("a", "x@y", "feat: real").len(), 0);
     }
 
     #[test]
     fn author_email_mismatch() {
-        let p = pol(r#"policy commits { author email matches /.*@paski\.dev$/ }"#);
+        let p = pol(r#"author_email_matches = ".*@paski\\.dev$""#);
         assert_eq!(p.check("a", "x@y.com", "feat: x").len(), 1);
         assert_eq!(p.check("a", "me@paski.dev", "feat: x").len(), 0);
     }
 
     #[test]
     fn conventional_commits() {
-        let p = pol("policy commits { conventional_commits required }");
+        let p = pol("require_conventional = true");
         assert_eq!(p.check("a", "x@y", "feat: ok").len(), 0);
         assert_eq!(p.check("a", "x@y", "feat(scope): ok").len(), 0);
         assert_eq!(p.check("a", "x@y", "fix!: breaking").len(), 0);
@@ -345,5 +338,17 @@ mod tests {
         assert!(is_conventional("chore(release)!: x"));
         assert!(!is_conventional("random"));
         assert!(!is_conventional("frob: x"));
+    }
+
+    #[test]
+    fn empty_policy_is_valid() {
+        let p = pol("");
+        assert!(p.check("a", "x@y", "anything").is_empty());
+    }
+
+    #[test]
+    fn comments_and_unknown_keys_ok() {
+        let p = pol("# comment\nrequire_conventional = true");
+        assert_eq!(p.check("a", "x@y", "wibble").len(), 1);
     }
 }

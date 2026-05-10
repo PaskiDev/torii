@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-09
+
+### Added
+- `torii auth login / status / whoami / logout` — manage gitorii.com API key for cloud features. Stored at `~/.config/torii/auth.toml` (chmod 600). Env override: `TORII_API_KEY`.
+- `torii scan --commits` — enforce commit policy from `policies/commits.toml` (forbid/require trailers, forbid subjects, author email regex, length limits, conventional commits). `torii init` scaffolds a default policy.
+- `torii history fsck` — recovery aid listing unreachable commits/blobs/trees after a destructive operation. `--show <oid>` prints content; `--restore <oid> --to <path>` writes a blob to disk.
+- `torii log --graph` + always-on graph in TUI Log view. Lane-based ASCII rendering with five styles (`ascii`, `curves`, `heavy`, `bubbles`, `bubbles-x`) selectable from Settings.
+- `torii remote create` accepts `owner/repo` to target an organization (GitHub/Gitea/Forgejo/Codeberg) or GitLab group/subgroup. Bare names keep current personal-namespace behaviour. `--namespace <OWNER>` flag is the explicit form.
+
+### Changed
+- `torii init` now writes default branch as `main` (config-driven via `git.default_branch`, no longer libgit2 default `master`).
+- `torii sync --push --force` surfaces server-side rejections (branch protection, pre-receive hook decline) instead of reporting silent success.
+- TUI sidebar drops view-switcher hotkeys (`g`, `l`, `b`, etc.) — they conflicted with in-view keys like `g` (graph). Navigation goes through the sidebar tabs.
+- Commit policy schema migrated from Gate DSL to plain TOML — drops `gate-lang` dependency, simpler syntax.
+
+### Fixed
+- `torii history rebase --todo-file` with `reword` now actually rewrites the message (was silently equivalent to `pick`).
+- `torii history rebase --continue / --abort / --skip` after a CLI-initiated `git rebase -i ... edit` pause (libgit2 `open_rebase` doesn't see CLI rebases; we now detect and shell out).
+- Selected commit glyph in TUI no longer shrinks under `Modifier::BOLD` (some fonts lack a Regular bold variant for `⦿` etc).
+- All compiler warnings (6 → 0) silenced with explicit `#[allow(dead_code)]` + comments.
+
 ## [0.6.0] - 2026-05-02
 
 ### Added

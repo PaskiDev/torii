@@ -1054,13 +1054,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gate-lang"
-version = "0.3.0"
-dependencies = [
- "clap",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1156,14 +1149,13 @@ dependencies = [
 
 [[package]]
 name = "gitorii"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
  "crossterm",
  "dirs",
- "gate-lang",
  "git2",
  "ratatui",
  "regex",
