@@ -25,7 +25,11 @@ pub struct RemoteRepo {
 /// Platform-specific API client trait
 pub trait PlatformClient {
     /// Create a new repository
-    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility) -> Result<RemoteRepo>;
+    /// Create a repository.
+    /// `namespace`: None → authenticated user's personal account.
+    /// Some(owner) → organization (GitHub/Gitea/Forgejo/Codeberg) or
+    /// group/subgroup path (GitLab).
+    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility, namespace: Option<&str>) -> Result<RemoteRepo>;
     
     /// Delete a repository
     fn delete_repo(&self, owner: &str, repo: &str) -> Result<()>;
@@ -111,7 +115,7 @@ impl GitHubClient {
 }
 
 impl PlatformClient for GitHubClient {
-    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility) -> Result<RemoteRepo> {
+    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility, namespace: Option<&str>) -> Result<RemoteRepo> {
         let private = matches!(visibility, Visibility::Private | Visibility::Internal);
 
         let mut body = serde_json::json!({
@@ -123,9 +127,16 @@ impl PlatformClient for GitHubClient {
             body["description"] = serde_json::Value::String(desc.to_string());
         }
 
+        // GitHub: org repos go through `/orgs/{org}/repos`. Personal repos
+        // through `/user/repos`. Same body shape; endpoint switches.
+        let url = match namespace {
+            Some(org) => format!("https://api.github.com/orgs/{}/repos", org),
+            None => "https://api.github.com/user/repos".to_string(),
+        };
+
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .post("https://api.github.com/user/repos")
+            .post(&url)
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/vnd.github.v3+json")
             .header("User-Agent", "torii-cli")
@@ -338,7 +349,7 @@ impl GitLabClient {
 }
 
 impl PlatformClient for GitLabClient {
-    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility) -> Result<RemoteRepo> {
+    fn create_repo(&self, name: &str, description: Option<&str>, visibility: Visibility, namespace: Option<&str>) -> Result<RemoteRepo> {
         let token = self.token.as_ref()
             .ok_or_else(|| ToriiError::InvalidConfig(
                 "GitLab token not found. Set GITLAB_TOKEN environment variable".to_string()
@@ -352,6 +363,7 @@ impl PlatformClient for GitLabClient {
 
         let mut body = serde_json::json!({
             "name": name,
+            "path": name,  // url slug = name (GitLab default)
             "visibility": visibility_str,
         });
 
@@ -359,7 +371,31 @@ impl PlatformClient for GitLabClient {
             body["description"] = serde_json::json!(desc);
         }
 
+        // GitLab: groups/subgroups need a numeric namespace_id. Resolve the
+        // path → id via the groups API. Personal projects omit it.
         let client = reqwest::blocking::Client::new();
+        if let Some(ns) = namespace {
+            let ns_encoded = crate::url::encode(ns);
+            let group_url = format!("{}/groups/{}", self.base_url, ns_encoded);
+            let group_resp = client
+                .get(&group_url)
+                .header("PRIVATE-TOKEN", token)
+                .send()
+                .map_err(|e| ToriiError::InvalidConfig(format!("GitLab group lookup failed: {}", e)))?;
+            if !group_resp.status().is_success() {
+                let err = group_resp.text().unwrap_or_default();
+                return Err(ToriiError::InvalidConfig(format!(
+                    "GitLab group `{}` not found or inaccessible: {}", ns, err
+                )));
+            }
+            let group: serde_json::Value = group_resp.json()
+                .map_err(|e| ToriiError::InvalidConfig(format!("GitLab group parse: {}", e)))?;
+            let ns_id = group["id"].as_i64().ok_or_else(|| ToriiError::InvalidConfig(
+                format!("GitLab group `{}` returned no id", ns)
+            ))?;
+            body["namespace_id"] = serde_json::json!(ns_id);
+        }
+
         let response = client
             .post(format!("{}/projects", self.base_url))
             .header("PRIVATE-TOKEN", token)
@@ -716,7 +752,7 @@ impl CodebergClient {
 
 // Placeholder implementations - will be completed with API calls
 impl PlatformClient for GiteaClient {
-    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility) -> Result<RemoteRepo> {
+    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility, _namespace: Option<&str>) -> Result<RemoteRepo> {
         Err(ToriiError::InvalidConfig("Gitea API not yet implemented".to_string()))
     }
     fn delete_repo(&self, _owner: &str, _repo: &str) -> Result<()> {
@@ -740,7 +776,7 @@ impl PlatformClient for GiteaClient {
 }
 
 impl PlatformClient for ForgejoClient {
-    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility) -> Result<RemoteRepo> {
+    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility, _namespace: Option<&str>) -> Result<RemoteRepo> {
         Err(ToriiError::InvalidConfig("Forgejo API not yet implemented".to_string()))
     }
     fn delete_repo(&self, _owner: &str, _repo: &str) -> Result<()> {
@@ -764,7 +800,7 @@ impl PlatformClient for ForgejoClient {
 }
 
 impl PlatformClient for CodebergClient {
-    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility) -> Result<RemoteRepo> {
+    fn create_repo(&self, _name: &str, _description: Option<&str>, _visibility: Visibility, _namespace: Option<&str>) -> Result<RemoteRepo> {
         Err(ToriiError::InvalidConfig("Codeberg API not yet implemented".to_string()))
     }
     fn delete_repo(&self, _owner: &str, _repo: &str) -> Result<()> {

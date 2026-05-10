@@ -848,14 +848,24 @@ enum ConfigCommands {
 enum RemoteCommands {
     /// Create a new remote repository on one or more platforms
     #[command(after_help = "Examples:
-  torii remote create github myrepo                      One platform
-  torii remote create github,gitlab,codeberg myrepo      Multiple platforms (comma-separated)
-  torii remote create github myrepo --private --push     Create + link origin + push")]
+  torii remote create github myrepo                       User repo (your account)
+  torii remote create github acme/widget                  Org repo: acme/widget
+  torii remote create gitlab syrakon/svitrio-turso        GitLab group repo
+  torii remote create gitlab engineering/web/api          GitLab subgroup repo
+  torii remote create github,gitlab acme/myrepo --push    Same owner on both
+  torii remote create github acme/myrepo --private --push
+
+`<NAME>` accepts either `repo` (creates in your personal namespace) or
+`owner/repo` (creates in the named org / group / subgroup). The
+`--namespace <owner>` flag is the equivalent if you prefer keeping
+NAME bare.")]
     Create {
         /// Platform (or comma-separated list): github, gitlab, codeberg, bitbucket, gitea, forgejo
         #[arg(value_delimiter = ',')]
         platforms: String,
-        /// Repository name
+        /// Repository name. Supports `repo` (personal) or `owner/repo`
+        /// (organization / GitLab group / subgroup path). Slashes select
+        /// the namespace.
         name: String,
         #[arg(short, long)]
         description: Option<String>,
@@ -865,6 +875,11 @@ enum RemoteCommands {
         private: bool,
         #[arg(long)]
         push: bool,
+        /// Override namespace explicitly. Equivalent to passing
+        /// `<namespace>/<name>` as NAME. Useful when the repo name itself
+        /// contains a slash you don't want parsed as a namespace.
+        #[arg(long, value_name = "OWNER")]
+        namespace: Option<String>,
     },
     /// Delete a remote repository on one or more platforms
     Delete {
@@ -1805,7 +1820,7 @@ impl Cli {
 
             Commands::Remote { action } => {
                 match action {
-                    RemoteCommands::Create { platforms, name, description, public, private: _, push } => {
+                    RemoteCommands::Create { platforms, name, description, public, private: _, push, namespace } => {
                         let platforms: Vec<String> = platforms.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
                         if platforms.is_empty() {
                             anyhow::bail!("At least one platform is required");
@@ -1813,11 +1828,25 @@ impl Cli {
                         let visibility = if *public { Visibility::Public } else { Visibility::Private };
                         let multi = platforms.len() > 1;
 
+                        // Resolve namespace + repo name. Precedence:
+                        //   --namespace <owner> wins (NAME stays bare).
+                        //   else, last `/` in NAME splits owner/repo (GitLab
+                        //   subgroups stay in the owner segment, e.g.
+                        //   `engineering/web/api` → owner=`engineering/web`,
+                        //   repo=`api`).
+                        let (resolved_ns, resolved_name): (Option<String>, String) = match namespace {
+                            Some(ns) => (Some(ns.clone()), name.clone()),
+                            None => match name.rsplit_once('/') {
+                                Some((owner, repo)) => (Some(owner.to_string()), repo.to_string()),
+                                None => (None, name.clone()),
+                            },
+                        };
+
                         let mut created: Vec<(String, crate::remote::RemoteRepo)> = Vec::new();
                         for platform in &platforms {
                             print!("🚀 {} - ", platform);
                             match get_platform_client(platform) {
-                                Ok(client) => match client.create_repo(name, description.as_deref(), visibility.clone()) {
+                                Ok(client) => match client.create_repo(&resolved_name, description.as_deref(), visibility.clone(), resolved_ns.as_deref()) {
                                     Ok(repo) => {
                                         println!("✅ Created");
                                         println!("   URL: {}", repo.url);
