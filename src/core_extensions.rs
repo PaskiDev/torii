@@ -666,9 +666,22 @@ impl GitRepo {
         }
 
         println!("🔄 Cloning {url} → {target}");
-        git2::build::RepoBuilder::new()
+        let cloned = git2::build::RepoBuilder::new()
             .fetch_options(fetch_opts)
             .clone(url, std::path::Path::new(&target))?;
+
+        // If the remote was empty (no advertised refs), libgit2 falls back
+        // to whatever `init.defaultBranch` is — historically "master" — even
+        // when the GitLab/GitHub project page declares "main" as the default.
+        // Override HEAD to the user-configured default (config: git.default_branch,
+        // default "main") so a follow-up `torii sync --pull` doesn't chase a
+        // ref that doesn't exist on the remote.
+        if cloned.is_empty().unwrap_or(false) {
+            let cfg = crate::config::ToriiConfig::load_global().unwrap_or_default();
+            let default = cfg.git.default_branch.trim();
+            let default = if default.is_empty() { "main" } else { default };
+            let _ = cloned.set_head(&format!("refs/heads/{}", default));
+        }
 
         Ok(())
     }
@@ -883,23 +896,55 @@ impl GitRepo {
 
         let local_hash = local_oid.to_string();
 
-        // Find remote tracking ref
+        // Query the live remote, not the local cached `refs/remotes/origin/*`
+        // (which is stale until the next fetch and was producing false
+        // "in sync" reports right after a silently-failed push).
         let branch = self.get_current_branch()?;
-        let remote_ref = format!("refs/remotes/origin/{}", branch);
-        let remote_hash = self.repo.find_reference(&remote_ref)
-            .ok()
-            .and_then(|r| r.target())
-            .map(|oid| oid.to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+        let mut remote = self.repo.find_remote("origin")
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+        let remote_url = remote.url().unwrap_or("").to_string();
+        let callbacks = crate::core::GitRepo::auth_callbacks_for(&remote_url);
+        remote.connect_auth(git2::Direction::Fetch, Some(callbacks), None)
+            .map_err(|e| crate::error::ToriiError::Git(e))?;
+
+        let remote_ref = format!("refs/heads/{}", branch);
+        let remote_hash_opt = remote
+            .list()
+            .map_err(|e| crate::error::ToriiError::Git(e))?
+            .iter()
+            .find(|h| h.name() == remote_ref)
+            .map(|h| h.oid().to_string());
+
+        let _ = remote.disconnect();
+
+        let remote_hash = remote_hash_opt
+            .clone()
+            .unwrap_or_else(|| "(no such ref on remote)".to_string());
 
         println!("Local HEAD:  {}", &local_hash[..7.min(local_hash.len())]);
-        println!("Remote HEAD: {}", &remote_hash[..7.min(remote_hash.len())]);
+        println!("Remote HEAD: {}",
+            if remote_hash_opt.is_some() {
+                remote_hash[..7.min(remote_hash.len())].to_string()
+            } else {
+                remote_hash.clone()
+            }
+        );
 
-        if local_hash == remote_hash {
-            println!("\n✅ Local and remote are in sync");
-        } else {
-            println!("\n⚠️  Local and remote have diverged");
-            println!("💡 Use 'torii sync --force' to push local changes");
+        match remote_hash_opt {
+            None => {
+                println!(
+                    "\n❌ Remote `origin` has no `{}` ref. Either the remote is empty \
+                     (push hasn't landed) or the branch lives under a different name.",
+                    branch
+                );
+            }
+            Some(rh) if rh == local_hash => {
+                println!("\n✅ Local and remote are in sync");
+            }
+            Some(_) => {
+                println!("\n⚠️  Local and remote have diverged");
+                println!("💡 Use 'torii sync --force' to push local changes");
+            }
         }
 
         Ok(())

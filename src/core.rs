@@ -286,14 +286,23 @@ impl GitRepo {
         let remote_url = remote.url().unwrap_or("").to_string();
         let mut callbacks = Self::auth_callbacks_for(&remote_url);
 
-        // Capture per-ref rejections. libgit2's `remote.push()` returns Ok even
-        // when the server rejects (e.g. non-fast-forward without --force, or
-        // permission denied). The push-update-reference callback fires once per
-        // refspec with an Option<&str> describing the rejection.
+        // Capture per-ref rejections AND track that the callback was actually
+        // fired. libgit2's `remote.push()` can return Ok in three failure
+        // modes our previous fix didn't cover:
+        //   1. Server-side rejection — caught by push_update_reference (msg)
+        //   2. Connection dropped mid-pack on huge pushes — push_update_reference
+        //      *never fires*, so we must also assert it was called at all
+        //   3. SSH transport silently no-ops on auth fail — same: callback skip
+        // We now treat "callback never fired" as failure too, since a real
+        // accepted push always invokes the callback exactly once per refspec.
         let rejections: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let acknowledged: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let rejections_cb = rejections.clone();
+        let acknowledged_cb = acknowledged.clone();
         callbacks.push_update_reference(move |refname, status| {
+            acknowledged_cb.lock().unwrap().push(refname.to_string());
             if let Some(msg) = status {
                 rejections_cb
                     .lock()
@@ -301,6 +310,15 @@ impl GitRepo {
                     .push((refname.to_string(), msg.to_string()));
             }
             Ok(())
+        });
+
+        // Surface server-side error messages (sideband). libgit2 hands them
+        // raw; print to stderr so users see "remote: …" even when the push
+        // itself returned Ok.
+        callbacks.sideband_progress(|line| {
+            use std::io::Write;
+            std::io::stderr().write_all(line).ok();
+            true
         });
 
         let mut push_options = git2::PushOptions::new();
@@ -321,6 +339,18 @@ impl GitRepo {
                 "push rejected by remote: {}",
                 detail
             ))));
+        }
+
+        // No callback at all = transport silently dropped the push. Caught
+        // in the wild pushing 3GB to GitLab over SSH where libgit2 returned
+        // Ok with zero refs ever acknowledged by the server.
+        let acks = acknowledged.lock().unwrap();
+        if acks.is_empty() {
+            return Err(ToriiError::Git(git2::Error::from_str(
+                "push completed without server acknowledging any refs — \
+                 transport may have failed silently. Check network / auth and retry. \
+                 (Common with very large pushes over SSH; try HTTPS with a token.)"
+            )));
         }
 
         // Push tags via git2 — enumerate local tags and push each one

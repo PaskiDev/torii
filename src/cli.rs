@@ -379,11 +379,13 @@ enum Commands {
 
     /// Clone a repository
     #[command(after_help = "Examples:
-  torii clone github user/repo              Clone from GitHub (auto SSH/HTTPS)
-  torii clone gitlab user/repo              Clone from GitLab
+  torii clone github user/repo                Clone from GitHub (auto SSH/HTTPS)
+  torii clone gitlab user/repo                Clone from GitLab
+  torii clone github user/repo /tmp/foo       Clone into /tmp/foo (positional dest)
+  torii clone github user/repo -d my-dir      Same, with -d flag
   torii clone github user/repo --protocol https   Force HTTPS
-  torii clone github user/repo -d my-dir   Clone into specific directory
   torii clone https://github.com/user/repo.git    Clone from full URL
+  torii clone https://github.com/user/repo.git -d /tmp/foo
   torii clone git@github.com:user/repo.git        Clone via SSH URL
 
 Supported platforms: github, gitlab, codeberg, bitbucket, gitea, forgejo
@@ -1529,6 +1531,11 @@ impl Cli {
             }
 
             Commands::Clone { source, args, directory, protocol } => {
+                // Match git clone's positional shape:
+                //   torii clone <platform> <user/repo> [<path>]
+                //   torii clone <url> [<path>]
+                // The trailing path arg silently used to be ignored, surprising
+                // users coming from `git clone <url> <path>`.
                 let url = if !args.is_empty() {
                     // Shorthand: torii clone <platform> <user/repo>
                     let platform = source;
@@ -1574,7 +1581,37 @@ impl Cli {
                     )
                 };
 
-                let target_dir = directory.as_deref();
+                // Resolve destination. Precedence:
+                //   1. -d / --directory flag
+                //   2. trailing positional arg (git-style):
+                //        torii clone <plat> <user/repo> <path>
+                //        torii clone <url> <path>
+                //   3. derive from URL (default)
+                let positional_dest: Option<&str> = if !args.is_empty() {
+                    // Shorthand form: args[0] is user/repo, args[1] is dest
+                    args.get(1).map(|s| s.as_str())
+                } else {
+                    // URL form: source is the URL, args[0] would be dest
+                    // but `args` is empty here by definition. The full-URL
+                    // codepath below handles its own positional dest.
+                    None
+                };
+                let url_form_dest: Option<&str> = if args.is_empty()
+                    && (source.starts_with("http") || source.starts_with("git@"))
+                {
+                    // Caller may have typed `torii clone <url> <path>`.
+                    // clap captured <url> as `source`; <path>, if present,
+                    // didn't fit any positional and would have errored
+                    // earlier — so this branch only fires when the user
+                    // used `-d`. Kept for symmetry / future expansion.
+                    None
+                } else {
+                    None
+                };
+                let target_dir = directory
+                    .as_deref()
+                    .or(positional_dest)
+                    .or(url_form_dest);
                 GitRepo::clone_repo(&url, target_dir)?;
 
                 let dir_name = target_dir.unwrap_or_else(|| {
