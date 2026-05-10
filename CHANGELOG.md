@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-05-10
+
+### Added
+- **Live clone progress.** `torii clone` now redraws every ~100ms with `📥 N% recv/total objects · indexed · MB` and passes server `remote: …` messages through verbatim. Previously cloning a multi-GB repo (servo, chromium) looked frozen for minutes. Set `TORII_CLONE_DEPTH=N` for a shallow fetch.
+- HTTPS transport gains `connect_timeout=10s` + request `timeout=300s` (override with `TORII_HTTP_TIMEOUT_SECS`). Hung servers no longer freeze torii indefinitely.
+
+### Fixed
+- **`torii sync` no longer aborts on a freshly created remote** with `corrupted loose reference file: FETCH_HEAD`. Empty / missing FETCH_HEAD now treated as "nothing to pull".
+- **`torii snapshot stash` actually saves working-tree changes** now. Previous impl copied `.git/` and reset `--hard`, silently dropping uncommitted edits because they aren't in `.git/objects` yet. Replaced with libgit2's native `Stash::save / pop`. `unstash` works against `stash@{0}` (default) or any index.
+- **`torii remote create gitlab <user>/<repo>`** falls back to GitLab's `/users?username=` lookup when `/groups/<user>` 404s, so personal-namespace creates work alongside group ones.
+- **`torii remote delete github`** now uses the GitHub REST API directly instead of shelling out to `gh` (which most users don't have installed). Surfaces clean errors on missing `delete_repo` scope (403) or unknown repo (404).
+- **HTTPS auth body trim** (`cloud::short_body`) sliced by bytes, panicking when a server error message contained multi-byte UTF-8 straddling byte 200. Now slices by chars.
+- **`torii scan` / `scan --history`** caps blob size at 5MB (override via `TORII_SCAN_MAX_BYTES`) so large generated assets don't OOM the scanner across long histories.
+
+### Security
+- **Hooks (`.toriignore [hooks]`) now require explicit one-time trust before executing.** Cloning a hostile repo could otherwise run arbitrary `sh -c …` on the very first `torii save`. On first encounter (or after the command list changes) torii prompts y/N with the commands printed verbatim; trust is persisted to `~/.config/torii/hook-trust.toml` keyed by repo path + command-list hash. Bypass with `TORII_TRUST_HOOKS=1` (CI), `TORII_NO_HOOKS=1` (skip), or `--skip-hooks`. Non-tty + untrusted refuses rather than silently running.
+
 ## [0.6.1] - 2026-05-09
 
 ### Added
